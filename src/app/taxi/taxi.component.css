@@ -1,0 +1,36 @@
+.row {
+    display: flex;
+    /* flex-wrap: wrap; */
+    align-items: center;
+  }
+  
+  .col {
+    flex: 1;
+    padding: 10px;
+    /* Add more styles as needed, like background color, border, etc. */
+  }
+
+  #code {
+    color: red;
+    font-size: 12vw;
+    max-height: 12vw;
+
+  }
+  #registration {
+    color: rgb(12, 10, 10);
+    text-align: center;
+
+  }
+  #driverPhoto > img {
+    max-width: 20vw;
+    width: 100%;
+    height: auto;
+    vertical-align: middle;
+  }
+
+  .driverName {
+    font-size: 5vw;
+  }
+  div {
+    padding: 5px;
+  }
