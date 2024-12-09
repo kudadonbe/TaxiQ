@@ -1,0 +1,144 @@
+{
+  "taxi": [
+    {
+      "id": "1",
+      "taxiNo": "001",
+      "taxiReg": "T5110",
+      "driver": {
+        "id": "1",
+        "name": "Ali Hussain",
+        "phone": "989X250",
+        "photo": "../../assets/drivers/A147829.jpeg"
+      },
+      "selected": false,
+      "aassigned": false,
+      "selectedTime": 0
+    },
+    {
+      "id": "2",
+      "taxiNo": "002",
+      "taxiReg": "T5111",
+      "driver": {
+        "id": "2",
+        "name": "Fathmath Naail",
+        "phone": "989X251",
+        "photo": "../../assets/drivers/A147830.jpeg"
+      },
+      "selected": false,
+      "assigned": false,
+      "selectedTime": 0
+    },
+    {
+      "id": "3",
+      "taxiNo": "003",
+      "taxiReg": "T5112",
+      "driver": {
+        "id": "3",
+        "name": "Ahmed Shifan",
+        "phone": "989X252",
+        "photo": "../../assets/drivers/A147831.jpeg"
+      },
+      "selected": false,
+      "assigned": false,
+      "selectedTime": 0
+    },
+    {
+      "id": "4",
+      "taxiNo": "004",
+      "taxiReg": "T5113",
+      "driver": {
+        "id": "4",
+        "name": "Aishath Shifa",
+        "phone": "989X253",
+        "photo": "../../assets/drivers/A147832.jpeg"
+      },
+      "selected": false,
+      "assigned": false,
+      "selectedTime": 0
+    },
+    {
+      "id": "5",
+      "taxiNo": "005",
+      "taxiReg": "T5114",
+      "driver": {
+        "id": "5",
+        "name": "Mohamed Shareef",
+        "phone": "989X254",
+        "photo": "../../assets/drivers/A147833.jpeg"
+      },
+      "selected": false,
+      "assigned": false,
+      "selectedTime": 0
+    },
+    {
+      "id": "6",
+      "taxiNo": "006",
+      "taxiReg": "T5115",
+      "driver": {
+        "id": "6",
+        "name": "Fathimath Shaana",
+        "phone": "989X255",
+        "photo": "../../assets/drivers/A147834.jpeg"
+      },
+      "selected": false,
+      "assigned": false,
+      "selectedTime": 0
+    },
+    {
+      "id": "7",
+      "taxiNo": "007",
+      "taxiReg": "T5116",
+      "driver": {
+        "id": "7",
+        "name": "Ibrahim Waheed",
+        "phone": "989X256",
+        "photo": "../../assets/drivers/A147835.jpeg"
+      },
+      "selected": false,
+      "assigned": false,
+      "selectedTime": 0
+    },
+    {
+      "id": "8",
+      "taxiNo": "008",
+      "taxiReg": "T5117",
+      "driver": {
+        "id": "8",
+        "name": "Aishath Naaila",
+        "phone": "989X257",
+        "photo": "../../assets/drivers/A147836.jpeg"
+      },
+      "selected": false,
+      "assigned": false,
+      "selectedTime": 0
+    },
+    {
+      "id": "9",
+      "taxiNo": "009",
+      "taxiReg": "T5118",
+      "driver": {
+        "id": "9",
+        "name": "Mohamed Ameen",
+        "phone": "989X258",
+        "photo": "../../assets/drivers/A147837.jpeg"
+      },
+      "selected": false,
+      "assigned": false,
+      "selectedTime": 0
+    },
+    {
+      "id": "10",
+      "taxiNo": "010",
+      "taxiReg": "T5119",
+      "driver": {
+        "id": "10",
+        "name": "Fathimath Nashwa",
+        "phone": "989X259",
+        "photo": "../../assets/drivers/A147838.jpeg"
+      },
+      "selected": false,
+      "assigned": false,
+      "selectedTime": 0
+    }
+  ]
+}

@@ -1,1 +1,22 @@
+.taxiInfo, .driverDetails, .taxiInQ{
+  display: flex;
+  align-items: center;
+}
 
+.vehicle, .driver, .driverContact{
+  padding: 5px;
+  margin-right: 5px;
+}
+
+.driver{
+  width: 60vw;
+}
+
+.taxiSelected{
+  background-color: #3bba6c;
+  margin-left: 50px;
+}
+.assign{
+  background-color: #587ec1;
+  
+}
