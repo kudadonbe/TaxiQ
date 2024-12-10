@@ -17,6 +17,8 @@ export class TaxiComponent {
     this.taxiService.getTaxi().subscribe((taxi) => (this.taxiQ = taxi));
   }
 
+ 
+
   setPhoto(name: string): string {
     // return `https://api.multiavatar.com/${name}.png`;
     return `https://ui-avatars.com/api/?name=${name}`;
@@ -72,6 +74,9 @@ export class TaxiComponent {
     this.taxiQ.push(taxi);
     
   //   console.log(taxi);
+
+    
+
   }
 
 

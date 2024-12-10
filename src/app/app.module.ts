@@ -9,13 +9,15 @@ import { HeroComponent } from './hero/hero.component';
 import { HomeComponent } from './home/home.component';
 import { TaxiComponent } from './taxi/taxi.component';
 import { NgbModule } from '@ng-bootstrap/ng-bootstrap';
+import { CarComponent } from './components/car/car.component';
 
 @NgModule({
   declarations: [
     AppComponent,
     HeroComponent,
     HomeComponent,
-    TaxiComponent
+    TaxiComponent,
+    CarComponent
   ],
   imports: [
     BrowserModule,

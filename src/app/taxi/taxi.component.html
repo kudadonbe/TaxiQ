@@ -1,8 +1,8 @@
 <div *ngFor="let taxi of taxiQ" class="taxiInfo" [ngClass]="{ taxiSelected: taxi.selected }">
     <div class="taxiInQ" (click)="onSelect(taxi)" (dblclick)="deselect(taxi)" (touchstart)="onTouch(taxi, $event)">
+        <div class="vNumber">{{taxi.taxiNo}}</div>
         <div class="vehicle">
-            <div class="vNumber">{{taxi.taxiNo}}</div>
-            <div class="vReg">{{taxi.taxiReg}}</div>
+            <app-car class="vReg" carReg="{{taxi.taxiReg}}"></app-car>
         </div>
         <div class="driver">
             <div class="driverDetails">
