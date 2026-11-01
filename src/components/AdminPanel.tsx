@@ -58,7 +58,7 @@ export function AdminPanel({ taxis, onRegister, onRemove }: Props) {
                 autoComplete="off"
                 aria-invalid={!!errors[key]}
                 aria-describedby={`${key}-hint`}
-                className={`mt-1 block w-full rounded-lg border px-3 py-2 ${
+                className={`mt-1 block w-full rounded-lg border px-3 py-2 text-base ${
                   errors[key] ? 'border-rose-500' : 'border-slate-300'
                 } focus:outline-2 focus:outline-emerald-500`}
               />
@@ -91,11 +91,16 @@ export function AdminPanel({ taxis, onRegister, onRemove }: Props) {
             .sort((a, b) => Number(a.taxiNo) - Number(b.taxiNo))
             .map((taxi) => (
               <li key={taxi.id} className="flex items-center gap-3 px-3 py-2">
-                <span className="w-12 text-center text-xl font-black tabular-nums">{taxi.taxiNo}</span>
-                <Plate reg={taxi.taxiReg} />
+                <span className="w-10 shrink-0 text-center text-xl font-black tabular-nums sm:w-12">{taxi.taxiNo}</span>
+                <span className="hidden shrink-0 sm:block">
+                  <Plate reg={taxi.taxiReg} />
+                </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-semibold">{driverName(taxi.driver)}</span>
-                  <span className="block text-sm text-slate-500 tabular-nums">{taxi.driver.phone}</span>
+                  <span className="block text-sm text-slate-500 tabular-nums">
+                    {taxi.driver.phone}
+                    <span className="ms-2 font-mono sm:hidden">{taxi.taxiReg}</span>
+                  </span>
                 </span>
                 <button
                   type="button"
@@ -106,7 +111,7 @@ export function AdminPanel({ taxis, onRegister, onRemove }: Props) {
                     } else setArmed(taxi.id)
                   }}
                   onBlur={() => armed === taxi.id && setArmed(null)}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                  className={`min-h-10 shrink-0 rounded-lg px-3 text-sm font-medium ${
                     armed === taxi.id ? 'bg-rose-600 text-white' : 'text-rose-700 hover:bg-rose-50'
                   }`}
                 >

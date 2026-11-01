@@ -49,17 +49,21 @@ export function QueueRow({ taxi, position, interested, picked, assigned, reassig
         disabled={assigned}
         aria-pressed={interested}
         aria-label={t.rowLabel(taxi.taxiNo, name, position, interested)}
-        className={`relative flex w-full items-center gap-3 rounded-xl border bg-white p-3 text-start shadow-sm transition-[translate,border-color,box-shadow] duration-300 ease-out focus-visible:outline-2 focus-visible:outline-emerald-500 ${
+        className={`relative flex min-h-14 w-full items-center gap-2 rounded-xl border bg-white p-2.5 sm:gap-3 sm:p-3 text-start shadow-sm transition-[translate,border-color,box-shadow] duration-300 ease-out focus-visible:outline-2 focus-visible:outline-emerald-500 ${
           interested ? '-translate-x-20' : 'translate-x-0'
         } ${assigned ? 'border-slate-900 ring-2 ring-slate-900/30' : picked ? 'border-emerald-500 ring-2 ring-emerald-500/40' : interested ? 'border-emerald-300' : 'border-slate-200'}`}
       >
-        <span className="w-6 text-center text-sm font-medium text-slate-400 tabular-nums">{position}</span>
-        <span className="w-12 text-center text-2xl font-black text-slate-900 tabular-nums">{taxi.taxiNo}</span>
-        <Plate reg={taxi.taxiReg} />
-        <Avatar name={taxi.driver.name} />
+        <span className="w-5 shrink-0 text-center text-xs font-medium text-slate-400 tabular-nums sm:w-6 sm:text-sm">{position}</span>
+        <span className="w-10 shrink-0 text-center text-xl font-black text-slate-900 tabular-nums sm:w-12 sm:text-2xl">{taxi.taxiNo}</span>
+        <span className="hidden shrink-0 sm:block">
+          <Plate reg={taxi.taxiReg} />
+        </span>
+        <span className="hidden shrink-0 md:block">
+          <Avatar name={taxi.driver.name} />
+        </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate font-semibold text-slate-900">{name}</span>
-          <span className="block text-sm text-slate-500 tabular-nums">{taxi.driver.phone}</span>
+          <span className="block text-xs text-slate-500 tabular-nums sm:text-sm">{taxi.driver.phone}</span>
         </span>
       </button>
     </li>
