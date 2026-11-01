@@ -41,6 +41,9 @@ export function useQueue() {
   const [history, setHistory] = useState<Dispatch[]>([])
   // Drivers who answered the current radio call (their rows are slid left).
   const [interested, setInterested] = useState<ReadonlySet<string>>(new Set())
+  // The taxi the current call was assigned to, while the call is still open. It stays open so
+  // the operator can reassign if that driver doesn't respond; Done closes it. Always history[0].
+  const [assignedId, setAssignedId] = useState<string | null>(null)
 
   useEffect(() => {
     try {
@@ -50,34 +53,63 @@ export function useQueue() {
     }
   }, [queue])
 
-  // The ride goes to the interested driver standing highest in the queue.
-  const pick = queue.find((t) => interested.has(t.id))
+  // Suggested driver: the answered driver standing highest in the queue (excluding the one
+  // already assigned on this call).
+  const pick = queue.find((t) => interested.has(t.id) && t.id !== assignedId)
+  const assigned = assignedId ? queue.find((t) => t.id === assignedId) : undefined
 
   const toggle = (id: string) => {
+    if (id === assignedId) return
     const next = new Set(interested)
     if (!next.delete(id)) next.add(id)
     setInterested(next)
   }
 
-  const clear = () => setInterested(new Set())
-
-  // Assigning sends the picked taxi to the back; everyone else slides back into line.
-  const assign = () => {
-    if (!pick) return
-    const from = queue.indexOf(pick)
-    setQueue([...queue.filter((t) => t.id !== pick.id), pick])
-    setHistory([{ taxi: pick, at: Date.now(), from, interested: [...interested] }, ...history].slice(0, 20))
+  // Close the call: everyone slides back into line.
+  const done = () => {
     setInterested(new Set())
+    setAssignedId(null)
+  }
+
+  // Put a dispatched taxi back where it stood before. Only valid for history[0], because the
+  // queue hasn't changed since then.
+  const restore = (q: Taxi[], d: Dispatch) => {
+    const next = q.filter((t) => t.id !== d.taxi.id)
+    next.splice(d.from, 0, d.taxi)
+    return next
+  }
+
+  // Assign the ride to one of the answered drivers (usually `pick`, but the operator may choose
+  // any). That taxi goes to the back. If the call was already assigned, this is a reassign: the
+  // driver who didn't respond goes back to their old place and is no longer marked as answered.
+  const assign = (id: string) => {
+    if (id === assignedId || !interested.has(id)) return
+    let q = queue
+    let hist = history
+    const answered = new Set(interested)
+    const prev = assignedId ? history[0] : undefined
+    if (prev) {
+      q = restore(q, prev)
+      hist = history.slice(1)
+      answered.delete(prev.taxi.id)
+    }
+    const from = q.findIndex((t) => t.id === id)
+    if (from < 0) return
+    const taxi = q[from]!
+    setQueue([...q.filter((t) => t.id !== id), taxi])
+    setHistory([{ taxi, at: Date.now(), from, interested: [...answered] }, ...hist].slice(0, 20))
+    setInterested(answered)
+    setAssignedId(id)
   }
 
   // Undo the most recent assignment: taxi back to its old place, interested drivers slid out again.
   const undo = () => {
     const [last, ...rest] = history
     if (!last) return
-    const next = queue.filter((t) => t.id !== last.taxi.id)
-    next.splice(last.from, 0, last.taxi)
+    const next = restore(queue, last)
     setQueue(next)
     setInterested(new Set(last.interested.filter((id) => next.some((t) => t.id === id))))
+    setAssignedId(null)
     setHistory(rest)
   }
 
@@ -91,6 +123,7 @@ export function useQueue() {
   const remove = (id: string) => {
     setQueue(queue.filter((t) => t.id !== id))
     setHistory([])
+    setAssignedId(null)
     const next = new Set(interested)
     next.delete(id)
     setInterested(next)
@@ -100,7 +133,8 @@ export function useQueue() {
     setQueue(initialTaxis)
     setHistory([])
     setInterested(new Set())
+    setAssignedId(null)
   }
 
-  return { queue, history, interested, pick, toggle, clear, assign, undo, register, remove, reset }
+  return { queue, history, interested, pick, assigned, toggle, done, assign, undo, register, remove, reset }
 }

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-TaxiQ v2 is a visual model of the physical taxi queue at a call center. The operator calls a ride on the radio, and drivers who want it answer with their center number (`taxiNo`, e.g. 34). The operator taps each one who answers, which slides their row left. **Assign** gives the ride to the slid-left driver *highest in the queue*, not to the first who answered or to whoever is at the front. That driver moves to the back, and every other row slides back into line. The app is bilingual (English/Dhivehi) and has an Admin view for registering and removing taxis.
+TaxiQ v2 is a visual model of the physical taxi queue at a call center. The operator calls a ride on the radio, and drivers who want it answer with their center number (`taxiNo`, e.g. 34). The operator taps each one who answers, which slides their row left and uncovers an Assign button in the gap. The slid-left driver *highest in the queue* is highlighted as the suggestion, but any of them can be assigned. The assigned taxi moves to the back, and the call stays open. If the driver doesn't respond, the operator reassigns to another slid-left driver, and the first driver goes back to their old place. **Done** closes the call. The app is bilingual (English/Dhivehi) and has an Admin view for registering and removing taxis.
 
 The `v2` branch is a rewrite in React 19 + TypeScript + Vite + Tailwind CSS v4. The `main` branch still holds the Angular 15 v1, so don't diff against `main` expecting related code.
 
@@ -28,9 +28,11 @@ There is no test runner set up yet. `pnpm build` is the type-check gate, since `
 - All queue state lives in the `useQueue` hook (`src/useQueue.ts`):
   - `queue` is every registered taxi, in rank order.
   - `interested` is the set of drivers who answered the current call.
-  - `pick` is derived: the first taxi in `queue` that is in `interested`.
+  - `assignedId` is the taxi holding the open call's assignment, if any. It is always `history[0]`.
+  - `pick` is derived: the first taxi in `queue` that is in `interested` and isn't `assignedId`.
   - `history` is the undo stack, capped at 20 and in memory only.
-  - The actions are `toggle`, `clear`, `assign`, `undo`, `register`, `remove` and `reset`.
+  - The actions are `toggle`, `done`, `assign`, `undo`, `register`, `remove` and `reset`.
+  - `assign` while a call is open is a reassign: it restores `history[0]`'s taxi to its old index, unmarks that driver, and replaces the history entry.
 - **Undo** reverses the latest assignment exactly. Each `Dispatch` stores the taxi's old index (`from`) and the interested set, and undo puts both back. `remove` clears `history`, because removing a taxi shifts everyone's index.
 - **Persistence:** full taxi records are saved in `localStorage` under the key `taxiq.queue.v3`. On load, each record goes back through `parseStoredTaxi`, and anything invalid or duplicated is dropped. Bump the key if the stored shape changes. The language choice is saved under `taxiq.lang`.
 - **Validation:** `src/validate.ts` is the single set of allow-list rules. Both the admin form and the stored-data loader use it, and center numbers and registrations must be unique. Change the rules there, not in the components.

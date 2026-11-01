@@ -5,7 +5,7 @@ import { useI18n } from './i18n'
 import { useQueue } from './useQueue'
 
 export default function App() {
-  const { queue, history, interested, pick, toggle, clear, assign, undo, register, remove, reset } = useQueue()
+  const { queue, history, interested, pick, assigned, toggle, done, assign, undo, register, remove, reset } = useQueue()
   const [view, setView] = useState<'queue' | 'admin'>('queue')
   const { lang, t, toggleLang, driverName, time } = useI18n()
 
@@ -13,8 +13,11 @@ export default function App() {
     <div className="min-h-dvh bg-slate-100 text-slate-900">
       <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
-          <h1 className="text-xl font-black tracking-tight">
-            Taxi<span className="text-emerald-600">Q</span>
+          <h1 className="flex items-center gap-2 text-xl font-black tracking-tight" dir="ltr">
+            <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="size-9" />
+            <span>
+              Taxi<span className="text-emerald-600">Q</span>
+            </span>
           </h1>
           <div className="flex items-center gap-2 text-sm">
             <span className="rounded-full bg-slate-100 px-3 py-1 font-medium tabular-nums">{t.inQueue(queue.length)}</span>
@@ -47,20 +50,31 @@ export default function App() {
 
         {view === 'queue' && (
           <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 pb-3">
-            {pick ? (
+            {assigned ? (
               <>
+                <p className="flex-1 rounded-xl bg-slate-900 px-4 py-3 text-sm text-white">
+                  <span className="font-bold">
+                    {t.assignedTo} <span className="tabular-nums">{assigned.taxiNo}</span> · {driverName(assigned.driver)}
+                  </span>
+                  <span className="block text-slate-300">{t.reassignHint}</span>
+                </p>
                 <button
                   type="button"
-                  onClick={assign}
-                  className="flex-1 rounded-xl bg-emerald-500 px-4 py-3 text-start font-bold text-slate-950 transition hover:bg-emerald-400 active:scale-[0.99] focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+                  onClick={done}
+                  className="rounded-lg bg-emerald-500 px-4 py-3 text-sm font-bold text-slate-950 hover:bg-emerald-400"
                 >
-                  {t.assignTo} <span className="tabular-nums">{pick.taxiNo}</span>
-                  <span className="font-medium"> · {driverName(pick.driver)}</span>
-                  <span className="block text-sm font-medium text-emerald-950/70">
-                    {t.answeredCount(interested.size)}
-                  </span>
+                  {t.done}
                 </button>
-                <button type="button" onClick={clear} className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">
+              </>
+            ) : pick ? (
+              <>
+                <p className="flex-1 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                  <span className="font-bold">{t.answeredCount(interested.size)}</span>
+                  <span className="block">
+                    {t.nextInLine} <span className="font-bold tabular-nums">{pick.taxiNo}</span> · {driverName(pick.driver)}
+                  </span>
+                </p>
+                <button type="button" onClick={done} className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">
                   {t.clear}
                 </button>
               </>
@@ -90,7 +104,10 @@ export default function App() {
                   position={i + 1}
                   interested={interested.has(taxi.id)}
                   picked={pick?.id === taxi.id}
+                assigned={assigned?.id === taxi.id}
+                reassign={!!assigned}
                   onToggle={() => toggle(taxi.id)}
+                onAssign={() => assign(taxi.id)}
                 />
               ))}
             </ol>
