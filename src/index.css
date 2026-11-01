@@ -1,24 +1,44 @@
 @import "tailwindcss";
 
+/* Thaana fonts, self-hosted (copied from kudadonbe.v3). unicode-range limits them to Thaana
+   and Arabic punctuation, so Latin text keeps the system font and these files only download
+   when Dhivehi is on screen. */
+@font-face {
+  font-family: "MV Bodu";
+  src: url("./fonts/mv-bodu.otf") format("opentype");
+  font-display: swap;
+  unicode-range: U+0780-07BF, U+060C, U+061B, U+061F, U+FDF2;
+}
+@font-face {
+  font-family: "Dhanbumaa";
+  src: url("./fonts/Dhanbumaa-Regular.otf") format("opentype");
+  font-weight: 400 500;
+  font-display: swap;
+  unicode-range: U+0780-07BF, U+060C, U+061B, U+061F, U+FDF2;
+}
+@font-face {
+  font-family: "Dhanbumaa";
+  src: url("./fonts/Dhanbumaa-Bold.otf") format("opentype");
+  font-weight: 600 900;
+  font-display: swap;
+  unicode-range: U+0780-07BF, U+060C, U+061B, U+061F, U+FDF2;
+}
+
 @theme {
-  --font-sans: "Inter", "Noto Sans Thaana", ui-sans-serif, system-ui, sans-serif;
-  /* Preferred Maldivian fonts are used when installed on the device (they aren't bundled: no
-     clear redistribution licence). Latin text still renders in Inter; Thaana falls back to the
-     self-hosted Noto Sans Thaana. */
-  --font-thaana: "Inter", "MV Dhanbuba", "Funa Radheefu", "Faruma", "Noto Sans Thaana", ui-sans-serif, sans-serif;
-  --font-thaana-display: "Inter", "MV Bodu", "Mv Bodu", "Noto Sans Thaana", ui-sans-serif, sans-serif;
+  /* Body: Dhanbumaa for Thaana, Noto Sans Thaana as fallback, system UI font for Latin. */
+  --font-sans: "Dhanbumaa", "Noto Sans Thaana", ui-sans-serif, system-ui, sans-serif;
+  /* Headings: MV Bodu for Thaana. */
+  --font-heading: "MV Bodu", "Dhanbumaa", "Noto Sans Thaana", ui-sans-serif, system-ui, sans-serif;
 }
 
 html {
   -webkit-tap-highlight-color: transparent;
 }
 
-:lang(dv) {
-  font-family: var(--font-thaana);
-}
-
-:lang(dv) :is(h1, h2, .font-bold, .font-black) {
-  font-family: var(--font-thaana-display);
+h1,
+h2,
+h3 {
+  font-family: var(--font-heading);
 }
 
 /* Thaana: no letter-spacing (it breaks the script's joining). */
