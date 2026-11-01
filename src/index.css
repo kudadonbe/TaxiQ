@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "Noto Sans Thaana", ui-sans-serif, system-ui, sans-serif;
+  /* Preferred Maldivian fonts are used when installed on the device (they aren't bundled: no
+     clear redistribution licence). Latin text still renders in Inter; Thaana falls back to the
+     self-hosted Noto Sans Thaana. */
+  --font-thaana: "Inter", "MV Dhanbuba", "Funa Radheefu", "Faruma", "Noto Sans Thaana", ui-sans-serif, sans-serif;
+  --font-thaana-display: "Inter", "MV Bodu", "Mv Bodu", "Noto Sans Thaana", ui-sans-serif, sans-serif;
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:lang(dv) {
+  font-family: var(--font-thaana);
+}
+
+:lang(dv) :is(h1, h2, .font-bold, .font-black) {
+  font-family: var(--font-thaana-display);
+}
+
+/* Thaana: no letter-spacing (it breaks the script's joining). */
+:lang(dv) .tracking-widest,
+:lang(dv) .tracking-tight {
+  letter-spacing: 0;
+}

@@ -1,27 +1,26 @@
-# TaxiQ
+# TaxiQ v2
 
-This project was generated with [Angular CLI](https://github.com/angular/angular-cli) version 15.0.1.
+A visual model of the physical taxi queue at a call center, in English and Dhivehi.
 
-## Development server
+1. The operator calls a ride on the radio.
+2. Drivers who want it answer with their center number; the operator taps each one and their row slides left.
+3. **Assign** gives the ride to the answering driver highest in the queue, who moves to the back. Everyone else slides back into line.
+4. **Undo** restores the driver's exact place and the drivers who had answered.
 
-Run `ng serve` for a dev server. Navigate to `http://localhost:4200/`. The application will automatically reload if you change any of the source files.
+The **Admin** view registers new taxis (they join the back of the queue) and removes unsubscribed ones.
 
-## Code scaffolding
+v2 is a rewrite of the Angular 15 v1 (`main` branch) in React + TypeScript + Vite + Tailwind CSS.
 
-Run `ng generate component component-name` to generate a new component. You can also use `ng generate directive|pipe|service|class|guard|interface|enum|module`.
+## Develop
 
-## Build
+```sh
+pnpm install
+pnpm dev      # http://localhost:5173
+pnpm build    # type-check + production build to docs/ (published by GitHub Pages)
+pnpm lint
+```
 
-Run `ng build` to build the project. The build artifacts will be stored in the `dist/` directory.
+Taxis, queue order and language are kept in the browser's localStorage. There is no backend yet, so the
+admin panel has no login and changes stay on that one device.
 
-## Running unit tests
-
-Run `ng test` to execute the unit tests via [Karma](https://karma-runner.github.io).
-
-## Running end-to-end tests
-
-Run `ng e2e` to execute the end-to-end tests via a platform of your choice. To use this command, you need to first add a package that implements end-to-end testing capabilities.
-
-## Further help
-
-To get more help on the Angular CLI use `ng help` or go check out the [Angular CLI Overview and Command Reference](https://angular.io/cli) page.
+Live at https://kudadonbe.github.io/TaxiQ/. GitHub Pages serves the committed `docs/` folder on `v2`, so run `pnpm build` and commit `docs/` to publish changes.
