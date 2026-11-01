@@ -28,7 +28,12 @@ const strings = {
     rowLabel: (no: string, name: string, pos: number, answered: boolean) =>
       `Taxi ${no}, ${name}, position ${pos}${answered ? ', answered' : ''}`,
     admin: 'Admin',
-    backToQueue: 'Back to queue',
+    nav: 'Sections',
+    map: 'Map',
+    mapIdle: 'Waiting',
+    mapAnswered: 'Answered call',
+    mapAssigned: 'Assigned',
+    mapPlaceholder: 'Demo: taxi positions are simulated. Live GPS will come from the driver app.',
     registerTitle: 'Register a taxi',
     fields: {
       taxiNo: 'Center number',
@@ -79,7 +84,12 @@ const strings = {
     rowLabel: (no: string, name: string, pos: number, answered: boolean) =>
       `ޓެކްސީ ${no}، ${name}، ކިއުގެ ${pos} ވަނަ${answered ? '، ޖަވާބުދިން' : ''}`,
     admin: 'އެޑްމިން',
-    backToQueue: 'ކިއުއަށް',
+    nav: 'ބައިތައް',
+    map: 'މެޕް',
+    mapIdle: 'މަޑުކުރަނީ',
+    mapAnswered: 'ޖަވާބުދިން',
+    mapAssigned: 'ހަވާލުކުރީ',
+    mapPlaceholder: 'ޑެމޯ: ޓެކްސީތަކުގެ ތަން ދައްކަނީ ސިމިއުލޭޓްކޮށް. ޑްރައިވަރ އެޕުން ލައިވް ޖީޕީއެސް ލިބޭނެ.',
     registerTitle: 'ޓެކްސީއެއް ރަޖިސްޓަރީކުރޭ',
     fields: {
       taxiNo: 'ސެންޓަރ ނަންބަރު',

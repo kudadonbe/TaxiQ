@@ -1,12 +1,17 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { AdminPanel } from './components/AdminPanel'
 import { QueueRow } from './components/QueueRow'
 import { useI18n } from './i18n'
 import { useQueue } from './useQueue'
 
+// Leaflet is only loaded when the map is opened.
+const MapView = lazy(() => import('./components/MapView'))
+
+type View = 'queue' | 'map' | 'admin'
+
 export default function App() {
   const { queue, history, interested, pick, assigned, toggle, done, assign, undo, register, remove, reset } = useQueue()
-  const [view, setView] = useState<'queue' | 'admin'>('queue')
+  const [view, setView] = useState<View>('queue')
   const { lang, t, toggleLang, driverName, time } = useI18n()
 
   return (
@@ -31,14 +36,6 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => setView(view === 'queue' ? 'admin' : 'queue')}
-              aria-pressed={view === 'admin'}
-              className="rounded-lg px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-100"
-            >
-              {view === 'queue' ? t.admin : t.backToQueue}
-            </button>
-            <button
-              type="button"
               onClick={toggleLang}
               lang={lang === 'en' ? 'dv' : 'en'}
               className="rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-100"
@@ -47,6 +44,22 @@ export default function App() {
             </button>
           </div>
         </div>
+
+        <nav className="mx-auto flex max-w-5xl gap-1 px-4 pb-2 text-sm" aria-label={t.nav}>
+          {(['queue', 'map', 'admin'] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setView(v)}
+              aria-current={view === v ? 'page' : undefined}
+              className={`rounded-lg px-3 py-1.5 font-semibold ${
+                view === v ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              {{ queue: t.queue, map: t.map, admin: t.admin }[v]}
+            </button>
+          ))}
+        </nav>
 
         {view === 'queue' && (
           <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 pb-3">
@@ -90,6 +103,12 @@ export default function App() {
       {view === 'admin' ? (
         <main className="mx-auto max-w-5xl px-4 py-6">
           <AdminPanel taxis={queue} onRegister={register} onRemove={remove} />
+        </main>
+      ) : view === 'map' ? (
+        <main className="isolate mx-auto max-w-5xl px-4 py-6">
+          <Suspense fallback={<p className="text-sm text-slate-500">…</p>}>
+            <MapView taxis={queue} interested={interested} assignedId={assigned?.id} />
+          </Suspense>
         </main>
       ) : (
         <main className="mx-auto grid max-w-5xl gap-6 px-4 py-6 lg:grid-cols-[1fr_18rem]">

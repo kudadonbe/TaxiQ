@@ -8,6 +8,8 @@ A visual model of the physical taxi queue at a call center, in English and Dhive
 4. If the driver doesn't respond, **Reassign** another answering driver: the first one goes back to their old place. **Done** closes the call and everyone slides back into line.
 5. **Undo** restores the driver's exact place and the drivers who had answered.
 
+The **Map** view shows taxis on a live OpenStreetMap of Malé, coloured by queue status. Positions are **simulated** for now; live GPS will come from a driver app (see `src/positions.ts`).
+
 The **Admin** view registers new taxis (they join the back of the queue) and removes unsubscribed ones.
 
 v2 is a rewrite of the Angular 15 v1 (`main` branch) in React + TypeScript + Vite + Tailwind CSS.
