@@ -21,6 +21,33 @@ export interface Dispatch {
   exact: boolean
 }
 
+// Everything the screens need from the queue, in both modes: the local demo (this file) and the live
+// Firestore queue for signed-in staff (useLiveQueue.ts).
+export interface QueueApi {
+  mode: 'demo' | 'live'
+  loaded: boolean
+  error: string | null
+  queue: Taxi[]
+  history: Dispatch[]
+  interested: ReadonlySet<string>
+  pick: Taxi | undefined
+  call: CallInfo
+  setCall: (c: CallInfo) => void
+  callInProgress: boolean
+  canUndo: boolean
+  toggle: (id: string) => void
+  clear: () => void
+  assign: (id: string) => void
+  undo: () => void
+  reopen: (dispatchId: string) => void
+  suspend: (id: string, reason: SuspendReason, note: string) => void
+  lift: (id: string) => void
+  register: (input: TaxiInput) => void
+  remove: (id: string) => void
+  reset: (() => void) | null // demo only
+  seedDemo: (() => void) | null // live only, empty database
+}
+
 function load(): Taxi[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -42,7 +69,8 @@ function load(): Taxi[] {
   }
 }
 
-export function useQueue() {
+// Demo mode: the queue lives in this browser only.
+export function useLocalQueue(): QueueApi {
   const [queue, setQueue] = useState<Taxi[]>(load)
   const [history, setHistory] = useState<Dispatch[]>([])
   // Drivers who answered the current radio call (their rows are slid left).
@@ -169,6 +197,10 @@ export function useQueue() {
   }
 
   return {
+    mode: 'demo',
+    loaded: true,
+    error: null,
+    seedDemo: null,
     queue,
     history,
     interested,
@@ -190,11 +222,12 @@ export function useQueue() {
   }
 }
 
-// Move a taxi to an index (clamped), keeping everyone else's order.
-function placeAt(queue: Taxi[], id: string, index: number): Taxi[] {
-  const taxi = queue.find((t) => t.id === id)
-  if (!taxi) return queue
-  const next = queue.filter((t) => t.id !== id)
-  next.splice(Math.min(index, next.length), 0, taxi)
+// Move an item to an index (clamped), keeping everyone else's order.
+export function placeAt<T extends string | { id: string }>(list: T[], id: string, index: number): T[] {
+  const key = (x: T) => (typeof x === 'string' ? x : x.id)
+  const item = list.find((x) => key(x) === id)
+  if (item === undefined) return list
+  const next = list.filter((x) => key(x) !== id)
+  next.splice(Math.min(index, next.length), 0, item)
   return next
 }

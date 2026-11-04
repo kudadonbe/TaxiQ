@@ -4,12 +4,15 @@ import '@fontsource/noto-sans-thaana/thaana-400.css'
 import '@fontsource/noto-sans-thaana/thaana-700.css'
 import './index.css'
 import App from './App.tsx'
+import { AuthProvider } from './auth.tsx'
 import { I18nProvider } from './i18n.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <I18nProvider>
-      <App />
+      <AuthProvider>
+        <App />
+      </AuthProvider>
     </I18nProvider>
   </StrictMode>,
 )

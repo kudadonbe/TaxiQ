@@ -41,11 +41,13 @@ Needs a Firebase project from you, so this can't be done without it.
 - [x] Firebase project `kd-taxiq` created; hosting live at https://kd-taxiq.web.app with security headers (`pnpm deploy`).
 - [x] Firestore created in `asia-southeast1` (Singapore), Native mode, delete protection on, rules deny-all.
 - [ ] Decide whether to keep the GitHub Pages copy or retire it once Firebase is the main site.
-- [ ] Use Firestore for taxis, the queue order, suspensions and the dispatch log, replacing localStorage. Real-time sync means every operator screen shows the same queue.
-- [ ] Firestore security rules: only signed-in operators and admins can read or write, and admin-only actions (register, remove, suspend) are enforced in the rules.
+- [x] Live mode: taxis, the queue state and dispatches in Firestore with real-time sync and transactions (demo mode kept for signed-out visitors).
+- [x] Role-based Firestore rules (`roles/{email}`: admin or operator), with admin-only taxi and staff management.
+- [x] Google sign-in (Firebase Auth), an MDS exception to eFaas (see SECURITY.md).
+- [ ] Write a Firestore rules test suite (emulator) for the role checks.
 - [ ] Driver app writes GPS positions to Firestore, and `src/positions.ts` subscribes to them.
 - **MDS checks before real data goes in** (see `SECURITY.md`):
-  - [ ] **Authentication:** eFaas (OIDC) sign-in → Firebase Auth custom token.
+  - [ ] **Authentication:** replace Google sign-in with eFaas (OIDC → Firebase Auth custom token); get written approval for the interim exception.
   - [ ] **Data residency:** Singapore chosen (2026-11-04); get approver/MDS sign-off before real data.
   - [ ] **Dependencies:** check the Firebase SDK is on the MDS-whitelisted dependency list.
   - [ ] Lock the Firebase API key to the app's domains.

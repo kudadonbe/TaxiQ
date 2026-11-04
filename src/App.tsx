@@ -1,10 +1,13 @@
 import { lazy, Suspense, useState } from 'react'
+import { useAuth } from './auth'
 import { AdminPanel } from './components/AdminPanel'
 import { CallPanel } from './components/CallPanel'
 import { DispatchLog } from './components/DispatchLog'
 import { QueueRow } from './components/QueueRow'
+import { StaffPanel } from './components/StaffPanel'
 import { useI18n } from './i18n'
-import { useQueue } from './useQueue'
+import { useLiveQueue } from './useLiveQueue'
+import { useLocalQueue } from './useQueue'
 import { validateCall } from './validate'
 
 // Leaflet is only loaded when the map is opened.
@@ -13,12 +16,19 @@ const MapView = lazy(() => import('./components/MapView'))
 type View = 'queue' | 'map' | 'admin'
 
 export default function App() {
-  const q = useQueue()
+  const auth = useAuth()
+  // Signed-in staff use the shared live queue in Firestore; everyone else gets the local demo.
+  const live = auth.status === 'signedIn' && !!auth.role
+  const local = useLocalQueue()
+  const remote = useLiveQueue(auth.fb, live, auth.email)
+  const q = live ? remote : local
+  const canAdmin = !live || auth.role === 'admin'
   const { queue, history, interested, pick, call, setCall, callInProgress, canUndo, toggle, clear, undo } = q
   const callValid = Object.keys(validateCall(call)).length === 0
   // Invalid passenger details block assigning, so bad input is never attached to a dispatch.
   const assign = (id: string) => callValid && q.assign(id)
-  const [view, setView] = useState<View>('queue')
+  const [viewState, setView] = useState<View>('queue')
+  const view = viewState === 'admin' && !canAdmin ? 'queue' : viewState
   const { lang, t, toggleLang, driverName } = useI18n()
 
   return (
@@ -49,11 +59,30 @@ export default function App() {
             >
               {t.switchTo}
             </button>
+            {auth.status === 'signedIn' ? (
+              <button
+                type="button"
+                onClick={auth.signOut}
+                title={auth.email ?? ''}
+                className="min-h-10 rounded-lg px-2 font-medium text-slate-700 hover:bg-slate-100"
+              >
+                {t.signOut}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={auth.signIn}
+                disabled={auth.status === 'loading'}
+                className="min-h-10 rounded-lg bg-slate-900 px-3 font-semibold text-white hover:bg-slate-700 disabled:opacity-40"
+              >
+                {t.signIn}
+              </button>
+            )}
           </div>
         </div>
 
         <nav className="mx-auto grid max-w-5xl grid-cols-3 gap-1 px-4 pb-2 text-sm sm:flex" aria-label={t.nav}>
-          {(['queue', 'map', 'admin'] as const).map((v) => (
+          {(['queue', 'map', 'admin'] as const).filter((v) => v !== 'admin' || canAdmin).map((v) => (
             <button
               key={v}
               type="button"
@@ -68,6 +97,26 @@ export default function App() {
             </button>
           ))}
         </nav>
+
+        {/* Mode and account status. */}
+        <div className="mx-auto max-w-5xl px-4 pb-2 text-xs">
+          {live ? (
+            <p className="flex items-center gap-2 text-emerald-800">
+              <span className="rounded bg-emerald-600 px-1.5 py-0.5 font-bold text-white">{t.liveBadge}</span>
+              <bdi dir="ltr" className="truncate">
+                {auth.email}
+              </bdi>
+              <span className="text-slate-500">· {t.roles[auth.role!]}</span>
+            </p>
+          ) : (
+            <p className="flex items-center gap-2 text-slate-500">
+              <span className="rounded bg-slate-200 px-1.5 py-0.5 font-bold text-slate-700">{t.demoBadge}</span>
+              <span>{auth.status === 'signedIn' && auth.email ? t.noAccess(auth.email) : t.demoNote}</span>
+            </p>
+          )}
+          {auth.error && <p className="mt-1 font-semibold text-rose-700">{t.signInError(auth.error)}</p>}
+          {q.error && <p className="mt-1 font-semibold text-rose-700">{t.saveError(q.error)}</p>}
+        </div>
 
         {view === 'queue' && (
           <div className="mx-auto flex max-w-5xl items-center gap-2 px-4 pb-3 sm:gap-3">
@@ -106,7 +155,10 @@ export default function App() {
 
       {view === 'admin' ? (
         <main className="mx-auto max-w-5xl px-4 py-4 sm:py-6">
-          <AdminPanel taxis={queue} onRegister={q.register} onRemove={q.remove} onSuspend={q.suspend} onLift={q.lift} />
+          <div className="space-y-6">
+            {live && auth.role === 'admin' && <StaffPanel />}
+            <AdminPanel taxis={queue} onRegister={q.register} onRemove={q.remove} onSuspend={q.suspend} onLift={q.lift} />
+          </div>
         </main>
       ) : view === 'map' ? (
         <main className="isolate mx-auto max-w-5xl px-2 py-2 sm:px-4 sm:py-6">
@@ -119,6 +171,17 @@ export default function App() {
           <section className="space-y-3">
             <CallPanel call={call} onChange={setCall} />
             <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">{t.queue}</h2>
+            {live && !q.loaded && <p className="text-sm text-slate-500">{t.loading}</p>}
+            {live && q.loaded && !queue.length && (
+              <div className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+                <p>{t.liveEmpty}</p>
+                {q.seedDemo && auth.role === 'admin' && (
+                  <button type="button" onClick={q.seedDemo} className="mt-2 min-h-10 rounded-lg bg-emerald-500 px-4 font-bold text-slate-950 hover:bg-emerald-400">
+                    {t.seedDemo}
+                  </button>
+                )}
+              </div>
+            )}
             {/* Left gutter is the room a row slides into when its driver answers. */}
             <ol className="space-y-2 pl-20">
               {queue.map((taxi, i) => (
@@ -138,9 +201,11 @@ export default function App() {
           <aside className="space-y-3">
             <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">{t.recent}</h2>
             <DispatchLog history={history} queue={queue} callInProgress={callInProgress} onReopen={q.reopen} />
-            <button type="button" onClick={q.reset} className="text-sm text-slate-500 underline hover:text-slate-700">
-              {t.reset}
-            </button>
+            {q.reset && (
+              <button type="button" onClick={q.reset} className="text-sm text-slate-500 underline hover:text-slate-700">
+                {t.reset}
+              </button>
+            )}
           </aside>
         </main>
       )}

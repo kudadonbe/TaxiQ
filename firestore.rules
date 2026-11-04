@@ -2,18 +2,79 @@ rules_version = '2';
 
 // TaxiQ Firestore security rules.
 //
-// LOCKED: no client can read or write anything yet. Sign-in (eFaas -> Firebase Auth custom token)
-// does not exist, and without it any rule that allowed access would make the database public.
-// Per MDS-STD-SSD-001, authorisation must be enforced here on the server, never only in the UI.
+// Sign-in is Google accounts via Firebase Auth (an MDS exception: the standard requires eFaas; see
+// SECURITY.md). A Google account alone grants nothing: access needs a staff entry in roles/{email},
+// written by an admin. Authorisation is enforced here, never only in the UI.
 //
-// Planned shape once eFaas sign-in is in place (roles carried as custom claims set by the backend):
-//   taxis/{taxiId}          read: operator | admin   write: admin (register, remove, suspend)
-//   queue/state             read: operator | admin   write: operator | admin (order, interested)
-//   dispatches/{id}         read: operator | admin   create/update: operator | admin; no delete
-//   positions/{taxiId}      read: operator | admin   write: the driver whose uid matches taxiId
-//   audit/{id}              create: backend only     read: admin
+//   roles/{email}        read: your own entry, or admin      write: admin
+//   taxis/{taxiId}       read: staff                         write: admin (register, remove, suspend)
+//   queue/state          read: staff                         write: staff (order + answered drivers)
+//   dispatches/{id}      read: staff                         create/update: staff; never deleted
+//   anything else        denied
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function email() {
+      return request.auth.token.email.lower();
+    }
+    function roleDoc() {
+      return /databases/$(database)/documents/roles/$(email());
+    }
+    function role() {
+      return signedIn() && exists(roleDoc()) ? get(roleDoc()).data.role : '';
+    }
+    function isAdmin() {
+      return role() == 'admin';
+    }
+    function isStaff() {
+      return role() in ['admin', 'operator'];
+    }
+    function str(v, max) {
+      return v is string && v.size() <= max;
+    }
+
+    match /roles/{userEmail} {
+      allow read: if signedIn() && (userEmail == email() || isAdmin());
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['role', 'addedBy', 'addedAt'])
+        && request.resource.data.role in ['admin', 'operator']
+        && userEmail == userEmail.lower();
+      // An admin can't remove their own entry (avoids locking everyone out).
+      allow delete: if isAdmin() && userEmail != email();
+    }
+
+    match /taxis/{taxiId} {
+      allow read: if isStaff();
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['taxiNo', 'taxiReg', 'driver', 'suspended'])
+        && str(request.resource.data.taxiNo, 4)
+        && str(request.resource.data.taxiReg, 7)
+        && request.resource.data.driver is map
+        && str(request.resource.data.driver.name, 60)
+        && str(request.resource.data.driver.nameDv, 60)
+        && str(request.resource.data.driver.phone, 7);
+      allow delete: if isAdmin();
+    }
+
+    match /queue/state {
+      allow read: if isStaff();
+      allow create, update: if isStaff()
+        && request.resource.data.keys().hasOnly(['order', 'interested', 'updatedAt', 'updatedBy'])
+        && request.resource.data.order is list && request.resource.data.order.size() <= 500
+        && request.resource.data.interested is list && request.resource.data.interested.size() <= 500;
+    }
+
+    match /dispatches/{dispatchId} {
+      allow read: if isStaff();
+      allow create, update: if isStaff()
+        && request.resource.data.keys().hasOnly(['taxi', 'at', 'from', 'interested', 'call', 'reopened', 'undone', 'by'])
+        && request.resource.data.at is int
+        && request.resource.data.from is int;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

@@ -27,10 +27,10 @@ beyond Gate 1 applies yet. Treat it as a prototype for the design phase.
 
 | Area | State |
 |------|-------|
-| Hosting | Firebase Hosting (project `kd-taxiq`, https://kd-taxiq.web.app), with security headers set in `firebase.json`: CSP (self only, plus OSM tiles), HSTS, nosniff, strict referrer policy and `frame-ancestors 'none'`. Also mirrored on GitHub Pages (no custom headers). Static, HTTPS, no backend yet. |
-| Database | Firestore `(default)` in **asia-southeast1 (Singapore)**, Native mode, delete protection on. Rules are **deny-all** (`firestore.rules`); tested: unauthenticated read and write return 403. Data residency outside the Maldives was chosen by the product owner on 2026-11-04 and still needs MDS/approver sign-off before real data goes in. |
-| Auth | **None.** The admin panel and dispatch screens are open to anyone who has the link. This is acceptable only because there is no real data and no server. The production system must use **eFaas**, with authorisation enforced on the server (e.g. Firestore security rules), never only in the UI. |
-| Data at rest | Taxi records, suspensions and the queue order are in the viewer's own `localStorage`. Passenger details and the dispatch log are **memory only**: they are cleared on reload and never written to storage. |
+| Hosting | Firebase Hosting (project `kd-taxiq`, https://kd-taxiq.web.app), with security headers set in `firebase.json`: CSP (self, OSM tiles, and only the Google sign-in and Firestore endpoints), HSTS, nosniff, strict referrer policy and `frame-ancestors 'none'`. The browser API key is restricted to TaxiQ's domains. Also mirrored on GitHub Pages (no custom headers). Static, HTTPS, no backend yet. |
+| Database | Firestore `(default)` in **asia-southeast1 (Singapore)**, Native mode, delete protection on. Role-based rules in `firestore.rules`: the email must be verified, the role comes from `roles/{email}`, field shapes are checked, dispatches can't be deleted, and anything not listed is denied. Before the role rules, deny-all was verified (unauthenticated read and write returned 403). Data residency outside the Maldives was chosen by the product owner on 2026-11-04 and still needs MDS/approver sign-off before real data goes in. |
+| Auth | **Google sign-in (Firebase Auth)**, an **exception** to the eFaas requirement (see Exceptions). A Google account alone grants nothing: access needs an entry in Firestore `roles/{email}` (admin or operator), checked by the security rules on every read and write. Operators run the queue and dispatches; only admins register, remove or suspend taxis and manage staff. Signed-out visitors get the local demo only. |
+| Data at rest | **Live mode (staff):** taxis, the queue state and the dispatch log, including passenger details, are in Firestore (Singapore), encrypted at rest by Google. **Demo mode:** taxis and the queue order are in the browser's `localStorage`; passenger details and the log stay in memory. |
 | Input validation | Allow-list rules in `src/validate.ts` for taxi records, suspension notes and call details. The same rules re-validate anything read back from `localStorage`. |
 | Output encoding | React escapes all text. Map markers and tooltips are built with `textContent`. The only `innerHTML` is static SVG with no user data. |
 | Third parties | OpenStreetMap tiles (each viewer's IP address goes to OSM). Place-name data from the Kulhudhuffushi City Council map (via mapkf, used with permission). Fonts are self-hosted. The "Share pickup" link opens mapkf.vercel.app with the pickup coordinates in the URL, but only when the operator chooses to share it. |
@@ -47,7 +47,8 @@ beyond Gate 1 applies yet. Treat it as a prototype for the design phase.
 
 ## Blockers before real data or production
 
-- [ ] eFaas sign-in, with roles (operator, admin, driver) enforced server-side.
+- [x] Roles (admin, operator) enforced server-side in Firestore rules.
+- [ ] eFaas sign-in to replace Google sign-in (exception 1).
 - [x] Firebase project `kd-taxiq` and Firestore (Singapore) created, rules locked.
 - [ ] Approval for storing data in Singapore (no Maldives region).
 - [ ] Firebase SDK on the MDS-whitelisted dependency list, or an exception requested.
@@ -57,4 +58,8 @@ beyond Gate 1 applies yet. Treat it as a prototype for the design phase.
 
 SBOM: not generated yet. Direct dependencies are in `package.json` (react, react-dom, leaflet,
 @fontsource/noto-sans-thaana; build-time: vite, tailwindcss, typescript, oxlint), with versions locked in `pnpm-lock.yaml`.
-Exceptions: none.
+Exceptions:
+
+| # | Criterion | Exception | Compensating controls | Approval | Remediation |
+|---|-----------|-----------|-----------------------|----------|-------------|
+| 1 | 4.1.5 / 4.2: authentication via eFaas | Google sign-in (Firebase Auth) instead of eFaas, decided by the product owner on 2026-11-04 | Staff allow-list (`roles/{email}`) enforced in Firestore rules; verified email required; least-privilege roles; API key restricted to TaxiQ domains | **Pending:** written approval from the gate approver and MDS is required (SWM 3.2) | Move to eFaas (OIDC → Firebase custom token) before real data. Target ≤ 90 days. |
