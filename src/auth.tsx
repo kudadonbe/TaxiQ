@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 // staff entry in Firestore roles/{email} (admin or operator). Without one the app stays in demo mode.
 // (MDS exception: the standard requires eFaas; see SECURITY.md.)
 
-export type Role = 'admin' | 'operator' | 'driver'
+export type Role = 'admin' | 'operator' | 'driver' | 'dev'
 
 type Fb = typeof import('./firebase')
 
@@ -68,8 +68,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       (snap) => {
         const r = snap.exists() ? snap.data().role : null
         const t = snap.exists() ? snap.data().taxiId : null
-        setRole(r === 'admin' || r === 'operator' || r === 'driver' ? r : null)
-        setTaxiId(r === 'driver' && typeof t === 'string' ? t : null)
+        setRole(r === 'admin' || r === 'operator' || r === 'driver' || r === 'dev' ? r : null)
+        setTaxiId((r === 'driver' || r === 'dev') && typeof t === 'string' ? t : null)
       },
       () => {
         setRole(null)

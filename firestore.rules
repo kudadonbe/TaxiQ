@@ -7,6 +7,8 @@ rules_version = '2';
 //   admin     everything below, plus taxis and staff
 //   operator  the queue, dispatches and passenger requests
 //   driver    linked to one taxi (taxiId): sees offers for that taxi, accepts or declines them
+//   dev       full access for development/testing: everything an admin can do, and can act as the
+//             driver of any taxi (sets its own taxiId)
 // Any other signed-in Google account is a passenger: it can request rides, nothing else.
 // Signed-out visitors can only read publicTaxis (the map).
 //
@@ -30,16 +32,16 @@ service cloud.firestore {
       return signedIn() && exists(roleDoc()) ? get(roleDoc()).data.role : '';
     }
     function isAdmin() {
-      return role() == 'admin';
+      return role() in ['admin', 'dev'];
     }
     function isStaff() {
-      return role() in ['admin', 'operator'];
+      return role() in ['admin', 'operator', 'dev'];
     }
     function isDriver() {
-      return role() == 'driver';
+      return role() in ['driver', 'dev'] && myTaxi() != '';
     }
     function myTaxi() {
-      return isDriver() ? get(roleDoc()).data.taxiId : '';
+      return role() in ['driver', 'dev'] ? get(roleDoc()).data.get('taxiId', '') : '';
     }
     function str(v, max) {
       return v is string && v.size() <= max;
@@ -52,7 +54,7 @@ service cloud.firestore {
       allow read: if signedIn() && (userEmail == email() || isAdmin());
       allow create, update: if isAdmin()
         && request.resource.data.keys().hasOnly(['role', 'taxiId', 'addedBy', 'addedAt'])
-        && request.resource.data.role in ['admin', 'operator', 'driver']
+        && request.resource.data.role in ['admin', 'operator', 'driver', 'dev']
         && (request.resource.data.role != 'driver' || str(request.resource.data.taxiId, 40))
         && userEmail == userEmail.lower();
       // An admin can't remove their own entry (avoids locking everyone out).

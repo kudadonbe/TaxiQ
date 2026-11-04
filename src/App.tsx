@@ -27,8 +27,9 @@ const DEMO_HOST = location.hostname.endsWith('github.io')
 //   staff    admin / operator: queue, map, admin (admins only)
 //   driver   their offers and the map
 //   public   signed out, or signed in without a role: the map and Hire a taxi
-type Mode = 'demo' | 'staff' | 'driver' | 'public'
-type View = 'queue' | 'map' | 'admin' | 'driver'
+//   dev      full access, for testing: every screen, incl. driver (any taxi) and hire
+type Mode = 'demo' | 'staff' | 'driver' | 'public' | 'dev'
+type View = 'queue' | 'map' | 'admin' | 'driver' | 'hire'
 
 const EMPTY = new Set<string>()
 
@@ -37,30 +38,42 @@ export default function App() {
   const signedIn = auth.status === 'signedIn'
   const mode: Mode = DEMO_HOST
     ? 'demo'
-    : signedIn && (auth.role === 'admin' || auth.role === 'operator')
+    : signedIn && auth.role === 'dev'
+      ? 'dev'
+      : signedIn && (auth.role === 'admin' || auth.role === 'operator')
       ? 'staff'
       : signedIn && auth.role === 'driver'
         ? 'driver'
         : 'public'
 
   const local = useLocalQueue()
-  const remote = useLiveQueue(auth.fb, mode === 'staff', auth.email, auth.role === 'admin')
-  const q = mode === 'staff' ? remote : local
-  const publicTaxis = usePublicTaxis(auth.fb, mode === 'public' || mode === 'driver')
+  const live = mode === 'staff' || mode === 'dev'
+  const remote = useLiveQueue(auth.fb, live, auth.email, auth.role === 'admin' || auth.role === 'dev')
+  const q = live ? remote : local
+  const publicTaxis = usePublicTaxis(auth.fb, mode === 'public' || mode === 'driver' || mode === 'dev')
   const mapTaxis = useMemo(() => publicTaxis.map(asMapTaxi), [publicTaxis])
   const [chosen, setChosen] = useState<string | null>(null)
 
-  const canAdmin = mode === 'demo' || auth.role === 'admin'
+  const canAdmin = mode === 'demo' || auth.role === 'admin' || auth.role === 'dev'
   const { queue, history, interested, pick, call, setCall, callInProgress, canUndo, toggle, clear, undo } = q
   const callValid = Object.keys(validateCall(call)).length === 0
   // Invalid passenger details block assigning, so bad input is never attached to a dispatch.
   const assign = (id: string) => callValid && q.assign(id)
 
-  const tabs: View[] = mode === 'driver' ? ['driver', 'map'] : mode === 'public' ? [] : canAdmin ? ['queue', 'map', 'admin'] : ['queue', 'map']
+  const tabs: View[] =
+    mode === 'dev'
+      ? ['queue', 'map', 'admin', 'driver', 'hire']
+      : mode === 'driver'
+        ? ['driver', 'map']
+        : mode === 'public'
+          ? []
+          : canAdmin
+            ? ['queue', 'map', 'admin']
+            : ['queue', 'map']
   const [viewState, setView] = useState<View>('queue')
   const view: View = tabs.includes(viewState) ? viewState : (tabs[0] ?? 'map')
   const { lang, t, toggleLang, driverName } = useI18n()
-  const operatorScreens = mode === 'demo' || mode === 'staff'
+  const operatorScreens = mode === 'demo' || mode === 'staff' || mode === 'dev'
 
   return (
     <div className="min-h-dvh bg-slate-100 text-slate-900">
@@ -113,7 +126,7 @@ export default function App() {
         </div>
 
         {tabs.length > 0 && (
-          <nav className={`mx-auto grid max-w-5xl gap-1 px-4 pb-2 text-sm sm:flex ${tabs.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`} aria-label={t.nav}>
+          <nav className={`mx-auto grid max-w-5xl gap-1 px-4 pb-2 text-sm sm:flex ${tabs.length === 5 ? 'grid-cols-5' : tabs.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`} aria-label={t.nav}>
             {tabs.map((v) => (
               <button
                 key={v}
@@ -122,7 +135,7 @@ export default function App() {
                 aria-current={view === v ? 'page' : undefined}
                 className={`min-h-10 rounded-lg px-3 font-semibold ${view === v ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
               >
-                {{ queue: t.queue, map: t.map, admin: t.admin, driver: t.driver }[v]}
+                {{ queue: t.queue, map: t.map, admin: t.admin, driver: t.driver, hire: t.hireTab }[v]}
                 {v === 'queue' && <span className="ms-1 tabular-nums opacity-70 sm:hidden">({queue.length})</span>}
               </button>
             ))}
@@ -131,7 +144,7 @@ export default function App() {
 
         {/* Mode and account status. */}
         <div className="mx-auto max-w-5xl px-4 pb-2 text-xs">
-          {mode === 'staff' || mode === 'driver' ? (
+          {mode === 'staff' || mode === 'driver' || mode === 'dev' ? (
             <p className="flex items-center gap-2 text-emerald-800">
               <span className="rounded bg-emerald-600 px-1.5 py-0.5 font-bold text-white">{t.liveBadge}</span>
               <bdi dir="ltr" className="truncate">
@@ -192,7 +205,7 @@ export default function App() {
         )}
       </header>
 
-      {mode === 'public' ? (
+      {mode === 'public' || view === 'hire' ? (
         <main className="isolate mx-auto grid max-w-5xl gap-4 px-2 py-3 sm:px-4 sm:py-6 lg:grid-cols-[22rem_1fr]">
           <div className="lg:self-start">
             <HirePanel taxis={publicTaxis} chosen={chosen} onClearChoice={() => setChosen(null)} />
@@ -208,7 +221,7 @@ export default function App() {
       ) : view === 'admin' ? (
         <main className="mx-auto max-w-5xl px-4 py-4 sm:py-6">
           <div className="space-y-6">
-            {mode === 'staff' && auth.role === 'admin' && <StaffPanel taxis={queue} />}
+            {live && canAdmin && <StaffPanel taxis={queue} />}
             <AdminPanel taxis={queue} onRegister={q.register} onRemove={q.remove} onSuspend={q.suspend} onLift={q.lift} />
           </div>
         </main>
@@ -227,11 +240,11 @@ export default function App() {
           <section className="space-y-3">
             <CallPanel call={call} onChange={setCall} />
             <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">{t.queue}</h2>
-            {mode === 'staff' && !q.loaded && <p className="text-sm text-slate-500">{t.loading}</p>}
-            {mode === 'staff' && q.loaded && !queue.length && (
+            {live && !q.loaded && <p className="text-sm text-slate-500">{t.loading}</p>}
+            {live && q.loaded && !queue.length && (
               <div className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">
                 <p>{t.liveEmpty}</p>
-                {q.seedDemo && auth.role === 'admin' && (
+                {q.seedDemo && canAdmin && (
                   <button type="button" onClick={q.seedDemo} className="mt-2 min-h-10 rounded-lg bg-emerald-500 px-4 font-bold text-slate-950 hover:bg-emerald-400">
                     {t.seedDemo}
                   </button>
@@ -255,7 +268,7 @@ export default function App() {
           </section>
 
           <aside className="space-y-4">
-            {mode === 'staff' && <RequestsPanel taxis={queue} />}
+            {live && <RequestsPanel taxis={queue} />}
             <section className="space-y-3">
               <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">{t.recent}</h2>
               <DispatchLog history={history} queue={queue} callInProgress={callInProgress} onReopen={q.reopen} />

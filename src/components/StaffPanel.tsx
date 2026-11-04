@@ -28,7 +28,7 @@ export function StaffPanel({ taxis }: { taxis: Taxi[] }) {
           snap.docs
             .map((d) => {
               const r = d.data().role
-              return { email: d.id, role: (r === 'admin' || r === 'driver' ? r : 'operator') as Role, taxiId: typeof d.data().taxiId === 'string' ? d.data().taxiId : undefined }
+              return { email: d.id, role: (r === 'admin' || r === 'driver' || r === 'dev' ? r : 'operator') as Role, taxiId: typeof d.data().taxiId === 'string' ? d.data().taxiId : undefined }
             })
             .sort((a, b) => a.email.localeCompare(b.email)),
         ),
@@ -70,6 +70,7 @@ export function StaffPanel({ taxis }: { taxis: Taxi[] }) {
           <option value="operator">{t.roles.operator}</option>
           <option value="driver">{t.roles.driver}</option>
           <option value="admin">{t.roles.admin}</option>
+          <option value="dev">{t.roles.dev}</option>
         </select>
         <select
           value={taxiId}
@@ -98,7 +99,7 @@ export function StaffPanel({ taxis }: { taxis: Taxi[] }) {
             <bdi dir="ltr" className="min-w-0 flex-1 truncate">
               {s.email}
             </bdi>
-            <span className={`rounded px-2 py-0.5 text-xs font-semibold ${s.role === 'admin' ? 'bg-slate-900 text-white' : s.role === 'driver' ? 'bg-yellow-300 text-slate-900' : 'bg-slate-100 text-slate-700'}`}>
+            <span className={`rounded px-2 py-0.5 text-xs font-semibold ${s.role === 'dev' ? 'bg-violet-600 text-white' : s.role === 'admin' ? 'bg-slate-900 text-white' : s.role === 'driver' ? 'bg-yellow-300 text-slate-900' : 'bg-slate-100 text-slate-700'}`}>
               {t.roles[s.role]}
               {s.role === 'driver' && ` · ${taxiNo(s.taxiId)}`}
             </span>

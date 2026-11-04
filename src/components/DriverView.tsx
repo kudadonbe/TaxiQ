@@ -6,7 +6,7 @@ import { useDriverRides, useNow } from '../useRides'
 
 // Driver screen: their taxi, its place in the queue, ride offers (accept/decline) and accepted rides.
 export function DriverView({ taxis }: { taxis: PublicTaxi[] }) {
-  const { fb, taxiId, email } = useAuth()
+  const { fb, taxiId, email, role } = useAuth()
   const { lang, t } = useI18n()
   const { offers, accepted } = useDriverRides(fb, taxiId)
   const now = useNow(offers.length > 0)
@@ -24,7 +24,33 @@ export function DriverView({ taxis }: { taxis: PublicTaxi[] }) {
   }, [fb, taxiId])
 
   const me = taxis.find((x) => x.id === taxiId)
-  if (!taxiId) return <p className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">{t.driverNoTaxi}</p>
+  // Dev: act as the driver of any taxi (stored as taxiId on the dev's own roles entry).
+  const actAs = (id: string) => {
+    if (!fb || !email) return
+    fb.setDoc(fb.doc(fb.db, 'roles', email), { taxiId: id }, { merge: true }).catch((e: { code?: string }) => setError(e.code ?? 'error'))
+  }
+  const devPicker = role === 'dev' && (
+    <label className="flex items-center gap-2 rounded-xl border border-dashed border-violet-300 bg-violet-50 p-3 text-sm text-violet-900">
+      <span className="font-semibold">{t.actAs}</span>
+      <select value={taxiId ?? ''} onChange={(e) => actAs(e.target.value)} className="min-h-10 flex-1 rounded-lg border border-violet-300 bg-white px-2 text-base">
+        <option value="" disabled>
+          {t.taxiForDriver}
+        </option>
+        {taxis.map((x) => (
+          <option key={x.id} value={x.id}>
+            {x.taxiNo} · {lang === 'dv' && x.nameDv ? x.nameDv : x.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+  if (!taxiId)
+    return (
+      <div className="space-y-3">
+        {devPicker}
+        <p className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">{t.driverNoTaxi}</p>
+      </div>
+    )
 
   const position = order.indexOf(taxiId) + 1
   const act = (id: string, fn: () => Promise<unknown>) => {
@@ -37,6 +63,7 @@ export function DriverView({ taxis }: { taxis: PublicTaxi[] }) {
 
   return (
     <div className="space-y-4">
+      {devPicker}
       <section className={`rounded-xl p-4 ${me?.suspended ? 'bg-rose-600 text-white' : 'bg-slate-900 text-white'}`}>
         <p className="text-4xl font-black tabular-nums">{t.driverTitle(me?.taxiNo ?? '?')}</p>
         <p className="mt-1 text-sm opacity-80">{me ? (lang === 'dv' && me.nameDv ? me.nameDv : me.name) : ''}</p>
