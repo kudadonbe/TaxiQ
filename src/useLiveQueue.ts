@@ -45,7 +45,7 @@ function normalize(order: unknown, taxis: Map<string, Taxi>): string[] {
   return [...new Set(ids), ...missing.map((t) => t.id)]
 }
 
-export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | null): QueueApi {
+export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | null, isAdmin = false): QueueApi {
   const [taxis, setTaxis] = useState<Map<string, Taxi>>(new Map())
   const [state, setState] = useState<{ order: unknown; interested: unknown }>({ order: [], interested: [] })
   const [log, setLog] = useState<(Dispatch & { undone: boolean })[]>([])
@@ -103,6 +103,32 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
     ]
     return () => stops.forEach((s) => s())
   }, [fb, enabled])
+
+  // Admins keep publicTaxis (what the public map shows: no phone numbers) in step with taxis.
+  // Any difference, from any source, is repaired the next time an admin has the app open.
+  useEffect(() => {
+    if (!fb || !enabled || !isAdmin || !loaded) return
+    return fb.onSnapshot(fb.collection(fb.db, 'publicTaxis'), (snap) => {
+      const have = new Map(snap.docs.map((d) => [d.id, d.data()]))
+      const batch = fb.writeBatch(fb.db)
+      let writes = 0
+      for (const t of taxis.values()) {
+        const want = { taxiNo: t.taxiNo, name: t.driver.name, nameDv: t.driver.nameDv, suspended: !!t.suspended }
+        const cur = have.get(t.id)
+        if (!cur || cur.taxiNo !== want.taxiNo || cur.name !== want.name || cur.nameDv !== want.nameDv || cur.suspended !== want.suspended) {
+          batch.set(fb.doc(fb.db, 'publicTaxis', t.id), want)
+          writes++
+        }
+      }
+      for (const id of have.keys()) {
+        if (!taxis.has(id)) {
+          batch.delete(fb.doc(fb.db, 'publicTaxis', id))
+          writes++
+        }
+      }
+      if (writes) batch.commit().catch((e: { code?: string }) => setError(e.code ?? 'error'))
+    })
+  }, [fb, enabled, isAdmin, loaded, taxis])
 
   const order = useMemo(() => normalize(state.order, taxis), [state.order, taxis])
   const queue = useMemo(() => order.map((id) => taxis.get(id)!), [order, taxis])

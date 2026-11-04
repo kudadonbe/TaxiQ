@@ -3,14 +3,17 @@ rules_version = '2';
 // TaxiQ Firestore security rules.
 //
 // Sign-in is Google accounts via Firebase Auth (an MDS exception: the standard requires eFaas; see
-// SECURITY.md). A Google account alone grants nothing: access needs a staff entry in roles/{email},
-// written by an admin. Authorisation is enforced here, never only in the UI.
+// SECURITY.md). Roles come from roles/{email}, written by an admin:
+//   admin     everything below, plus taxis and staff
+//   operator  the queue, dispatches and passenger requests
+//   driver    linked to one taxi (taxiId): sees offers for that taxi, accepts or declines them
+// Any other signed-in Google account is a passenger: it can request rides, nothing else.
+// Signed-out visitors can only read publicTaxis (the map).
 //
-//   roles/{email}        read: your own entry, or admin      write: admin
-//   taxis/{taxiId}       read: staff                         write: admin (register, remove, suspend)
-//   queue/state          read: staff                         write: staff (order + answered drivers)
-//   dispatches/{id}      read: staff                         create/update: staff; never deleted
-//   anything else        denied
+// There is no server: these rules are the referee for ride offers. They enforce the 20-second
+// offer timeout with the server clock, that only the offered driver can accept, and that an
+// accepting driver can only move their own taxi to the back of the queue. They can't check that the
+// next taxi offered is the right one in queue order (no loops in rules); see SECURITY.md.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -32,22 +35,33 @@ service cloud.firestore {
     function isStaff() {
       return role() in ['admin', 'operator'];
     }
+    function isDriver() {
+      return role() == 'driver';
+    }
+    function myTaxi() {
+      return isDriver() ? get(roleDoc()).data.taxiId : '';
+    }
     function str(v, max) {
       return v is string && v.size() <= max;
+    }
+    function queueOrder() {
+      return get(/databases/$(database)/documents/queue/state).data.order;
     }
 
     match /roles/{userEmail} {
       allow read: if signedIn() && (userEmail == email() || isAdmin());
       allow create, update: if isAdmin()
-        && request.resource.data.keys().hasOnly(['role', 'addedBy', 'addedAt'])
-        && request.resource.data.role in ['admin', 'operator']
+        && request.resource.data.keys().hasOnly(['role', 'taxiId', 'addedBy', 'addedAt'])
+        && request.resource.data.role in ['admin', 'operator', 'driver']
+        && (request.resource.data.role != 'driver' || str(request.resource.data.taxiId, 40))
         && userEmail == userEmail.lower();
       // An admin can't remove their own entry (avoids locking everyone out).
       allow delete: if isAdmin() && userEmail != email();
     }
 
+    // Full taxi records, including driver phone numbers: staff, and each driver for their own taxi.
     match /taxis/{taxiId} {
-      allow read: if isStaff();
+      allow read: if isStaff() || (isDriver() && taxiId == myTaxi());
       allow create, update: if isAdmin()
         && request.resource.data.keys().hasOnly(['taxiNo', 'taxiReg', 'driver', 'suspended'])
         && str(request.resource.data.taxiNo, 4)
@@ -59,20 +73,122 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // What the public map shows: no phone numbers. Kept in step with taxis by the admin screens.
+    match /publicTaxis/{taxiId} {
+      allow read: if true;
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['taxiNo', 'name', 'nameDv', 'suspended'])
+        && str(request.resource.data.taxiNo, 4)
+        && str(request.resource.data.name, 60)
+        && str(request.resource.data.nameDv, 60)
+        && request.resource.data.suspended is bool;
+      allow delete: if isAdmin();
+    }
+
     match /queue/state {
-      allow read: if isStaff();
+      // The order is a list of taxi ids (not personal data); passengers and drivers need it for offers.
+      allow read: if signedIn();
       allow create, update: if isStaff()
         && request.resource.data.keys().hasOnly(['order', 'interested', 'updatedAt', 'updatedBy'])
         && request.resource.data.order is list && request.resource.data.order.size() <= 500
         && request.resource.data.interested is list && request.resource.data.interested.size() <= 500;
+      // A driver who accepted a ride moves their own taxi to the back, and nothing else.
+      allow update: if isDriver()
+        && request.resource.data.keys().hasOnly(['order', 'interested', 'updatedAt', 'updatedBy'])
+        && request.resource.data.order == resource.data.order.removeAll([myTaxi()]).concat([myTaxi()])
+        && request.resource.data.interested == resource.data.interested.removeAll([myTaxi()]);
     }
 
     match /dispatches/{dispatchId} {
       allow read: if isStaff();
-      allow create, update: if isStaff()
-        && request.resource.data.keys().hasOnly(['taxi', 'at', 'from', 'interested', 'call', 'reopened', 'undone', 'by'])
+      allow create: if (isStaff() || (isDriver() && request.resource.data.taxi.id == myTaxi()))
+        && request.resource.data.keys().hasOnly(['taxi', 'at', 'from', 'interested', 'call', 'reopened', 'undone', 'by', 'requestId'])
+        && request.resource.data.at is int
+        && request.resource.data.from is int
+        && request.resource.data.reopened == false
+        && request.resource.data.undone == false;
+      allow update: if isStaff()
+        && request.resource.data.keys().hasOnly(['taxi', 'at', 'from', 'interested', 'call', 'reopened', 'undone', 'by', 'requestId'])
         && request.resource.data.at is int
         && request.resource.data.from is int;
+    }
+
+    // One ride request per passenger: requests/{their uid}. A new request overwrites the old one.
+    match /requests/{uid} {
+      function next() {
+        return request.resource.data;
+      }
+      function prev() {
+        return resource.data;
+      }
+      function validShape() {
+        return next().keys().hasOnly(['uid', 'name', 'mode', 'pickup', 'pickupAt', 'destination', 'phone', 'note',
+            'status', 'offerTo', 'offerAt', 'skipped', 'acceptedBy', 'createdAt'])
+          && next().uid == uid
+          && str(next().name, 80)
+          && next().mode in ['queue', 'direct']
+          && str(next().pickup, 120) && next().pickup.size() > 0
+          && str(next().destination, 120)
+          && next().phone is string && next().phone.matches('^[0-9]{7}$')
+          && str(next().note, 120)
+          && (!('pickupAt' in next()) || (next().pickupAt is list && next().pickupAt.size() == 2))
+          && next().status in ['offering', 'accepted', 'expired', 'cancelled']
+          && (next().offerTo == null || str(next().offerTo, 40))
+          && next().offerAt is timestamp
+          && next().skipped is list && next().skipped.size() <= 500
+          && (next().acceptedBy == null || str(next().acceptedBy, 40));
+      }
+      // A fresh request: offered to one taxi (or nobody, if no taxi is free), just now.
+      function isFresh() {
+        return next().status in ['offering', 'expired']
+          && next().offerAt == request.time
+          && next().createdAt == request.time
+          && next().skipped.size() == 0
+          && next().acceptedBy == null
+          && (next().status == 'expired' || next().offerTo in queueOrder());
+      }
+      function sameTrip() {
+        return next().uid == prev().uid && next().name == prev().name && next().mode == prev().mode
+          && next().pickup == prev().pickup && next().destination == prev().destination
+          && next().phone == prev().phone && next().note == prev().note
+          && next().createdAt == prev().createdAt
+          && next().get('pickupAt', null) == prev().get('pickupAt', null);
+      }
+      // Move the offer on from the current taxi (declined or timed out) to the next, or expire.
+      function movesOn() {
+        return prev().status == 'offering'
+          && sameTrip()
+          && next().skipped == prev().skipped.concat([prev().offerTo])
+          && next().offerAt == request.time
+          && next().acceptedBy == null
+          && (
+            (next().status == 'expired' && next().offerTo == null)
+            || (prev().mode == 'queue' && next().status == 'offering'
+                && next().offerTo in queueOrder() && !(next().offerTo in next().skipped))
+          );
+      }
+
+      allow read: if signedIn() && (uid == request.auth.uid || isStaff()
+        || (isDriver() && (resource.data.offerTo == myTaxi() || resource.data.acceptedBy == myTaxi())));
+
+      allow create: if signedIn() && uid == request.auth.uid && validShape() && isFresh();
+
+      allow update: if signedIn() && validShape() && (
+        // The passenger: a new request, or cancel.
+        (uid == request.auth.uid && (isFresh() || (sameTrip() && next().status == 'cancelled')))
+        // Anyone involved, once the offer has waited 20 s: move it on.
+        || ((uid == request.auth.uid || isStaff() || isDriver())
+            && request.time > prev().offerAt + duration.value(20, 's') && movesOn())
+        // The offered driver declines: move it on.
+        || (isDriver() && prev().offerTo == myTaxi() && movesOn())
+        // The offered driver accepts (taxi must not be suspended).
+        || (isDriver() && prev().status == 'offering' && prev().offerTo == myTaxi()
+            && !('suspended' in get(/databases/$(database)/documents/taxis/$(myTaxi())).data)
+            && sameTrip() && next().status == 'accepted' && next().acceptedBy == myTaxi()
+            && next().offerTo == prev().offerTo && next().skipped == prev().skipped && next().offerAt == prev().offerAt)
+        // Staff can cancel any request.
+        || (isStaff() && sameTrip() && next().status == 'cancelled')
+      );
     }
 
     match /{document=**} {

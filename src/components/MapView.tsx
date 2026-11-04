@@ -14,6 +14,8 @@ interface Props {
   interested: ReadonlySet<string>
   // Pickup of the call being taken, if it was chosen from the place search.
   pickupAt: [number, number] | undefined
+  // Public mode: tapping a car picks that taxi for hiring.
+  onPickTaxi?: (id: string) => void
 }
 
 const typeIcon: Record<PlaceType, string> = { h: '🏠', r: '🛣️', l: '📍', p: '▫️' }
@@ -67,7 +69,7 @@ function markerParts(): MarkerParts {
 }
 
 // Live map of taxis. Leaflet is driven imperatively so 60fps position updates don't re-render React.
-export default function MapView({ taxis, interested, pickupAt }: Props) {
+export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Props) {
   const { lang, t, driverName } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const map = useRef<L.Map | null>(null)
@@ -75,6 +77,10 @@ export default function MapView({ taxis, interested, pickupAt }: Props) {
   const positions = useRef<Positions>(new Map())
   const highlight = useRef<L.Layer | null>(null)
   const pickupPin = useRef<L.Marker | null>(null)
+  const pickRef = useRef(onPickTaxi)
+  useEffect(() => {
+    pickRef.current = onPickTaxi
+  }, [onPickTaxi])
 
   const [places, setPlaces] = useState<Place[] | null>(null)
   const [showPlots, setShowPlots] = useState(true)
@@ -192,7 +198,10 @@ export default function MapView({ taxis, interested, pickupAt }: Props) {
       tip.textContent = `${taxi.taxiNo} · ${driverName(taxi.driver)}`
       marker.unbindTooltip().bindTooltip(tip, { direction: 'top', offset: [0, -22] })
       // Touch screens have no hover: tap a car to show its driver.
-      marker.off('click').on('click', () => marker.toggleTooltip())
+      marker.off('click').on('click', () => {
+        marker.toggleTooltip()
+        if (!taxi.suspended) pickRef.current?.(taxi.id)
+      })
     }
   }, [taxis, interested, driverName])
 

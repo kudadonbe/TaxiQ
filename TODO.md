@@ -52,6 +52,14 @@ Needs a Firebase project from you, so this can't be done without it.
   - [ ] **Dependencies:** check the Firebase SDK is on the MDS-whitelisted dependency list.
   - [ ] Lock the Firebase API key to the app's domains.
 
+### Public hiring
+- [x] The public sees only the map and Hire a taxi; the queue and Admin are staff-only.
+- [x] Passengers sign in with Google and request any taxi (offered down the queue, 20 s each) or a specific taxi tapped on the map.
+- [x] Driver role and Driver screen: offers with Accept/Decline, accepted rides with a call button.
+- [x] Staff see open passenger requests and can cancel them.
+- [ ] Sounds and vibration on the driver's phone when an offer arrives.
+- [ ] Optional: a Cloud Function (Blaze plan) to make offer order tamper-proof and move offers on without any screen open.
+
 ## Backlog
 - [ ] **Driver app** that sends GPS while on duty, and shows "my location" (an idea from mapkf).
 - [ ] Review traced plots against the chart: about 4% of houses didn't land in a traced plot, and a few neighbouring plots may have merged where lines were faint.

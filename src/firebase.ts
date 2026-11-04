@@ -18,6 +18,8 @@ export {
   deleteDoc,
   deleteField,
   doc,
+  getDoc,
+  getDocs,
   limit,
   onSnapshot,
   orderBy,
@@ -26,5 +28,6 @@ export {
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
   writeBatch,
 } from 'firebase/firestore'

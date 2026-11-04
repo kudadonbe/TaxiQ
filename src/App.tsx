@@ -1,39 +1,70 @@
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
 import { useAuth } from './auth'
 import { AdminPanel } from './components/AdminPanel'
 import { CallPanel } from './components/CallPanel'
 import { DispatchLog } from './components/DispatchLog'
+import { DriverView } from './components/DriverView'
+import { HirePanel } from './components/HirePanel'
 import { QueueRow } from './components/QueueRow'
+import { RequestsPanel } from './components/RequestsPanel'
 import { StaffPanel } from './components/StaffPanel'
 import { useI18n } from './i18n'
+import { asMapTaxi } from './rides'
 import { useLiveQueue } from './useLiveQueue'
 import { useLocalQueue } from './useQueue'
+import { usePublicTaxis } from './useRides'
 import { validateCall } from './validate'
 
-// Leaflet is only loaded when the map is opened.
+// Leaflet is only loaded when a map is shown.
 const MapView = lazy(() => import('./components/MapView'))
 
-type View = 'queue' | 'map' | 'admin'
+// The GitHub Pages copy can't sign in (Firebase only allows its own domains), so it runs the
+// local demo of the operator screens.
+const DEMO_HOST = location.hostname.endsWith('github.io')
+
+// Who sees what:
+//   demo     GitHub Pages: the operator screens on local data
+//   staff    admin / operator: queue, map, admin (admins only)
+//   driver   their offers and the map
+//   public   signed out, or signed in without a role: the map and Hire a taxi
+type Mode = 'demo' | 'staff' | 'driver' | 'public'
+type View = 'queue' | 'map' | 'admin' | 'driver'
+
+const EMPTY = new Set<string>()
 
 export default function App() {
   const auth = useAuth()
-  // Signed-in staff use the shared live queue in Firestore; everyone else gets the local demo.
-  const live = auth.status === 'signedIn' && !!auth.role
+  const signedIn = auth.status === 'signedIn'
+  const mode: Mode = DEMO_HOST
+    ? 'demo'
+    : signedIn && (auth.role === 'admin' || auth.role === 'operator')
+      ? 'staff'
+      : signedIn && auth.role === 'driver'
+        ? 'driver'
+        : 'public'
+
   const local = useLocalQueue()
-  const remote = useLiveQueue(auth.fb, live, auth.email)
-  const q = live ? remote : local
-  const canAdmin = !live || auth.role === 'admin'
+  const remote = useLiveQueue(auth.fb, mode === 'staff', auth.email, auth.role === 'admin')
+  const q = mode === 'staff' ? remote : local
+  const publicTaxis = usePublicTaxis(auth.fb, mode === 'public' || mode === 'driver')
+  const mapTaxis = useMemo(() => publicTaxis.map(asMapTaxi), [publicTaxis])
+  const [chosen, setChosen] = useState<string | null>(null)
+
+  const canAdmin = mode === 'demo' || auth.role === 'admin'
   const { queue, history, interested, pick, call, setCall, callInProgress, canUndo, toggle, clear, undo } = q
   const callValid = Object.keys(validateCall(call)).length === 0
   // Invalid passenger details block assigning, so bad input is never attached to a dispatch.
   const assign = (id: string) => callValid && q.assign(id)
+
+  const tabs: View[] = mode === 'driver' ? ['driver', 'map'] : mode === 'public' ? [] : canAdmin ? ['queue', 'map', 'admin'] : ['queue', 'map']
   const [viewState, setView] = useState<View>('queue')
-  const view = viewState === 'admin' && !canAdmin ? 'queue' : viewState
+  const view: View = tabs.includes(viewState) ? viewState : (tabs[0] ?? 'map')
   const { lang, t, toggleLang, driverName } = useI18n()
+  const operatorScreens = mode === 'demo' || mode === 'staff'
 
   return (
     <div className="min-h-dvh bg-slate-100 text-slate-900">
-      <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
+      <header className="sticky top-0 z-[1200] border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-4 py-2 sm:py-3">
           <h1 className="flex shrink-0 items-center gap-2 text-xl font-black tracking-tight" dir="ltr">
             <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="size-8 sm:size-9" />
@@ -42,15 +73,19 @@ export default function App() {
             </span>
           </h1>
           <div className="flex items-center gap-1 text-sm sm:gap-2">
-            <span className="hidden rounded-full bg-slate-100 px-3 py-1 font-medium tabular-nums sm:inline">{t.inQueue(queue.length)}</span>
-            <button
-              type="button"
-              onClick={undo}
-              disabled={!canUndo || callInProgress}
-              className="min-h-10 rounded-lg px-3 font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
-            >
-              {t.undo}
-            </button>
+            {operatorScreens && (
+              <>
+                <span className="hidden rounded-full bg-slate-100 px-3 py-1 font-medium tabular-nums sm:inline">{t.inQueue(queue.length)}</span>
+                <button
+                  type="button"
+                  onClick={undo}
+                  disabled={!canUndo || callInProgress}
+                  className="min-h-10 rounded-lg px-3 font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+                >
+                  {t.undo}
+                </button>
+              </>
+            )}
             <button
               type="button"
               onClick={toggleLang}
@@ -59,48 +94,44 @@ export default function App() {
             >
               {t.switchTo}
             </button>
-            {auth.status === 'signedIn' ? (
-              <button
-                type="button"
-                onClick={auth.signOut}
-                title={auth.email ?? ''}
-                className="min-h-10 rounded-lg px-2 font-medium text-slate-700 hover:bg-slate-100"
-              >
-                {t.signOut}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={auth.signIn}
-                disabled={auth.status === 'loading'}
-                className="min-h-10 rounded-lg bg-slate-900 px-3 font-semibold text-white hover:bg-slate-700 disabled:opacity-40"
-              >
-                {t.signIn}
-              </button>
-            )}
+            {!DEMO_HOST &&
+              (signedIn ? (
+                <button type="button" onClick={auth.signOut} title={auth.email ?? ''} className="min-h-10 rounded-lg px-2 font-medium text-slate-700 hover:bg-slate-100">
+                  {t.signOut}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={auth.signIn}
+                  disabled={auth.status === 'loading'}
+                  className="min-h-10 rounded-lg bg-slate-900 px-3 font-semibold text-white hover:bg-slate-700 disabled:opacity-40"
+                >
+                  {t.signIn}
+                </button>
+              ))}
           </div>
         </div>
 
-        <nav className="mx-auto grid max-w-5xl grid-cols-3 gap-1 px-4 pb-2 text-sm sm:flex" aria-label={t.nav}>
-          {(['queue', 'map', 'admin'] as const).filter((v) => v !== 'admin' || canAdmin).map((v) => (
-            <button
-              key={v}
-              type="button"
-              onClick={() => setView(v)}
-              aria-current={view === v ? 'page' : undefined}
-              className={`min-h-10 rounded-lg px-3 font-semibold ${
-                view === v ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              {{ queue: t.queue, map: t.map, admin: t.admin }[v]}
-              {v === 'queue' && <span className="ms-1 tabular-nums opacity-70 sm:hidden">({queue.length})</span>}
-            </button>
-          ))}
-        </nav>
+        {tabs.length > 0 && (
+          <nav className={`mx-auto grid max-w-5xl gap-1 px-4 pb-2 text-sm sm:flex ${tabs.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`} aria-label={t.nav}>
+            {tabs.map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setView(v)}
+                aria-current={view === v ? 'page' : undefined}
+                className={`min-h-10 rounded-lg px-3 font-semibold ${view === v ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+              >
+                {{ queue: t.queue, map: t.map, admin: t.admin, driver: t.driver }[v]}
+                {v === 'queue' && <span className="ms-1 tabular-nums opacity-70 sm:hidden">({queue.length})</span>}
+              </button>
+            ))}
+          </nav>
+        )}
 
         {/* Mode and account status. */}
         <div className="mx-auto max-w-5xl px-4 pb-2 text-xs">
-          {live ? (
+          {mode === 'staff' || mode === 'driver' ? (
             <p className="flex items-center gap-2 text-emerald-800">
               <span className="rounded bg-emerald-600 px-1.5 py-0.5 font-bold text-white">{t.liveBadge}</span>
               <bdi dir="ltr" className="truncate">
@@ -108,17 +139,23 @@ export default function App() {
               </bdi>
               <span className="text-slate-500">· {t.roles[auth.role!]}</span>
             </p>
-          ) : (
+          ) : mode === 'demo' ? (
             <p className="flex items-center gap-2 text-slate-500">
               <span className="rounded bg-slate-200 px-1.5 py-0.5 font-bold text-slate-700">{t.demoBadge}</span>
-              <span>{auth.status === 'signedIn' && auth.email ? t.noAccess(auth.email) : t.demoNote}</span>
+              <span>{t.demoNote}</span>
             </p>
+          ) : (
+            signedIn && (
+              <p className="text-slate-500">
+                <bdi dir="ltr">{auth.email}</bdi>
+              </p>
+            )
           )}
           {auth.error && <p className="mt-1 font-semibold text-rose-700">{t.signInError(auth.error)}</p>}
-          {q.error && <p className="mt-1 font-semibold text-rose-700">{t.saveError(q.error)}</p>}
+          {operatorScreens && q.error && <p className="mt-1 font-semibold text-rose-700">{t.saveError(q.error)}</p>}
         </div>
 
-        {view === 'queue' && (
+        {operatorScreens && view === 'queue' && (
           <div className="mx-auto flex max-w-5xl items-center gap-2 px-4 pb-3 sm:gap-3">
             {pick || callInProgress ? (
               <>
@@ -138,32 +175,51 @@ export default function App() {
                       📍 <bdi>{call.pickup}</bdi>
                     </span>
                   )}
-                  {!callValid && <span className="block font-semibold text-rose-700">{t.callTitle}: {t.notValid}</span>}
+                  {!callValid && (
+                    <span className="block font-semibold text-rose-700">
+                      {t.callTitle}: {t.notValid}
+                    </span>
+                  )}
                 </p>
                 <button type="button" onClick={clear} className="min-h-10 shrink-0 rounded-lg px-3 text-sm font-medium text-slate-600 hover:bg-slate-100">
                   {t.cancelCall}
                 </button>
               </>
             ) : (
-              <p className="flex-1 rounded-xl border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-500 sm:px-4 sm:py-3">
-                {t.hint}
-              </p>
+              <p className="flex-1 rounded-xl border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-500 sm:px-4 sm:py-3">{t.hint}</p>
             )}
           </div>
         )}
       </header>
 
-      {view === 'admin' ? (
+      {mode === 'public' ? (
+        <main className="isolate mx-auto grid max-w-5xl gap-4 px-2 py-3 sm:px-4 sm:py-6 lg:grid-cols-[22rem_1fr]">
+          <div className="lg:self-start">
+            <HirePanel taxis={publicTaxis} chosen={chosen} onClearChoice={() => setChosen(null)} />
+          </div>
+          <Suspense fallback={<p className="text-sm text-slate-500">{t.loading}</p>}>
+            <MapView taxis={mapTaxis} interested={EMPTY} pickupAt={undefined} onPickTaxi={setChosen} />
+          </Suspense>
+        </main>
+      ) : view === 'driver' ? (
+        <main className="mx-auto max-w-xl px-4 py-4 sm:py-6">
+          <DriverView taxis={publicTaxis} />
+        </main>
+      ) : view === 'admin' ? (
         <main className="mx-auto max-w-5xl px-4 py-4 sm:py-6">
           <div className="space-y-6">
-            {live && auth.role === 'admin' && <StaffPanel />}
+            {mode === 'staff' && auth.role === 'admin' && <StaffPanel taxis={queue} />}
             <AdminPanel taxis={queue} onRegister={q.register} onRemove={q.remove} onSuspend={q.suspend} onLift={q.lift} />
           </div>
         </main>
       ) : view === 'map' ? (
         <main className="isolate mx-auto max-w-5xl px-2 py-2 sm:px-4 sm:py-6">
-          <Suspense fallback={<p className="text-sm text-slate-500">…</p>}>
-            <MapView taxis={queue} interested={interested} pickupAt={call.pickupAt} />
+          <Suspense fallback={<p className="text-sm text-slate-500">{t.loading}</p>}>
+            {mode === 'driver' ? (
+              <MapView taxis={mapTaxis} interested={EMPTY} pickupAt={undefined} />
+            ) : (
+              <MapView taxis={queue} interested={interested} pickupAt={call.pickupAt} />
+            )}
           </Suspense>
         </main>
       ) : (
@@ -171,8 +227,8 @@ export default function App() {
           <section className="space-y-3">
             <CallPanel call={call} onChange={setCall} />
             <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">{t.queue}</h2>
-            {live && !q.loaded && <p className="text-sm text-slate-500">{t.loading}</p>}
-            {live && q.loaded && !queue.length && (
+            {mode === 'staff' && !q.loaded && <p className="text-sm text-slate-500">{t.loading}</p>}
+            {mode === 'staff' && q.loaded && !queue.length && (
               <div className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">
                 <p>{t.liveEmpty}</p>
                 {q.seedDemo && auth.role === 'admin' && (
@@ -198,14 +254,17 @@ export default function App() {
             </ol>
           </section>
 
-          <aside className="space-y-3">
-            <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">{t.recent}</h2>
-            <DispatchLog history={history} queue={queue} callInProgress={callInProgress} onReopen={q.reopen} />
-            {q.reset && (
-              <button type="button" onClick={q.reset} className="text-sm text-slate-500 underline hover:text-slate-700">
-                {t.reset}
-              </button>
-            )}
+          <aside className="space-y-4">
+            {mode === 'staff' && <RequestsPanel taxis={queue} />}
+            <section className="space-y-3">
+              <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">{t.recent}</h2>
+              <DispatchLog history={history} queue={queue} callInProgress={callInProgress} onReopen={q.reopen} />
+              {q.reset && (
+                <button type="button" onClick={q.reset} className="text-sm text-slate-500 underline hover:text-slate-700">
+                  {t.reset}
+                </button>
+              )}
+            </section>
           </aside>
         </main>
       )}
