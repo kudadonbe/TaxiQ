@@ -34,6 +34,11 @@ const strings = {
     mapAnswered: 'Answered call',
     mapAssigned: 'Assigned',
     mapPlaceholder: 'Demo: taxi positions are simulated. Live GPS will come from the driver app.',
+    searchPlaces: 'Search house, road or place',
+    noPlace: 'No matching name. Check the spelling.',
+    nearestTaxis: 'Nearest taxis',
+    plot: 'Plot',
+    placeTypes: { h: 'House', r: 'Road', l: 'Landmark', p: 'Plot' },
     registerTitle: 'Register a taxi',
     fields: {
       taxiNo: 'Center number',
@@ -90,6 +95,11 @@ const strings = {
     mapAnswered: 'ޖަވާބުދިން',
     mapAssigned: 'ހަވާލުކުރީ',
     mapPlaceholder: 'ޑެމޯ: ޓެކްސީތަކުގެ ތަން ދައްކަނީ ސިމިއުލޭޓްކޮށް. ޑްރައިވަރ އެޕުން ލައިވް ޖީޕީއެސް ލިބޭނެ.',
+    searchPlaces: 'ގެ، މަގު ނުވަތަ ތަނެއް ހޯދާ',
+    noPlace: 'މި ނަމެއް ނުފެނުނު. އިމްލާ ޗެކްކޮށްލާ.',
+    nearestTaxis: 'އެންމެ ކައިރި ޓެކްސީ',
+    plot: 'ބިން',
+    placeTypes: { h: 'ގެ', r: 'މަގު', l: 'ތަން', p: 'ބިން' },
     registerTitle: 'ޓެކްސީއެއް ރަޖިސްޓަރީކުރޭ',
     fields: {
       taxiNo: 'ސެންޓަރ ނަންބަރު',

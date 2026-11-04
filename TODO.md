@@ -35,7 +35,9 @@ If something happens to the driver before the trip is completed (breakdown, no-s
   - [ ] Keep Firebase config and keys out of the repo where they aren't public-by-design, and lock the API key to the app's domains.
 
 ## Backlog
-- [ ] **Passenger info** on a call (pickup, destination, phone, note), linked to the assigned driver and shown in Recent dispatches. Keep it in memory only until there's a backend with auth.
+- [x] House / road / landmark search on the map, with nearest taxis (Kulhudhuffushi City Council map data via mapkf, with permission).
+- [ ] **Passenger info** on a call (pickup, destination, phone, note), linked to the assigned driver and shown in Recent dispatches. Use the place search to pick the pickup house. Keep it in memory only until there's a backend with auth.
+- [ ] Ideas from mapkf: a share-location link for the driver (`?at=lat,lng`), and "my location" in the driver app.
 - [ ] **Driver app** that sends GPS while on duty.
 - [ ] **`SECURITY.md`** (repo root, not `docs/`) recording the tier and gate status under MDS-STD-SSD-001.
 - [ ] Optional "Demo" badge on the sample drivers.
