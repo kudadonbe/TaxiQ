@@ -68,7 +68,7 @@ export function DispatchLog({ history, queue, callInProgress, onReopen }: Props)
                   </span>
                 )}
                 {d.call.phone && (
-                  <bdi className="ms-2 inline-block tabular-nums text-slate-500" dir="ltr">
+                  <bdi className="block tabular-nums text-slate-500" dir="ltr">
                     ☎ {d.call.phone}
                   </bdi>
                 )}

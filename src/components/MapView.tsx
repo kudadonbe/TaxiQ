@@ -5,6 +5,7 @@ import { useI18n } from '../i18n'
 import { loadPlaces, metresBetween, searchPlaces, type Place, type PlaceType } from '../places'
 import { MAP_CENTER, subscribePositions, type Positions } from '../positions'
 import type { Taxi } from '../types'
+import { PlotLayer } from './plotLayer'
 
 type Status = 'idle' | 'answered' | 'suspended'
 
@@ -76,6 +77,7 @@ export default function MapView({ taxis, interested, pickupAt }: Props) {
   const pickupPin = useRef<L.Marker | null>(null)
 
   const [places, setPlaces] = useState<Place[] | null>(null)
+  const [showPlots, setShowPlots] = useState(true)
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<Place | null>(null)
   const [nearest, setNearest] = useState<{ taxi: Taxi; metres: number }[]>([])
@@ -100,6 +102,55 @@ export default function MapView({ taxis, interested, pickupAt }: Props) {
       all.clear()
     }
   }, [])
+
+  // Council plot chart (house land areas) as a switchable layer under the cars and labels.
+  useEffect(() => {
+    const m = map.current
+    if (!m || !showPlots) return
+    const layer = new PlotLayer().addTo(m)
+    return () => {
+      layer.remove()
+    }
+  }, [showPlots])
+
+  // House and landmark names drawn on the map, like the council chart. Only when zoomed in close
+  // (zoom 18+), and only those in view, so the map stays fast with 3,000+ houses.
+  useEffect(() => {
+    const m = map.current
+    if (!m) return
+    let cancelled = false
+    let all: Place[] = []
+    const layer = L.layerGroup().addTo(m)
+    const render = () => {
+      layer.clearLayers()
+      if (m.getZoom() < 18) return
+      const view = m.getBounds().pad(0.1)
+      let shown = 0
+      for (const p of all) {
+        if (p.t !== 'h' && p.t !== 'l') continue
+        const at = p.p[0]!
+        if (!view.contains(at)) continue
+        const el = document.createElement('span')
+        el.className = `map-label ${p.t === 'l' ? 'map-label-landmark' : ''}`
+        el.textContent = lang === 'dv' && p.d ? p.d : p.e
+        const icon = L.divIcon({ html: el, className: '', iconSize: [0, 0] })
+        layer.addLayer(L.marker(at, { icon, interactive: false, keyboard: false, zIndexOffset: -1000 }))
+        if (++shown >= 400) break
+      }
+    }
+    void loadPlaces().then((list) => {
+      if (cancelled) return
+      all = list
+      setPlaces(list)
+      render()
+    })
+    m.on('moveend', render)
+    return () => {
+      cancelled = true
+      m.off('moveend', render)
+      layer.remove()
+    }
+  }, [lang])
 
   // Keep one marker per registered taxi, styled by its queue status.
   const ids = taxis.map((x) => x.id).join(',')
@@ -232,6 +283,10 @@ export default function MapView({ taxis, interested, pickupAt }: Props) {
         <span className="flex items-center gap-1.5">
           <i className="h-3.5 w-2 rounded-sm border border-slate-900 bg-rose-600" /> {t.mapSuspended}
         </span>
+        <label className="ms-auto flex min-h-8 cursor-pointer items-center gap-1.5 font-medium">
+          <input type="checkbox" checked={showPlots} onChange={(e) => setShowPlots(e.target.checked)} className="size-4 accent-emerald-600" />
+          {t.plotMap}
+        </label>
       </div>
       <div className="relative">
         <div
