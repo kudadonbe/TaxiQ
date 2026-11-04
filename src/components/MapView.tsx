@@ -6,12 +6,13 @@ import { loadPlaces, metresBetween, searchPlaces, type Place, type PlaceType } f
 import { MAP_CENTER, subscribePositions, type Positions } from '../positions'
 import type { Taxi } from '../types'
 
-type Status = 'idle' | 'answered' | 'assigned'
+type Status = 'idle' | 'answered' | 'suspended'
 
 interface Props {
   taxis: Taxi[]
   interested: ReadonlySet<string>
-  assignedId: string | undefined
+  // Pickup of the call being taken, if it was chosen from the place search.
+  pickupAt: [number, number] | undefined
 }
 
 const typeIcon: Record<PlaceType, string> = { h: '🏠', r: '🛣️', l: '📍', p: '▫️' }
@@ -26,12 +27,12 @@ const PIN_SVG = `<svg viewBox="0 0 24 32" width="28" height="36" aria-hidden="tr
 const statusClass: Record<Status, string> = {
   idle: 'text-yellow-300',
   answered: 'text-emerald-500',
-  assigned: 'text-slate-900',
+  suspended: 'text-rose-600',
 }
 const labelClass: Record<Status, string> = {
   idle: 'bg-white text-slate-900 border-slate-900',
   answered: 'bg-emerald-500 text-slate-950 border-emerald-900',
-  assigned: 'bg-slate-900 text-white border-white',
+  suspended: 'bg-rose-600 text-white border-rose-900',
 }
 
 // Top-down taxi, nose pointing up (north) so rotate(heading) aims it along the road.
@@ -65,13 +66,14 @@ function markerParts(): MarkerParts {
 }
 
 // Live map of taxis. Leaflet is driven imperatively so 60fps position updates don't re-render React.
-export default function MapView({ taxis, interested, assignedId }: Props) {
+export default function MapView({ taxis, interested, pickupAt }: Props) {
   const { lang, t, driverName } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const map = useRef<L.Map | null>(null)
   const markers = useRef(new Map<string, { marker: L.Marker; parts: MarkerParts }>())
   const positions = useRef<Positions>(new Map())
   const highlight = useRef<L.Layer | null>(null)
+  const pickupPin = useRef<L.Marker | null>(null)
 
   const [places, setPlaces] = useState<Place[] | null>(null)
   const [query, setQuery] = useState('')
@@ -112,7 +114,7 @@ export default function MapView({ taxis, interested, assignedId }: Props) {
       }
     }
     for (const taxi of taxis) {
-      const status: Status = taxi.id === assignedId ? 'assigned' : interested.has(taxi.id) ? 'answered' : 'idle'
+      const status: Status = taxi.suspended ? 'suspended' : interested.has(taxi.id) ? 'answered' : 'idle'
       let entry = markers.current.get(taxi.id)
       if (!entry) {
         const parts = markerParts()
@@ -124,14 +126,14 @@ export default function MapView({ taxis, interested, assignedId }: Props) {
       parts.car.className = `absolute inset-0 grid place-items-center drop-shadow-md will-change-transform ${statusClass[status]}`
       parts.label.className = `absolute -top-4 left-1/2 -translate-x-1/2 rounded-full border px-1.5 text-[11px] leading-4 font-black tabular-nums shadow ${labelClass[status]}`
       parts.label.textContent = taxi.taxiNo
-      marker.setZIndexOffset(status === 'idle' ? 0 : 1000)
+      marker.setZIndexOffset(status === 'answered' ? 1000 : 0)
       const tip = document.createElement('span')
       tip.textContent = `${taxi.taxiNo} · ${driverName(taxi.driver)}`
       marker.unbindTooltip().bindTooltip(tip, { direction: 'top', offset: [0, -22] })
       // Touch screens have no hover: tap a car to show its driver.
       marker.off('click').on('click', () => marker.toggleTooltip())
     }
-  }, [taxis, interested, assignedId, driverName])
+  }, [taxis, interested, driverName])
 
   // Subscribe to positions (simulated for now) and move markers.
   useEffect(() => {
@@ -163,15 +165,35 @@ export default function MapView({ taxis, interested, assignedId }: Props) {
     }
   }, [selected])
 
-  // Nearest taxis to the selected place, refreshed every second as they move.
+  // The call's pickup gets its own pin, and is the nearest-taxi target when nothing is searched.
   useEffect(() => {
-    if (!selected) return
+    const m = map.current
+    pickupPin.current?.remove()
+    pickupPin.current = null
+    if (!m || !pickupAt) return
+    const icon = L.divIcon({ html: PIN_SVG.replace('#e11d48', '#059669'), className: '', iconSize: [28, 36], iconAnchor: [14, 34] })
+    const tip = document.createElement('span')
+    tip.textContent = t.pickupPin
+    pickupPin.current = L.marker(pickupAt, { icon, keyboard: false, zIndexOffset: 1900 })
+      .bindTooltip(tip, { direction: 'top', offset: [0, -34], permanent: true })
+      .addTo(m)
+    m.flyTo(pickupAt, 18, { duration: 0.8 })
+  }, [pickupAt, t.pickupPin])
+
+  const target = selected?.p ?? (pickupAt ? [pickupAt] : null)
+  const targetKey = target ? JSON.stringify(target) : ''
+
+  // Nearest available taxis to the target, refreshed every second as they move.
+  useEffect(() => {
+    if (!targetKey) return
+    const pts = JSON.parse(targetKey) as [number, number][]
     const update = () => {
       const list = taxis
+        .filter((taxi) => !taxi.suspended)
         .map((taxi) => {
           const pos = positions.current.get(taxi.id)
           if (!pos) return null
-          const metres = Math.min(...selected.p.map((pt) => metresBetween(pt, [pos.lat, pos.lng])))
+          const metres = Math.min(...pts.map((pt) => metresBetween(pt, [pos.lat, pos.lng])))
           return { taxi, metres }
         })
         .filter((x) => x !== null)
@@ -182,7 +204,7 @@ export default function MapView({ taxis, interested, assignedId }: Props) {
     update()
     const timer = setInterval(update, 1000)
     return () => clearInterval(timer)
-  }, [selected, taxis])
+  }, [targetKey, taxis])
 
   const choose = (p: Place) => {
     setNearest([])
@@ -208,7 +230,7 @@ export default function MapView({ taxis, interested, assignedId }: Props) {
           <i className="h-3.5 w-2 rounded-sm border border-slate-900 bg-emerald-500" /> {t.mapAnswered}
         </span>
         <span className="flex items-center gap-1.5">
-          <i className="h-3.5 w-2 rounded-sm border border-slate-900 bg-slate-900" /> {t.mapAssigned}
+          <i className="h-3.5 w-2 rounded-sm border border-slate-900 bg-rose-600" /> {t.mapSuspended}
         </span>
       </div>
       <div className="relative">
@@ -272,16 +294,20 @@ export default function MapView({ taxis, interested, assignedId }: Props) {
             </ul>
           )}
 
-          {selected && (
+          {(selected || (pickupAt && !query)) && (
             <div className="mt-1 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
-              <p className="font-bold">
-                {typeIcon[selected.t]} {placeName(selected)}
-                {selected.pl && selected.t !== 'p' && (
-                  <span className="ms-2 text-sm font-medium text-slate-500">
-                    {t.plot} {selected.pl}
-                  </span>
-                )}
-              </p>
+              {selected ? (
+                <p className="font-bold">
+                  {typeIcon[selected.t]} {placeName(selected)}
+                  {selected.pl && selected.t !== 'p' && (
+                    <span className="ms-2 text-sm font-medium text-slate-500">
+                      {t.plot} {selected.pl}
+                    </span>
+                  )}
+                </p>
+              ) : (
+                <p className="font-bold text-emerald-700">📍 {t.pickupPin}</p>
+              )}
               <p className="mt-2 text-xs font-semibold uppercase tracking-widest text-slate-500">{t.nearestTaxis}</p>
               <ul className="mt-1 space-y-1">
                 {nearest.map(({ taxi, metres }) => (

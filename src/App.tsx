@@ -1,8 +1,11 @@
 import { lazy, Suspense, useState } from 'react'
 import { AdminPanel } from './components/AdminPanel'
+import { CallPanel } from './components/CallPanel'
+import { DispatchLog } from './components/DispatchLog'
 import { QueueRow } from './components/QueueRow'
 import { useI18n } from './i18n'
 import { useQueue } from './useQueue'
+import { validateCall } from './validate'
 
 // Leaflet is only loaded when the map is opened.
 const MapView = lazy(() => import('./components/MapView'))
@@ -10,9 +13,13 @@ const MapView = lazy(() => import('./components/MapView'))
 type View = 'queue' | 'map' | 'admin'
 
 export default function App() {
-  const { queue, history, interested, pick, assigned, toggle, done, assign, undo, register, remove, reset } = useQueue()
+  const q = useQueue()
+  const { queue, history, interested, pick, call, setCall, callInProgress, canUndo, toggle, clear, undo } = q
+  const callValid = Object.keys(validateCall(call)).length === 0
+  // Invalid passenger details block assigning, so bad input is never attached to a dispatch.
+  const assign = (id: string) => callValid && q.assign(id)
   const [view, setView] = useState<View>('queue')
-  const { lang, t, toggleLang, driverName, time } = useI18n()
+  const { lang, t, toggleLang, driverName } = useI18n()
 
   return (
     <div className="min-h-dvh bg-slate-100 text-slate-900">
@@ -29,7 +36,7 @@ export default function App() {
             <button
               type="button"
               onClick={undo}
-              disabled={!history.length}
+              disabled={!canUndo || callInProgress}
               className="min-h-10 rounded-lg px-3 font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
             >
               {t.undo}
@@ -64,32 +71,24 @@ export default function App() {
 
         {view === 'queue' && (
           <div className="mx-auto flex max-w-5xl items-center gap-2 px-4 pb-3 sm:gap-3">
-            {assigned ? (
+            {pick || callInProgress ? (
               <>
-                <p className="flex-1 rounded-xl bg-slate-900 px-3 py-2 text-sm text-white sm:px-4 sm:py-3">
-                  <span className="font-bold">
-                    {t.assignedTo} <span className="tabular-nums">{assigned.taxiNo}</span> · {driverName(assigned.driver)}
-                  </span>
-                  <span className="block text-slate-300">{t.reassignHint}</span>
+                <p className="min-w-0 flex-1 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-900 sm:px-4 sm:py-3">
+                  {pick ? (
+                    <>
+                      <span className="font-bold">{t.answeredCount(interested.size)}</span>
+                      <span className="block truncate">
+                        {t.nextInLine} <span className="font-bold tabular-nums">{pick.taxiNo}</span> · {driverName(pick.driver)}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="block">{t.hint}</span>
+                  )}
+                  {call.pickup && <span className="block truncate text-emerald-800">📍 {call.pickup}</span>}
+                  {!callValid && <span className="block font-semibold text-rose-700">{t.callTitle}: {t.notValid}</span>}
                 </p>
-                <button
-                  type="button"
-                  onClick={done}
-                  className="rounded-lg bg-emerald-500 px-4 py-3 text-sm font-bold text-slate-950 hover:bg-emerald-400"
-                >
-                  {t.done}
-                </button>
-              </>
-            ) : pick ? (
-              <>
-                <p className="flex-1 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-900 sm:px-4 sm:py-3">
-                  <span className="font-bold">{t.answeredCount(interested.size)}</span>
-                  <span className="block">
-                    {t.nextInLine} <span className="font-bold tabular-nums">{pick.taxiNo}</span> · {driverName(pick.driver)}
-                  </span>
-                </p>
-                <button type="button" onClick={done} className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">
-                  {t.clear}
+                <button type="button" onClick={clear} className="min-h-10 shrink-0 rounded-lg px-3 text-sm font-medium text-slate-600 hover:bg-slate-100">
+                  {t.cancelCall}
                 </button>
               </>
             ) : (
@@ -103,18 +102,19 @@ export default function App() {
 
       {view === 'admin' ? (
         <main className="mx-auto max-w-5xl px-4 py-4 sm:py-6">
-          <AdminPanel taxis={queue} onRegister={register} onRemove={remove} />
+          <AdminPanel taxis={queue} onRegister={q.register} onRemove={q.remove} onSuspend={q.suspend} onLift={q.lift} />
         </main>
       ) : view === 'map' ? (
         <main className="isolate mx-auto max-w-5xl px-2 py-2 sm:px-4 sm:py-6">
           <Suspense fallback={<p className="text-sm text-slate-500">…</p>}>
-            <MapView taxis={queue} interested={interested} assignedId={assigned?.id} />
+            <MapView taxis={queue} interested={interested} pickupAt={call.pickupAt} />
           </Suspense>
         </main>
       ) : (
         <main className="mx-auto grid max-w-5xl gap-6 px-4 py-4 sm:py-6 lg:grid-cols-[1fr_18rem]">
-          <section>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-slate-500">{t.queue}</h2>
+          <section className="space-y-3">
+            <CallPanel call={call} onChange={setCall} />
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">{t.queue}</h2>
             {/* Left gutter is the room a row slides into when its driver answers. */}
             <ol className="space-y-2 pl-20">
               {queue.map((taxi, i) => (
@@ -124,10 +124,8 @@ export default function App() {
                   position={i + 1}
                   interested={interested.has(taxi.id)}
                   picked={pick?.id === taxi.id}
-                assigned={assigned?.id === taxi.id}
-                reassign={!!assigned}
                   onToggle={() => toggle(taxi.id)}
-                onAssign={() => assign(taxi.id)}
+                  onAssign={() => assign(taxi.id)}
                 />
               ))}
             </ol>
@@ -135,26 +133,8 @@ export default function App() {
 
           <aside className="space-y-3">
             <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">{t.recent}</h2>
-            {history.length ? (
-              <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white">
-                {history.map(({ taxi, at }) => (
-                  <li key={`${taxi.id}-${at}`} className="flex items-center justify-between px-3 py-2 text-sm">
-                    <span>
-                      <span className="font-bold tabular-nums">{taxi.taxiNo}</span>{' '}
-                      <span className="text-slate-500">{driverName(taxi.driver)}</span>
-                    </span>
-                    <time className="text-slate-400 tabular-nums" dateTime={new Date(at).toISOString()}>
-                      {time.format(at)}
-                    </time>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">
-                {t.noRides}
-              </p>
-            )}
-            <button type="button" onClick={reset} className="text-sm text-slate-500 underline hover:text-slate-700">
+            <DispatchLog history={history} queue={queue} callInProgress={callInProgress} onReopen={q.reopen} />
+            <button type="button" onClick={q.reset} className="text-sm text-slate-500 underline hover:text-slate-700">
               {t.reset}
             </button>
           </aside>

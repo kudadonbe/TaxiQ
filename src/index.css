@@ -29,6 +29,17 @@
   --font-sans: "Dhanbumaa", "Noto Sans Thaana", ui-sans-serif, system-ui, sans-serif;
   /* Headings: MV Bodu for Thaana. */
   --font-heading: "MV Bodu", "Dhanbumaa", "Noto Sans Thaana", ui-sans-serif, system-ui, sans-serif;
+
+  /* Card flip when a taxi is suspended or lifted (the physical tag being turned over). */
+  --animate-flip: flip 0.45s ease-out;
+  @keyframes flip {
+    from {
+      transform: perspective(600px) rotateX(90deg);
+    }
+    to {
+      transform: perspective(600px) rotateX(0);
+    }
+  }
 }
 
 html {
@@ -45,4 +56,10 @@ h3 {
 :lang(dv) .tracking-widest,
 :lang(dv) .tracking-tight {
   letter-spacing: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-flip {
+    animation: none;
+  }
 }

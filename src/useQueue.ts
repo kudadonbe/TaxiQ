@@ -1,18 +1,24 @@
 import { useEffect, useState } from 'react'
 import { initialTaxis } from './data/taxis'
-import type { Taxi } from './types'
-import { parseStoredTaxi, toTaxi, type TaxiInput } from './validate'
+import type { CallInfo, SuspendReason, Taxi } from './types'
+import { EMPTY_CALL, hasCallInfo, parseStoredTaxi, toTaxi, type TaxiInput } from './validate'
 
-// The queue holds every registered taxi, in rank order. Stored as full records because the
-// admin panel can add and remove taxis; bump the key if the stored shape changes.
+// The queue holds every registered taxi, in rank order (suspended ones keep their place). Stored as
+// full records because the admin panel can add, remove and suspend taxis. Call/passenger details and
+// the dispatch log are never stored. Bump the key if the stored shape changes incompatibly.
 const STORAGE_KEY = 'taxiq.queue.v3'
 
 export interface Dispatch {
+  id: string
   taxi: Taxi
   at: number
-  // Where the taxi stood in the queue, and who had answered the call, so undo can restore both exactly.
+  // Where the taxi stood and who had answered, so the dispatch can be undone or reopened.
   from: number
   interested: string[]
+  call: CallInfo | null
+  reopened: boolean
+  // `from` is exact only until the queue changes some other way (a reopen or a removal).
+  exact: boolean
 }
 
 function load(): Taxi[] {
@@ -41,9 +47,8 @@ export function useQueue() {
   const [history, setHistory] = useState<Dispatch[]>([])
   // Drivers who answered the current radio call (their rows are slid left).
   const [interested, setInterested] = useState<ReadonlySet<string>>(new Set())
-  // The taxi the current call was assigned to, while the call is still open. It stays open so
-  // the operator can reassign if that driver doesn't respond; Done closes it. Always history[0].
-  const [assignedId, setAssignedId] = useState<string | null>(null)
+  // Passenger details for the call being taken now.
+  const [call, setCall] = useState<CallInfo>(EMPTY_CALL)
 
   useEffect(() => {
     try {
@@ -53,64 +58,93 @@ export function useQueue() {
     }
   }, [queue])
 
-  // Suggested driver: the answered driver standing highest in the queue (excluding the one
-  // already assigned on this call).
-  const pick = queue.find((t) => interested.has(t.id) && t.id !== assignedId)
-  const assigned = assignedId ? queue.find((t) => t.id === assignedId) : undefined
+  // Suggested driver: the answered driver standing highest in the queue.
+  const pick = queue.find((t) => interested.has(t.id))
+  const callInProgress = interested.size > 0 || hasCallInfo(call)
+  const canUndo = !!history[0] && history[0].exact && !history[0].reopened
+
+  const available = (id: string) => {
+    const t = queue.find((x) => x.id === id)
+    return !!t && !t.suspended
+  }
 
   const toggle = (id: string) => {
-    if (id === assignedId) return
+    if (!available(id)) return
     const next = new Set(interested)
     if (!next.delete(id)) next.add(id)
     setInterested(next)
   }
 
-  // Close the call: everyone slides back into line.
-  const done = () => {
+  // Cancel the call being taken: everyone slides back, details cleared.
+  const clear = () => {
     setInterested(new Set())
-    setAssignedId(null)
+    setCall(EMPTY_CALL)
   }
 
-  // Put a dispatched taxi back where it stood before. Only valid for history[0], because the
-  // queue hasn't changed since then.
-  const restore = (q: Taxi[], d: Dispatch) => {
-    const next = q.filter((t) => t.id !== d.taxi.id)
-    next.splice(d.from, 0, d.taxi)
-    return next
-  }
-
-  // Assign the ride to one of the answered drivers (usually `pick`, but the operator may choose
-  // any). That taxi goes to the back. If the call was already assigned, this is a reassign: the
-  // driver who didn't respond goes back to their old place and is no longer marked as answered.
+  // Assigning finishes the call: the taxi goes to the back, every slid card returns to normal,
+  // and the passenger details go with the dispatch.
   const assign = (id: string) => {
-    if (id === assignedId || !interested.has(id)) return
-    let q = queue
-    let hist = history
-    const answered = new Set(interested)
-    const prev = assignedId ? history[0] : undefined
-    if (prev) {
-      q = restore(q, prev)
-      hist = history.slice(1)
-      answered.delete(prev.taxi.id)
-    }
-    const from = q.findIndex((t) => t.id === id)
-    if (from < 0) return
-    const taxi = q[from]!
-    setQueue([...q.filter((t) => t.id !== id), taxi])
-    setHistory([{ taxi, at: Date.now(), from, interested: [...answered] }, ...hist].slice(0, 20))
-    setInterested(answered)
-    setAssignedId(id)
+    const from = queue.findIndex((t) => t.id === id)
+    const taxi = queue[from]
+    if (!taxi || taxi.suspended || !interested.has(id)) return
+    setQueue([...queue.filter((t) => t.id !== id), taxi])
+    setHistory(
+      [
+        {
+          id: crypto.randomUUID(),
+          taxi,
+          at: Date.now(),
+          from,
+          interested: [...interested],
+          call: hasCallInfo(call) ? call : null,
+          reopened: false,
+          exact: true,
+        },
+        ...history,
+      ].slice(0, 30),
+    )
+    clear()
   }
 
-  // Undo the most recent assignment: taxi back to its old place, interested drivers slid out again.
+  // Undo a mistaken assignment (latest only): exact restore of the queue, the answered drivers and
+  // the call details, as if Assign was never pressed.
   const undo = () => {
     const [last, ...rest] = history
-    if (!last) return
-    const next = restore(queue, last)
-    setQueue(next)
-    setInterested(new Set(last.interested.filter((id) => next.some((t) => t.id === id))))
-    setAssignedId(null)
+    if (!last || !canUndo || callInProgress) return
+    setQueue(placeAt(queue, last.taxi.id, last.from))
+    setInterested(new Set(last.interested.filter(available)))
+    setCall(last.call ?? EMPTY_CALL)
     setHistory(rest)
+  }
+
+  // Reopen a dispatch when something happened to the driver before the trip was completed: the
+  // driver gets their old place back, the call (details + other answered drivers) comes back so it
+  // can be assigned to someone else, and the dispatch stays in the log marked as reopened.
+  const reopen = (dispatchId: string) => {
+    const d = history.find((x) => x.id === dispatchId)
+    if (!d || d.reopened || callInProgress || !queue.some((t) => t.id === d.taxi.id)) return
+    setQueue(placeAt(queue, d.taxi.id, d.from))
+    setInterested(new Set(d.interested.filter((id) => id !== d.taxi.id && available(id))))
+    setCall(d.call ?? EMPTY_CALL)
+    setHistory(history.map((x) => (x.id === d.id ? { ...x, reopened: true } : { ...x, exact: false })))
+  }
+
+  // Admin: suspend (flip to the red side) or lift. The taxi keeps its place in the queue.
+  const suspend = (id: string, reason: SuspendReason, note: string) => {
+    setQueue(queue.map((t) => (t.id === id ? { ...t, suspended: { reason, note: note.trim(), at: Date.now() } } : t)))
+    const next = new Set(interested)
+    next.delete(id)
+    setInterested(next)
+  }
+
+  const lift = (id: string) => {
+    setQueue(
+      queue.map((t) => {
+        if (t.id !== id) return t
+        const { suspended: _lifted, ...rest } = t
+        return rest
+      }),
+    )
   }
 
   // Admin: a newly registered taxi joins the back of the rank. Input must already be validated.
@@ -118,12 +152,11 @@ export function useQueue() {
     setQueue([...queue, toTaxi(crypto.randomUUID(), input)])
   }
 
-  // Admin: an unsubscribed taxi leaves the rank. Removing shifts everyone's position, so the
-  // undo history (which stores positions) is cleared rather than left pointing at wrong places.
+  // Admin: an unsubscribed taxi leaves the rank. Positions shift, so logged dispatches can no
+  // longer be undone exactly (they can still be reopened, by index).
   const remove = (id: string) => {
     setQueue(queue.filter((t) => t.id !== id))
-    setHistory([])
-    setAssignedId(null)
+    setHistory(history.map((x) => ({ ...x, exact: false })))
     const next = new Set(interested)
     next.delete(id)
     setInterested(next)
@@ -132,9 +165,36 @@ export function useQueue() {
   const reset = () => {
     setQueue(initialTaxis)
     setHistory([])
-    setInterested(new Set())
-    setAssignedId(null)
+    clear()
   }
 
-  return { queue, history, interested, pick, assigned, toggle, done, assign, undo, register, remove, reset }
+  return {
+    queue,
+    history,
+    interested,
+    pick,
+    call,
+    setCall,
+    callInProgress,
+    canUndo,
+    toggle,
+    clear,
+    assign,
+    undo,
+    reopen,
+    suspend,
+    lift,
+    register,
+    remove,
+    reset,
+  }
+}
+
+// Move a taxi to an index (clamped), keeping everyone else's order.
+function placeAt(queue: Taxi[], id: string, index: number): Taxi[] {
+  const taxi = queue.find((t) => t.id === id)
+  if (!taxi) return queue
+  const next = queue.filter((t) => t.id !== id)
+  next.splice(Math.min(index, next.length), 0, taxi)
+  return next
 }

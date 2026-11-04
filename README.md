@@ -2,11 +2,11 @@
 
 A visual model of the physical taxi queue at a call center, in English and Dhivehi.
 
-1. The operator calls a ride on the radio.
+1. The operator takes the customer's details (pickup from the house search, destination, phone, note) and calls the ride on the radio.
 2. Drivers who want it answer with their center number; the operator taps each one and their row slides left, uncovering an **Assign** button.
-3. The answering driver highest in the queue is highlighted, but any answering driver can be assigned. The assigned taxi moves to the back.
-4. If the driver doesn't respond, **Reassign** another answering driver: the first one goes back to their old place. **Done** closes the call and everyone slides back into line.
-5. **Undo** restores the driver's exact place and the drivers who had answered.
+3. The answering driver highest in the queue is highlighted, but any answering driver can be assigned. **Assigning finishes the call**: the taxi moves to the back and every card slides back into line.
+4. If something happens before the trip is done, **Reopen** the dispatch: the driver gets their place back and the call returns, ready to assign to someone else. **Undo** takes back a mistaken assignment.
+5. A **suspended** driver (misconduct, unpaid fees) shows a red card: they keep their place but can't take rides until the admin lifts it.
 
 The **Map** view shows taxi cars on a live OpenStreetMap of Kulhudhuffushi, facing the way they drive and coloured by queue status. Positions are **simulated** on the island's real road network (OpenStreetMap data, ODbL) for now; live GPS will come from a driver app (see `src/positions.ts`).
 
@@ -25,8 +25,7 @@ pnpm build    # type-check + production build to docs/ (published by GitHub Page
 pnpm lint
 ```
 
-Taxis, queue order and language are kept in the browser's localStorage. There is no backend yet, so the
-admin panel has no login and changes stay on that one device.
+Taxis, suspensions, queue order and language are kept in the browser's localStorage; passenger details and the dispatch log stay in memory only. There is no backend yet, so the admin panel has no login and changes stay on that one device. See [SECURITY.md](SECURITY.md).
 
 Live at https://kudadonbe.github.io/TaxiQ/. GitHub Pages serves the committed `docs/` folder on `v2`, so run `pnpm build` and commit `docs/` to publish changes.
 

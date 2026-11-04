@@ -1,4 +1,4 @@
-import type { Taxi } from './types'
+import type { CallInfo, SuspendReason, Suspension, Taxi } from './types'
 
 // Allow-list validation for taxi records. Used by the admin form and when reading localStorage,
 // so anything that reaches the UI has passed the same rules.
@@ -58,8 +58,42 @@ export function parseStoredTaxi(value: unknown): Taxi | null {
     phone: str(d.phone),
   }
   if (Object.keys(validate(input, [])).length) return null
-  return toTaxi(str(v.id), input)
+  const taxi = toTaxi(str(v.id), input)
+  const suspension = parseSuspension(v.suspended)
+  if (suspension) taxi.suspended = suspension
+  return taxi
 }
+
+// Free text typed by the operator (notes, places): letters in any script, digits, spaces and
+// basic punctuation only; no angle brackets, quotes-as-markup or control characters.
+const freeText = /^[\p{L}\p{M}\p{N} .,'/#()&+:;\-\u060C]{0,120}$/u
+export const isFreeText = (s: string) => freeText.test(s)
+
+export const SUSPEND_REASONS: readonly SuspendReason[] = ['conduct', 'fees', 'other']
+
+function parseSuspension(value: unknown): Suspension | null {
+  if (typeof value !== 'object' || value === null) return null
+  const v = value as Record<string, unknown>
+  const reason = SUSPEND_REASONS.find((r) => r === v.reason)
+  const note = typeof v.note === 'string' ? v.note : ''
+  const at = typeof v.at === 'number' && Number.isFinite(v.at) ? v.at : Date.now()
+  if (!reason || !isFreeText(note)) return null
+  return { reason, note, at }
+}
+
+export const EMPTY_CALL: CallInfo = { pickup: '', destination: '', phone: '', note: '' }
+
+export type CallField = 'pickup' | 'destination' | 'phone' | 'note'
+
+// Call details are optional, but whatever is filled in must pass the allow-list.
+export function validateCall(call: CallInfo): Partial<Record<CallField, 'format'>> {
+  const errors: Partial<Record<CallField, 'format'>> = {}
+  for (const f of ['pickup', 'destination', 'note'] as const) if (!isFreeText(call[f].trim())) errors[f] = 'format'
+  if (call.phone.trim() && !/^\d{7}$/.test(call.phone.trim())) errors.phone = 'format'
+  return errors
+}
+
+export const hasCallInfo = (c: CallInfo) => !!(c.pickup.trim() || c.destination.trim() || c.phone.trim() || c.note.trim())
 
 export function toTaxi(id: string, i: TaxiInput): Taxi {
   return { id, taxiNo: i.taxiNo, taxiReg: i.taxiReg, driver: { id, name: i.name, nameDv: i.nameDv, phone: i.phone } }
