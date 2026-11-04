@@ -12,7 +12,7 @@ The **Map** view shows taxi cars on a live OpenStreetMap of Kulhudhuffushi, faci
 
 The **Admin** view registers new taxis (they join the back of the queue) and removes unsubscribed ones.
 
-v2 is a rewrite of the Angular 15 v1 (`main` branch) in React + TypeScript + Vite + Tailwind CSS.
+v2 is a rewrite of the Angular 15 v1 (`v1` branch) in React + TypeScript + Vite + Tailwind CSS.
 
 ## Develop
 

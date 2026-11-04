@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 TaxiQ v2 is a visual model of the physical taxi queue at a call center. The operator calls a ride on the radio, and drivers who want it answer with their center number (`taxiNo`, e.g. 34). The operator taps each one who answers, which slides their row left and uncovers an Assign button in the gap. The slid-left driver *highest in the queue* is highlighted as the suggestion, but any of them can be assigned. The assigned taxi moves to the back, and the call stays open. If the driver doesn't respond, the operator reassigns to another slid-left driver, and the first driver goes back to their old place. **Done** closes the call. The app is bilingual (English/Dhivehi) and has an Admin view for registering and removing taxis.
 
-`v2` is the **default branch**, a rewrite in React 19 + TypeScript + Vite + Tailwind CSS v4. Branch from and open PRs against `v2`. The `main` branch still holds the Angular 15 v1, so don't diff against `main` expecting related code.
+`v2` is the **default branch**, a rewrite in React 19 + TypeScript + Vite + Tailwind CSS v4. Branch from and open PRs against `v2`. The `v1` branch (formerly `main`) holds the Angular 15 v1, so don't diff against `v1` expecting related code. There is no `main` branch.
 
 ## Commands
 
