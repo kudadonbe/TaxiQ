@@ -17,13 +17,23 @@ pnpm install
 pnpm dev       # Vite dev server, http://localhost:5173
 pnpm build     # tsc -b (type-check app + node configs) then vite build to docs/
 pnpm lint      # oxlint (not ESLint), config in .oxlintrc.json
+pnpm test      # Vitest: core engine and validation tests (*.test.ts)
+pnpm exec vitest run src/core/queue.test.ts -t "undo"   # one file / one test
 pnpm preview   # serve the built docs/
 pnpm deploy    # build + deploy docs/ to Firebase Hosting (needs the firebase CLI, logged in)
 ```
 
-There is no test runner set up yet. `pnpm build` is the type-check gate, since `tsc -b` runs before the Vite build.
+`pnpm build` is the type-check gate, since `tsc -b` runs before the Vite build. CI (`.github/workflows/ci.yml`) runs lint, test and build on every push to `v2`/`v3` and on PRs.
+
+## Branches and plans
+
+- **`v3`** is the active development branch (core engine + API, see `plans/`). `v2` is the default branch and the source of the live sites; keep it working until v3 Phase 4.
+- `plans/` holds the v3 plans (read `plans/README.md` first). Notes go there, never in `docs/` (build output).
+- Ask Hussain before changing the stack, the data model or the plans.
 
 ## Architecture
+
+- **Core engine (`src/core/`)**: the queue and offer rules as pure functions, with no React, UI or Firebase imports. `queue.ts` covers normalizeOrder, toggleInterest, assign, undo/canUndo, reopen, onSuspend, removeTaxi and driverToBack. `offers.ts` covers nextTaxi, startOffer, moveOffer, offerTimedOut and canAccept. Each action returns the new `{order, interested}`, or `null` when it isn't allowed. Every client calls these functions: the demo hook, the live Firestore hook, `rides.ts`, and later the API server. Change a rule here, add a test, and keep `firestore.rules` matching it.
 
 - There is no backend and no router. `src/main.tsx` wraps `App.tsx` in `I18nProvider`. `App` switches between three views with a local `view` state: the queue, `MapView` and `AdminPanel`. `MapView` is lazy-loaded, so Leaflet only downloads when the Map tab opens.
 - All queue state lives in the `useQueue` hook (`src/useQueue.ts`):

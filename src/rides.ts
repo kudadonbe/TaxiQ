@@ -7,11 +7,13 @@
 // once it has waited OFFER_SECONDS; the Firestore rules check the server clock, so nobody can move it
 // on early, and only the offered driver can accept.
 
+import { canAccept, moveOffer, startOffer } from './core/offers'
+import { driverToBack } from './core/queue'
 import type { Taxi } from './types'
 
 type Fb = typeof import('./firebase')
 
-export const OFFER_SECONDS = 20
+export { nextTaxi, OFFER_SECONDS } from './core/offers'
 
 export type RideStatus = 'offering' | 'accepted' | 'expired' | 'cancelled'
 
@@ -83,11 +85,6 @@ export function asMapTaxi(p: PublicTaxi): Taxi {
   }
 }
 
-// Next taxi to offer to: the first in queue order that hasn't been offered yet and isn't suspended.
-export function nextTaxi(order: string[], skipped: string[], suspended: ReadonlySet<string>): string | null {
-  return order.find((id) => !skipped.includes(id) && !suspended.has(id)) ?? null
-}
-
 async function readOrderAndSuspended(fb: Fb) {
   const [state, pub] = await Promise.all([fb.getDoc(fb.doc(fb.db, 'queue', 'state')), fb.getDocs(fb.collection(fb.db, 'publicTaxis'))])
   const order = Array.isArray(state.data()?.order) ? (state.data()!.order as unknown[]).filter((x): x is string => typeof x === 'string') : []
@@ -108,18 +105,17 @@ export interface NewRide {
 // Passenger: create (or replace) their request.
 export async function requestRide(fb: Fb, uid: string, ride: NewRide) {
   const { order, suspended } = await readOrderAndSuspended(fb)
-  const direct = !!ride.taxiId
-  const offerTo = direct ? ride.taxiId! : nextTaxi(order, [], suspended)
+  const offer = startOffer(ride.taxiId ? 'direct' : 'queue', order, suspended, ride.taxiId)
   const data: Record<string, unknown> = {
     uid,
     name: ride.name.slice(0, 80),
-    mode: direct ? 'direct' : 'queue',
+    mode: offer.mode,
     pickup: ride.pickup.trim(),
     destination: ride.destination.trim(),
     phone: ride.phone.trim(),
     note: ride.note.trim(),
-    status: offerTo ? 'offering' : 'expired',
-    offerTo: offerTo ?? null,
+    status: offer.status,
+    offerTo: offer.offerTo,
     offerAt: fb.serverTimestamp(),
     skipped: [],
     acceptedBy: null,
@@ -136,10 +132,9 @@ export async function moveOn(fb: Fb, uid: string) {
   const ref = fb.doc(fb.db, 'requests', uid)
   await fb.runTransaction(fb.db, async (tx) => {
     const r = parseRequest((await tx.get(ref)).data())
-    if (!r || r.status !== 'offering' || !r.offerTo) return
-    const skipped = [...r.skipped, r.offerTo]
-    const next = r.mode === 'queue' ? nextTaxi(order, skipped, suspended) : null
-    tx.update(ref, { skipped, offerTo: next, offerAt: fb.serverTimestamp(), status: next ? 'offering' : 'expired' })
+    const next = r && moveOffer(r, order, suspended)
+    if (!next) return
+    tx.update(ref, { ...next, offerAt: fb.serverTimestamp() })
   })
 }
 
@@ -157,15 +152,16 @@ export async function acceptRide(fb: Fb, uid: string, taxiId: string, email: str
   await fb.runTransaction(fb.db, async (tx) => {
     const [reqSnap, stateSnap, taxiSnap] = [await tx.get(reqRef), await tx.get(stateRef), await tx.get(taxiRef)]
     const r = parseRequest(reqSnap.data())
-    if (!r || r.status !== 'offering' || r.offerTo !== taxiId) throw new Error('offer-gone')
+    const taxi = taxiSnap.data() ?? {}
+    if (!r || !canAccept(r, taxiId, new Set(taxi.suspended ? [taxiId] : []))) throw new Error('offer-gone')
     const order: string[] = Array.isArray(stateSnap.data()?.order) ? stateSnap.data()!.order : []
     const interested: string[] = Array.isArray(stateSnap.data()?.interested) ? stateSnap.data()!.interested : []
     const from = Math.max(0, order.indexOf(taxiId))
-    const taxi = taxiSnap.data() ?? {}
+    const moved = driverToBack({ order, interested }, taxiId)
     tx.update(reqRef, { status: 'accepted', acceptedBy: taxiId })
     tx.set(stateRef, {
-      order: [...order.filter((x) => x !== taxiId), taxiId],
-      interested: interested.filter((x) => x !== taxiId),
+      order: [...moved.order],
+      interested: [...moved.interested],
       updatedAt: fb.serverTimestamp(),
       updatedBy: email,
     })

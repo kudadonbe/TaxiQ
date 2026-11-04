@@ -67,6 +67,8 @@ The name stays **TaxiQ** for now. The queue is still the heart of the engine. A 
 
 ### Phase 1 - Extract the core engine
 
+**Status (2026-11-05): done on `v3`.** `src/core/queue.ts` and `src/core/offers.ts` hold the rules as pure functions with Vitest tests (43 passing). The demo queue, the live queue and the ride offers all call them, and CI runs lint, test and build. Next: the multi-tenant model (Phase 2), which needs decisions (Blaze plan for Cloud Functions, data model approval).
+
 - Move queue logic from `useQueue`, `useLiveQueue`, `rides.ts` into `core`.
 - Add a unit test runner (for example Vitest). Cover every queue action.
 - **Deliverable:** core module with tests, v2 still working.

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { moveOn, OFFER_SECONDS, parsePublicTaxi, parseRequest, type PublicTaxi, type RideRequest } from './rides'
+import { offerTimedOut } from './core/offers'
+import { moveOn, parsePublicTaxi, parseRequest, type PublicTaxi, type RideRequest } from './rides'
 
 type Fb = typeof import('./firebase')
 export type RequestWithId = RideRequest & { id: string }
@@ -33,7 +34,7 @@ function useAutoMoveOn(fb: Fb | null, requests: RequestWithId[]) {
     const timer = setInterval(() => {
       const now = Date.now()
       for (const r of requests) {
-        if (r.status !== 'offering' || !r.offerAt || now < r.offerAt + (OFFER_SECONDS + 1) * 1000) continue
+        if (!r.offerAt || !offerTimedOut(r, now, 1000)) continue
         const key = `${r.id}:${r.offerAt}`
         if (now - (tried.current.get(key) ?? 0) < 4000) continue
         tried.current.set(key, now)

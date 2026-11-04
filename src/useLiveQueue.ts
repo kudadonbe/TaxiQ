@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { initialTaxis } from './data/taxis'
 import type { CallInfo, SuspendReason, Taxi } from './types'
 import type { Dispatch, QueueApi } from './useQueue'
-import { placeAt } from './useQueue'
+import * as core from './core/queue'
 import { EMPTY_CALL, hasCallInfo, parseStoredTaxi, toTaxi, validateCall, type TaxiInput } from './validate'
 
 type Fb = typeof import('./firebase')
@@ -36,14 +36,9 @@ function callData(c: CallInfo) {
   return pickupAt ? { ...rest, pickupAt } : rest
 }
 
-// Order ids from the state doc, keeping only registered taxis; any taxi missing from the order
-// (just registered) joins the back.
-function normalize(order: unknown, taxis: Map<string, Taxi>): string[] {
-  const ids = Array.isArray(order) ? order.filter((id): id is string => typeof id === 'string' && taxis.has(id)) : []
-  const seen = new Set(ids)
-  const missing = [...taxis.values()].filter((t) => !seen.has(t.id)).sort((a, b) => Number(a.taxiNo) - Number(b.taxiNo))
-  return [...new Set(ids), ...missing.map((t) => t.id)]
-}
+// The queue rules live in src/core/queue.ts; this hook stores their results in Firestore.
+const coreList = (taxis: Map<string, Taxi>) => [...taxis.values()].map((t) => ({ id: t.id, taxiNo: t.taxiNo, suspended: !!t.suspended }))
+const normalize = (order: unknown, taxis: Map<string, Taxi>) => core.normalizeOrder(order, coreList(taxis))
 
 export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | null, isAdmin = false): QueueApi {
   const [taxis, setTaxis] = useState<Map<string, Taxi>>(new Map())
@@ -142,23 +137,28 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
     return rows.map((d, i) => ({ ...d, exact: i === 0 && order.at(-1) === d.taxi.id }))
   }, [log, order])
 
-  const pick = queue.find((t) => interested.has(t.id))
+  const coreTaxis = useMemo(() => core.byId(coreList(taxis)), [taxis])
+  const pickId = core.suggestion({ order, interested: [...interested] })
+  const pick = queue.find((t) => t.id === pickId)
   const callInProgress = interested.size > 0 || hasCallInfo(call)
   const canUndo = !!history[0] && history[0].exact && !history[0].reopened
 
   // Run a change to the queue state (and optionally a dispatch) in one transaction.
-  const change = (fn: (order: string[], interested: string[]) => { order: string[]; interested: string[]; dispatch?: [string, Record<string, unknown>] } | null) => {
+  type Change = core.QueueState & { dispatch?: [string, Record<string, unknown>] }
+  const change = (fn: (state: core.QueueState) => Change | null) => {
     if (!fb) return
     const { db, doc, collection, runTransaction, serverTimestamp } = fb
     setError(null)
     void runTransaction(db, async (tx) => {
       const ref = doc(db, 'queue', 'state')
       const snap = await tx.get(ref)
-      const cur = normalize(snap.data()?.order, taxis)
-      const curInterested = Array.isArray(snap.data()?.interested) ? (snap.data()!.interested as string[]) : []
-      const next = fn(cur, curInterested)
+      const cur: core.QueueState = {
+        order: normalize(snap.data()?.order, taxis),
+        interested: Array.isArray(snap.data()?.interested) ? (snap.data()!.interested as string[]) : [],
+      }
+      const next = fn(cur)
       if (!next) return
-      tx.set(ref, { order: next.order, interested: next.interested, updatedAt: serverTimestamp(), updatedBy: email ?? '' })
+      tx.set(ref, { order: [...next.order], interested: [...next.interested], updatedAt: serverTimestamp(), updatedBy: email ?? '' })
       if (next.dispatch) {
         const [id, data] = next.dispatch
         const dref = id ? doc(db, 'dispatches', id) : doc(collection(db, 'dispatches'))
@@ -168,29 +168,24 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
     }).catch((e: { code?: string }) => setError(e.code ?? 'error'))
   }
 
-  const available = (id: string) => !!taxis.get(id) && !taxis.get(id)!.suspended
-
-  const toggle = (id: string) => {
-    if (!available(id)) return
-    change((o, i) => ({ order: o, interested: i.includes(id) ? i.filter((x) => x !== id) : [...i, id] }))
-  }
+  const toggle = (id: string) => change((s) => core.toggleInterest(s, id, coreTaxis))
 
   const clear = () => {
     setCall(EMPTY_CALL)
-    change((o) => ({ order: o, interested: [] }))
+    change(core.clearCall)
   }
 
   const assign = (id: string) => {
     const taxi = taxis.get(id)
     if (!taxi || taxi.suspended) return
     const details = hasCallInfo(call) ? callData(call) : null
-    change((o, i) => {
-      const from = o.indexOf(id)
-      if (from < 0 || !i.includes(id)) return null
+    change((s) => {
+      const r = core.assign(s, id, coreTaxis)
+      if (!r) return null
+      const { from, interested } = r.dispatch
       return {
-        order: [...o.filter((x) => x !== id), id],
-        interested: [],
-        dispatch: ['', { taxi: { id, ...taxiData(taxi) }, at: Date.now(), from, interested: i, call: details, reopened: false, undone: false, by: email ?? '' }],
+        ...r.state,
+        dispatch: ['', { taxi: { id, ...taxiData(taxi) }, at: Date.now(), from, interested: [...interested], call: details, reopened: false, undone: false, by: email ?? '' }],
       }
     })
     setCall(EMPTY_CALL)
@@ -199,18 +194,20 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
   const undo = () => {
     const d = history[0]
     if (!d || !canUndo || callInProgress) return
-    change((o) => ({ order: placeAt(o, d.taxi.id, d.from), interested: d.interested.filter(available), dispatch: [d.id, { undone: true }] }))
+    change((s) => {
+      const next = core.undo(s, { taxiId: d.taxi.id, from: d.from, interested: d.interested }, coreTaxis)
+      return next && { ...next, dispatch: [d.id, { undone: true }] }
+    })
     setCall(d.call ?? EMPTY_CALL)
   }
 
   const reopen = (dispatchId: string) => {
     const d = history.find((x) => x.id === dispatchId)
     if (!d || d.reopened || callInProgress || !taxis.has(d.taxi.id)) return
-    change((o) => ({
-      order: placeAt(o, d.taxi.id, d.from),
-      interested: d.interested.filter((x) => x !== d.taxi.id && available(x)),
-      dispatch: [d.id, { reopened: true }],
-    }))
+    change((s) => {
+      const next = core.reopen(s, { taxiId: d.taxi.id, from: d.from, interested: d.interested }, coreTaxis)
+      return next && { ...next, dispatch: [d.id, { reopened: true }] }
+    })
     setCall(d.call ?? EMPTY_CALL)
   }
 
@@ -222,7 +219,7 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
   const suspend = (id: string, reason: SuspendReason, note: string) => {
     if (!fb) return
     adminWrite(fb.updateDoc(fb.doc(fb.db, 'taxis', id), { suspended: { reason, note: note.trim(), at: Date.now() } }))
-    if (interested.has(id)) change((o, i) => ({ order: o, interested: i.filter((x) => x !== id) }))
+    if (interested.has(id)) change((s) => core.onSuspend(s, id))
   }
 
   const lift = (id: string) => {
@@ -239,7 +236,7 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
   const remove = (id: string) => {
     if (!fb) return
     adminWrite(fb.deleteDoc(fb.doc(fb.db, 'taxis', id)))
-    change((o, i) => ({ order: o.filter((x) => x !== id), interested: i.filter((x) => x !== id) }))
+    change((s) => core.removeTaxi(s, id))
   }
 
   // Admin, empty database only: load the 10 sample drivers to try the live queue.
