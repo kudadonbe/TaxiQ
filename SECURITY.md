@@ -27,7 +27,7 @@ beyond Gate 1 applies yet. Treat it as a prototype for the design phase.
 
 | Area | State |
 |------|-------|
-| Hosting | GitHub Pages, static, HTTPS. No backend. |
+| Hosting | Firebase Hosting (project `kd-taxiq`, https://kd-taxiq.web.app), with security headers set in `firebase.json`: CSP (self only, plus OSM tiles), HSTS, nosniff, strict referrer policy and `frame-ancestors 'none'`. Also mirrored on GitHub Pages (no custom headers). Static, HTTPS, no backend yet. |
 | Auth | **None.** The admin panel and dispatch screens are open to anyone who has the link. This is acceptable only because there is no real data and no server. The production system must use **eFaas**, with authorisation enforced on the server (e.g. Firestore security rules), never only in the UI. |
 | Data at rest | Taxi records, suspensions and the queue order are in the viewer's own `localStorage`. Passenger details and the dispatch log are **memory only**: they are cleared on reload and never written to storage. |
 | Input validation | Allow-list rules in `src/validate.ts` for taxi records, suspension notes and call details. The same rules re-validate anything read back from `localStorage`. |

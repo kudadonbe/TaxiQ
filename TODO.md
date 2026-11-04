@@ -38,8 +38,9 @@
 
 ### Firebase: hosting and database
 Needs a Firebase project from you, so this can't be done without it.
-- [ ] Create the Firebase project and choose its region (see the MDS checks below).
-- [ ] Move hosting from GitHub Pages to Firebase Hosting.
+- [x] Firebase project `kd-taxiq` created; hosting live at https://kd-taxiq.web.app with security headers (`pnpm deploy`).
+- [ ] Choose the Firestore region (permanent, see the MDS checks below), then create the database.
+- [ ] Decide whether to keep the GitHub Pages copy or retire it once Firebase is the main site.
 - [ ] Use Firestore for taxis, the queue order, suspensions and the dispatch log, replacing localStorage. Real-time sync means every operator screen shows the same queue.
 - [ ] Firestore security rules: only signed-in operators and admins can read or write, and admin-only actions (register, remove, suspend) are enforced in the rules.
 - [ ] Driver app writes GPS positions to Firestore, and `src/positions.ts` subscribes to them.

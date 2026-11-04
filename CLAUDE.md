@@ -18,6 +18,7 @@ pnpm dev       # Vite dev server, http://localhost:5173
 pnpm build     # tsc -b (type-check app + node configs) then vite build to docs/
 pnpm lint      # oxlint (not ESLint), config in .oxlintrc.json
 pnpm preview   # serve the built docs/
+pnpm deploy    # build + deploy docs/ to Firebase Hosting (needs the firebase CLI, logged in)
 ```
 
 There is no test runner set up yet. `pnpm build` is the type-check gate, since `tsc -b` runs before the Vite build.
@@ -42,7 +43,10 @@ There is no test runner set up yet. `pnpm build` is the type-check gate, since `
 - **Plot map and labels:** `src/data/plots.json` holds the Kulhudhuffushi City Council plot chart **redrawn as vector polygons**: 3,419 plots with their ward colours. It is used with permission. Each plot carries the houses inside it (`h`, as [English, Dhivehi]) and its plot number, and 3,083 of the 3,227 houses are matched. `scripts/build-plots.py` builds it by tracing the chart's zoom-6 tiles from mapkf with OpenCV. Setup and download steps are in its docstring; numpy, OpenCV and shapely are dev-only tools, not app dependencies. `src/components/plotLayer.ts` draws the plots on a canvas renderer, and tapping a plot opens a popup built with `textContent`. The map zooms to 22, with OSM tiles upscaled past 19. Lazy-loaded data: `plots.json` (~200 KB gzipped) loads when the Map opens with "Plot map" on, which is the default. House and landmark labels appear at zoom 18+, only for what's in view and at most 400. They grow with zoom via `--map-label-size` and are styled by `.map-label` in `index.css`.
 - **Call details:** `CallPanel` sits above the queue and stays collapsed to a one-line summary. `PlaceInput` suggests houses and roads, and picking one sets `pickupAt`. The Map shows that pickup as a green pin with the nearest available taxis. `DispatchLog` shows each dispatch's details, Reopen, and **Share pickup**. Share pickup sends a mapkf.vercel.app `?at=lat,lng` link, so the driver sees the house on the council map.
 - **Seed data:** `src/data/taxis.ts` holds the default taxis, used on first run and by Reset. Its phone numbers are masked. The Admin list shows them with a **Demo** badge.
-- **Deploy:** GitHub Pages serves the `docs/` folder of the `v2` branch at https://kudadonbe.github.io/TaxiQ/. `docs/` is build output: Vite empties it on every build, so never hand-edit or put other files there. To publish, run `pnpm build` and commit `docs/` along with the source. `vite.config.ts` uses `base: './'` so the site works under the `/TaxiQ/` path.
+- **Deploy:** the build output is `docs/` (Vite empties it on every build, so never hand-edit it or put other files there), and it is published in two places:
+  - **Firebase Hosting**, project `kd-taxiq` (`.firebaserc`), at https://kd-taxiq.web.app. Deploy with `pnpm deploy`. `firebase.json` serves `docs/` and sets the security headers (CSP, HSTS, nosniff, referrer policy, no framing). When adding a third-party origin (e.g. Firestore or eFaas), add it to the CSP or it will be blocked. No Firestore or Auth is set up yet, and Firestore's region must be chosen first (see TODO.md).
+  - **GitHub Pages**, serving `docs/` from the `v2` branch, at https://kudadonbe.github.io/TaxiQ/. It updates when `docs/` is committed and pushed.
+  `vite.config.ts` uses `base: './'`, so the same build works at both the Firebase root and the Pages `/TaxiQ/` path.
 - **Mobile:** the layout targets phones first (~375 px). On small screens the queue rows hide the plate and avatar, the queue count moves into the Queue tab, and tap targets are at least 40 px. Keep the `pl-20` gutter, because the Assign button needs it.
 - **Styling:** Tailwind v4 through the `@tailwindcss/vite` plugin. There is no `tailwind.config`; theme tokens go in the `@theme` block in `src/index.css`.
 

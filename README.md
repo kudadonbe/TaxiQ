@@ -27,7 +27,7 @@ pnpm lint
 
 Taxis, suspensions, queue order and language are kept in the browser's localStorage; passenger details and the dispatch log stay in memory only. There is no backend yet, so the admin panel has no login and changes stay on that one device. See [SECURITY.md](SECURITY.md).
 
-Live at https://kudadonbe.github.io/TaxiQ/. GitHub Pages serves the committed `docs/` folder on `v2`, so run `pnpm build` and commit `docs/` to publish changes.
+Live at **https://kd-taxiq.web.app** (Firebase Hosting, `pnpm deploy`) and https://kudadonbe.github.io/TaxiQ/ (GitHub Pages). GitHub Pages serves the committed `docs/` folder on `v2`, so run `pnpm build` and commit `docs/` to publish changes.
 
 ## Credits
 

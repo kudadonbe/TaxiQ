@@ -25,3 +25,7 @@ dist-ssr
 
 # pnpm store (if created in-project)
 .pnpm-store
+
+# Firebase
+.firebase/
+firebase-debug.log*
