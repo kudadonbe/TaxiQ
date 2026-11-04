@@ -32,6 +32,7 @@
 - [x] House, road and landmark search on the map, with nearest taxis (Kulhudhuffushi City Council map data via mapkf, used with permission).
 - [x] `SECURITY.md` (repo root) recording Tier 1 for the planned system and the blockers before real data.
 - [x] "Demo" badge on the sample drivers in Admin.
+- [x] Council plot chart (house land areas) as a map layer, with house names drawn on the map when zoomed in.
 
 ## Next up
 
@@ -50,6 +51,7 @@ Needs a Firebase project from you, so this can't be done without it.
 
 ## Backlog
 - [ ] **Driver app** that sends GPS while on duty, and shows "my location" (an idea from mapkf).
+- [ ] Sharper plot chart when zoomed right in (use the zoom-6/7 tiles as a tiled layer instead of one image).
 - [ ] Driving distance (by road) for nearest taxis, instead of straight-line distance.
 - [ ] Audit log of assignments, reopens, suspensions and admin changes (needs the backend).
 - [ ] Native-speaker review of all Dhivehi strings in `src/i18n.tsx`.

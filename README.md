@@ -10,7 +10,7 @@ A visual model of the physical taxi queue at a call center, in English and Dhive
 
 The **Map** view shows taxi cars on a live OpenStreetMap of Kulhudhuffushi, facing the way they drive and coloured by queue status. Positions are **simulated** on the island's real road network (OpenStreetMap data, ODbL) for now; live GPS will come from a driver app (see `src/positions.ts`).
 
-Search any Kulhudhuffushi house, road or landmark by English or Dhivehi name, or by plot number, to pin it and see the nearest taxis.
+The map can show the council's plot chart (house land areas) with house names when zoomed in. Search any Kulhudhuffushi house, road or landmark by English or Dhivehi name, or by plot number, to pin it and see the nearest taxis.
 
 The **Admin** view registers new taxis (they join the back of the queue) and removes unsubscribed ones.
 
@@ -31,5 +31,5 @@ Live at https://kudadonbe.github.io/TaxiQ/. GitHub Pages serves the committed `d
 
 ## Credits
 
-- House, road and place names: the official **Kulhudhuffushi City Map** by the Secretariat of the Kulhudhuffushi City Council (chart by Adam Mohamed and Hussain Ali), via [mapkf.vercel.app](https://mapkf.vercel.app) by emjey. Used with permission.
+- House, road and place names, and the plot chart layer: the official **Kulhudhuffushi City Map** by the Secretariat of the Kulhudhuffushi City Council (chart by Adam Mohamed and Hussain Ali), via [mapkf.vercel.app](https://mapkf.vercel.app) by emjey. Used with permission.
 - Map tiles and road network: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (ODbL).
