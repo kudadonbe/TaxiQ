@@ -50,20 +50,31 @@ export function DispatchLog({ history, queue, callInProgress, onReopen }: Props)
                 <span className="font-bold tabular-nums">{d.taxi.taxiNo}</span>{' '}
                 <span className="text-slate-500">{driverName(d.taxi.driver)}</span>
               </span>
-              <time className="shrink-0 text-slate-400 tabular-nums" dateTime={new Date(d.at).toISOString()}>
+              <time dir="ltr" className="shrink-0 text-slate-400 tabular-nums" dateTime={new Date(d.at).toISOString()}>
                 {time.format(d.at)}
               </time>
             </div>
             {d.call && (
               <p className="text-slate-700">
-                {d.call.pickup && <span>📍 {d.call.pickup}</span>}
-                {d.call.destination && <span> → {d.call.destination}</span>}
-                {d.call.phone && (
-                  <span className="ms-2 tabular-nums text-slate-500" dir="ltr">
-                    ☎ {d.call.phone}
+                {d.call.pickup && (
+                  <span>
+                    📍 <bdi>{d.call.pickup}</bdi>
                   </span>
                 )}
-                {d.call.note && <span className="block text-xs text-slate-500">{d.call.note}</span>}
+                {d.call.destination && (
+                  <span>
+                    {' '}
+                    → <bdi>{d.call.destination}</bdi>
+                  </span>
+                )}
+                {d.call.phone && (
+                  <bdi className="ms-2 inline-block tabular-nums text-slate-500" dir="ltr">
+                    ☎ {d.call.phone}
+                  </bdi>
+                )}
+                {d.call.note && (
+                  <bdi className="block text-xs text-slate-500">{d.call.note}</bdi>
+                )}
               </p>
             )}
             <div className="flex flex-wrap items-center gap-2">

@@ -84,7 +84,11 @@ export default function App() {
                   ) : (
                     <span className="block">{t.hint}</span>
                   )}
-                  {call.pickup && <span className="block truncate text-emerald-800">📍 {call.pickup}</span>}
+                  {call.pickup && (
+                    <span className="block truncate text-emerald-800">
+                      📍 <bdi>{call.pickup}</bdi>
+                    </span>
+                  )}
                   {!callValid && <span className="block font-semibold text-rose-700">{t.callTitle}: {t.notValid}</span>}
                 </p>
                 <button type="button" onClick={clear} className="min-h-10 shrink-0 rounded-lg px-3 text-sm font-medium text-slate-600 hover:bg-slate-100">

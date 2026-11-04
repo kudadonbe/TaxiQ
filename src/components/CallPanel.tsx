@@ -31,7 +31,7 @@ export function CallPanel({ call, onChange }: Props) {
           <span className="block text-sm font-semibold">{t.callTitle}</span>
           {!open && (
             <span className={`block truncate text-sm ${filled ? 'text-slate-700' : 'text-slate-400'}`}>
-              {filled ? summary || call.note : `${t.pickup}, ${t.destination}, ${t.passengerPhone}`}
+              {filled ? <bdi>{summary || call.note}</bdi> : `${t.pickup}, ${t.destination}, ${t.passengerPhone}`}
             </span>
           )}
         </span>

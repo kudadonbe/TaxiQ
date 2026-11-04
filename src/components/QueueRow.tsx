@@ -36,7 +36,12 @@ export function QueueRow({ taxi, position, interested, picked, onToggle, onAssig
             <span className="block truncate font-semibold">{name}</span>
             <span className="block truncate text-xs font-semibold uppercase tracking-widest text-rose-100">
               {t.suspended} · {t.reasons[suspended.reason]}
-              {suspended.note && <span className="normal-case tracking-normal"> · {suspended.note}</span>}
+              {suspended.note && (
+                <span className="normal-case tracking-normal">
+                  {' '}
+                  · <bdi>{suspended.note}</bdi>
+                </span>
+              )}
             </span>
           </span>
         </div>
