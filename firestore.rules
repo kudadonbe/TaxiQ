@@ -1,0 +1,21 @@
+rules_version = '2';
+
+// TaxiQ Firestore security rules.
+//
+// LOCKED: no client can read or write anything yet. Sign-in (eFaas -> Firebase Auth custom token)
+// does not exist, and without it any rule that allowed access would make the database public.
+// Per MDS-STD-SSD-001, authorisation must be enforced here on the server, never only in the UI.
+//
+// Planned shape once eFaas sign-in is in place (roles carried as custom claims set by the backend):
+//   taxis/{taxiId}          read: operator | admin   write: admin (register, remove, suspend)
+//   queue/state             read: operator | admin   write: operator | admin (order, interested)
+//   dispatches/{id}         read: operator | admin   create/update: operator | admin; no delete
+//   positions/{taxiId}      read: operator | admin   write: the driver whose uid matches taxiId
+//   audit/{id}              create: backend only     read: admin
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

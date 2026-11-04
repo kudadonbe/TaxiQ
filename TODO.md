@@ -39,14 +39,14 @@
 ### Firebase: hosting and database
 Needs a Firebase project from you, so this can't be done without it.
 - [x] Firebase project `kd-taxiq` created; hosting live at https://kd-taxiq.web.app with security headers (`pnpm deploy`).
-- [ ] Choose the Firestore region (permanent, see the MDS checks below), then create the database.
+- [x] Firestore created in `asia-southeast1` (Singapore), Native mode, delete protection on, rules deny-all.
 - [ ] Decide whether to keep the GitHub Pages copy or retire it once Firebase is the main site.
 - [ ] Use Firestore for taxis, the queue order, suspensions and the dispatch log, replacing localStorage. Real-time sync means every operator screen shows the same queue.
 - [ ] Firestore security rules: only signed-in operators and admins can read or write, and admin-only actions (register, remove, suspend) are enforced in the rules.
 - [ ] Driver app writes GPS positions to Firestore, and `src/positions.ts` subscribes to them.
 - **MDS checks before real data goes in** (see `SECURITY.md`):
   - [ ] **Authentication:** eFaas (OIDC) sign-in → Firebase Auth custom token.
-  - [ ] **Data residency:** Firebase has no Maldives region. Confirm that a foreign region (e.g. `asia-south1` Mumbai or `asia-southeast1` Singapore) is acceptable.
+  - [ ] **Data residency:** Singapore chosen (2026-11-04); get approver/MDS sign-off before real data.
   - [ ] **Dependencies:** check the Firebase SDK is on the MDS-whitelisted dependency list.
   - [ ] Lock the Firebase API key to the app's domains.
 

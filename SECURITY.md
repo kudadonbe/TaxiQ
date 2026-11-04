@@ -28,6 +28,7 @@ beyond Gate 1 applies yet. Treat it as a prototype for the design phase.
 | Area | State |
 |------|-------|
 | Hosting | Firebase Hosting (project `kd-taxiq`, https://kd-taxiq.web.app), with security headers set in `firebase.json`: CSP (self only, plus OSM tiles), HSTS, nosniff, strict referrer policy and `frame-ancestors 'none'`. Also mirrored on GitHub Pages (no custom headers). Static, HTTPS, no backend yet. |
+| Database | Firestore `(default)` in **asia-southeast1 (Singapore)**, Native mode, delete protection on. Rules are **deny-all** (`firestore.rules`); tested: unauthenticated read and write return 403. Data residency outside the Maldives was chosen by the product owner on 2026-11-04 and still needs MDS/approver sign-off before real data goes in. |
 | Auth | **None.** The admin panel and dispatch screens are open to anyone who has the link. This is acceptable only because there is no real data and no server. The production system must use **eFaas**, with authorisation enforced on the server (e.g. Firestore security rules), never only in the UI. |
 | Data at rest | Taxi records, suspensions and the queue order are in the viewer's own `localStorage`. Passenger details and the dispatch log are **memory only**: they are cleared on reload and never written to storage. |
 | Input validation | Allow-list rules in `src/validate.ts` for taxi records, suspension notes and call details. The same rules re-validate anything read back from `localStorage`. |
@@ -47,7 +48,8 @@ beyond Gate 1 applies yet. Treat it as a prototype for the design phase.
 ## Blockers before real data or production
 
 - [ ] eFaas sign-in, with roles (operator, admin, driver) enforced server-side.
-- [ ] Backend and database (Firebase planned). Confirm the data-residency region is acceptable: there is no Maldives region.
+- [x] Firebase project `kd-taxiq` and Firestore (Singapore) created, rules locked.
+- [ ] Approval for storing data in Singapore (no Maldives region).
 - [ ] Firebase SDK on the MDS-whitelisted dependency list, or an exception requested.
 - [ ] Data classification, retention rules for passenger details and GPS tracks, and a privacy notice.
 - [ ] Audit logging of dispatch and admin actions.
