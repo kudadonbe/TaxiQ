@@ -70,13 +70,12 @@ h3 {
   transform: translate(-50%, -50%);
   white-space: nowrap;
   pointer-events: none;
-  font-size: 10px;
+  font-size: var(--map-label-size, 10px);
   font-weight: 600;
   line-height: 1;
-  color: #334155;
+  color: #1e293b;
   text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff;
 }
 .map-label-landmark {
   color: #9f1239;
-  font-size: 11px;
 }

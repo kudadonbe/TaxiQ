@@ -5,7 +5,7 @@ import { useI18n } from '../i18n'
 import { loadPlaces, metresBetween, searchPlaces, type Place, type PlaceType } from '../places'
 import { MAP_CENTER, subscribePositions, type Positions } from '../positions'
 import type { Taxi } from '../types'
-import { PlotLayer } from './plotLayer'
+import { createPlotLayer, loadPlots } from './plotLayer'
 
 type Status = 'idle' | 'answered' | 'suspended'
 
@@ -86,9 +86,10 @@ export default function MapView({ taxis, interested, pickupAt }: Props) {
 
   // Create the map once.
   useEffect(() => {
-    const m = L.map(box.current!, { zoomControl: true, attributionControl: true }).setView(MAP_CENTER, 16)
+    const m = L.map(box.current!, { zoomControl: true, attributionControl: true, maxZoom: 22 }).setView(MAP_CENTER, 16)
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
+      maxZoom: 22,
+      maxNativeZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }).addTo(m)
     m.attributionControl.addAttribution(
@@ -107,11 +108,17 @@ export default function MapView({ taxis, interested, pickupAt }: Props) {
   useEffect(() => {
     const m = map.current
     if (!m || !showPlots) return
-    const layer = new PlotLayer().addTo(m)
+    let layer: L.LayerGroup | null = null
+    let cancelled = false
+    void loadPlots().then((plots) => {
+      if (cancelled) return
+      layer = createPlotLayer(plots, { lang, plotWord: t.plot }).addTo(m)
+    })
     return () => {
-      layer.remove()
+      cancelled = true
+      layer?.remove()
     }
-  }, [showPlots])
+  }, [showPlots, lang, t.plot])
 
   // House and landmark names drawn on the map, like the council chart. Only when zoomed in close
   // (zoom 18+), and only those in view, so the map stays fast with 3,000+ houses.
@@ -123,7 +130,10 @@ export default function MapView({ taxis, interested, pickupAt }: Props) {
     const layer = L.layerGroup().addTo(m)
     const render = () => {
       layer.clearLayers()
-      if (m.getZoom() < 18) return
+      const zoom = m.getZoom()
+      if (zoom < 18) return
+      // Labels grow as you zoom in, so names stay readable inside the plots.
+      m.getContainer().style.setProperty('--map-label-size', `${Math.round(10 * 1.45 ** (zoom - 18))}px`)
       const view = m.getBounds().pad(0.1)
       let shown = 0
       for (const p of all) {
