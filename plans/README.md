@@ -11,3 +11,7 @@ Read in this order:
 5. [Malé map plan](taxiq-male-map-plan.md): house, road, and map data for Malé
 
 Notes live here because `docs/` is the build output and is emptied on every build.
+
+Ideas:
+
+- [Game mode](game-mode.md): a multiplayer taxi business game on the real map (draft, built in v2 first)
