@@ -85,6 +85,30 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
 - **v3:** this is phase G6 of `plans/game-mode.md`: game tables in the API, with the clock, bots and ledger run on the server (fair play). Keep `gameSim.ts` as core.
 - [ ] Ported
 
+## 9. TaxiQ Game G2, operator role, always-running world
+
+- **v2:** commits `e6ce64f` and `a724c5d` on `origin/v2`:
+  - `src/core/gameEngine.ts`: the pure ride step, with tests.
+  - `src/core/gameSim.ts`: car plans and `SIM_RATE`.
+  - `src/core/fares.ts`: placeholder fares.
+  - `src/core/gameNames.ts`: the world's people.
+  - `src/game/*`: the TaxiQ World, the engine lease, the play panels, the operator's queue board and the developer View as bar.
+  - `scripts/rules/game-rules.test.mjs`: the rules tests.
+- **v3:** the server runs every world 24/7, with no lease, and is the only engine (fair play). Keep `gameEngine.ts`, `gameSim.ts` and `fares.ts` as core.
+- [ ] Ported
+
+## 10. Developer "View as" (real app)
+
+- **v2:** `d80df9f`: a developer can view the app as Admin, Operator, Driver or Citizen. It only changes the screen; the stored role stays `dev`. "Dev" is shown as "Developer".
+- **v3:** add the same switch for the `dev` role, covering the v3 roles (manager, operator, driver, rider), per center.
+- [ ] Ported
+
+## 11. No emoji in the UI; Lucide icons
+
+- **v2:** `7852c0f`: every emoji and symbol replaced with `lucide-react` icons, using the helpers in `src/components/icons.tsx` and `iconStyles.ts`. The rule is in `CLAUDE.md`.
+- **v3:** use Lucide in `src/v3` and in the server's HTML, if it has any. Never use emoji.
+- [ ] Ported
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
