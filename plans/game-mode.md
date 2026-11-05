@@ -1,5 +1,7 @@
 # TaxiQ Game Mode: design (draft for review)
 
+*The TaxiQ Game concept is dedicated to Hussain's son, Mohamed bin Hussain.*
+
 Status: design draft, 2026-11-05. Owner: Hussain. Nothing is built yet.
 Decisions so far: **multiplayer from the start**, **build in v2 if possible, otherwise v3**, design first.
 
