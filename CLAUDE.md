@@ -28,7 +28,7 @@ pnpm deploy    # build + deploy docs/ to Firebase Hosting (needs the firebase CL
 ## Branches and plans
 
 - **`v3`** is the active development branch (core engine + API, see `plans/`). `v2` is the default branch and the source of the live sites; keep it working until v3 Phase 4.
-- `plans/` holds the v3 plans (read `plans/README.md` first). Notes go there, never in `docs/` (build output).
+- `plans/` holds the v3 plans (read `plans/README.md` first). `plans/v2-features-to-port.md` lists features added to v2 after the split that v3 still needs; add new v2 work there. Notes go there, never in `docs/` (build output).
 - Ask Hussain before changing the stack, the data model or the plans.
 
 ## API server (`server/`, v3)
