@@ -5,7 +5,10 @@
 // the TaxiQ server, authenticated with eFaas) that calls `onUpdate` with the same shape.
 // The map only depends on this interface.
 
-import roads from './data/roads.json'
+import type { RoadGraph } from './core/route'
+import { getArea, subscribeArea } from './roadArea'
+
+export { MAP_CENTER, ROAD_GRAPH } from './homeRoads'
 
 export interface Position {
   lat: number
@@ -15,26 +18,18 @@ export interface Position {
 
 export type Positions = ReadonlyMap<string, Position>
 
-// Kulhudhuffushi, Haa Dhaalu Atoll.
-export const MAP_CENTER: [number, number] = [6.6217, 73.0696]
-
-const nodes = roads.n as [number, number][]
-const next = roads.a as number[][]
-
-// The island's road graph, for routing (src/core/route.ts).
-export const ROAD_GRAPH = { nodes, next }
-
 const M_PER_DEG = 111_320
-const cosLat = Math.cos((MAP_CENTER[0] * Math.PI) / 180)
 
-function metres(a: number, b: number) {
-  const [p, q] = [nodes[a]!, nodes[b]!]
-  return Math.hypot((q[0] - p[0]) * M_PER_DEG, (q[1] - p[1]) * M_PER_DEG * cosLat)
+function metres(g: RoadGraph, a: number, b: number) {
+  const [p, q] = [g.nodes[a]!, g.nodes[b]!]
+  const k = Math.cos((p[0] * Math.PI) / 180)
+  return Math.hypot((q[0] - p[0]) * M_PER_DEG, (q[1] - p[1]) * M_PER_DEG * k)
 }
 
-function bearing(a: number, b: number) {
-  const [p, q] = [nodes[a]!, nodes[b]!]
-  const deg = (Math.atan2((q[1] - p[1]) * cosLat, q[0] - p[0]) * 180) / Math.PI
+function bearing(g: RoadGraph, a: number, b: number) {
+  const [p, q] = [g.nodes[a]!, g.nodes[b]!]
+  const k = Math.cos((p[0] * Math.PI) / 180)
+  const deg = (Math.atan2((q[1] - p[1]) * k, q[0] - p[0]) * 180) / Math.PI
   return (deg + 360) % 360
 }
 
@@ -55,6 +50,7 @@ function hash(id: string) {
 }
 
 interface Sim {
+  g: RoadGraph
   id: string
   rand: () => number
   from: number
@@ -65,12 +61,15 @@ interface Sim {
   heading: number // displayed heading, eased toward the road's bearing
 }
 
-function create(id: string): Sim {
+function create(g: RoadGraph, id: string): Sim {
   const rand = rng(hash(id))
-  const from = Math.floor(rand() * nodes.length)
-  const to = next[from]![Math.floor(rand() * next[from]!.length)]!
-  const length = metres(from, to)
+  let from = Math.floor(rand() * g.nodes.length)
+  for (let tries = 0; !g.next[from]?.length && tries < 50; tries++) from = Math.floor(rand() * g.nodes.length)
+  const opts = g.next[from] ?? []
+  const to = opts.length ? opts[Math.floor(rand() * opts.length)]! : from
+  const length = metres(g, from, to)
   return {
+    g,
     id,
     rand,
     from,
@@ -78,37 +77,47 @@ function create(id: string): Sim {
     along: rand() * length,
     length,
     speed: rand() < 0.3 ? 0 : 5 + rand() * 5, // ~30% waiting; others 18–36 km/h
-    heading: bearing(from, to),
+    heading: bearing(g, from, to),
   }
 }
 
 // At a junction, take a random road onward, avoiding a U-turn unless it's a dead end.
 function advance(s: Sim) {
-  const options = next[s.to]!
+  const options = s.g.next[s.to] ?? []
+  if (!options.length) {
+    s.speed = 0
+    s.along = s.length
+    return
+  }
   const forward = options.filter((n) => n !== s.from)
   const pool = forward.length ? forward : options
   const nextNode = pool[Math.floor(s.rand() * pool.length)]!
   s.from = s.to
   s.to = nextNode
   s.along -= s.length
-  s.length = metres(s.from, s.to)
+  s.length = metres(s.g, s.from, s.to)
 }
 
 function step(s: Sim, dt: number): Position {
   s.along += s.speed * dt
   let guard = 0
-  while (s.along >= s.length && guard++ < 50) advance(s)
+  while (s.speed > 0 && s.along >= s.length && guard++ < 50) advance(s)
   const f = s.length ? Math.min(1, s.along / s.length) : 0
-  const [p, q] = [nodes[s.from]!, nodes[s.to]!]
+  const [p, q] = [s.g.nodes[s.from]!, s.g.nodes[s.to]!]
   // Turn smoothly toward the road direction (shortest way round).
-  const target = bearing(s.from, s.to)
+  const target = s.from === s.to ? s.heading : bearing(s.g, s.from, s.to)
   const diff = ((target - s.heading + 540) % 360) - 180
   s.heading = (s.heading + diff * Math.min(1, dt * 6) + 360) % 360
   return { lat: p[0] + (q[0] - p[0]) * f, lng: p[1] + (q[1] - p[1]) * f, heading: s.heading }
 }
 
+// Demo taxis drive on the roads of the current area (src/roadArea.ts): Kulhudhuffushi, or the
+// roads around the viewer. When the area changes they start again there.
 export function subscribePositions(ids: readonly string[], onUpdate: (p: Positions) => void): () => void {
-  const sims = ids.map(create)
+  let sims = ids.map((id) => create(getArea().graph, id))
+  const stopArea = subscribeArea(() => {
+    sims = ids.map((id) => create(getArea().graph, id))
+  })
   let last = performance.now()
   let frame = 0
   const tick = (now: number) => {
@@ -119,5 +128,8 @@ export function subscribePositions(ids: readonly string[], onUpdate: (p: Positio
     frame = requestAnimationFrame(tick)
   }
   frame = requestAnimationFrame(tick)
-  return () => cancelAnimationFrame(frame)
+  return () => {
+    cancelAnimationFrame(frame)
+    stopArea()
+  }
 }

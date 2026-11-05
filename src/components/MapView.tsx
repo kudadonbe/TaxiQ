@@ -14,6 +14,7 @@ import { useI18n } from '../i18n'
 import { loadPlaces, metresBetween, searchPlaces, type Place } from '../places'
 import { route as findRoute, type TravelMode } from '../core/route'
 import { MAP_CENTER, ROAD_GRAPH, subscribePositions, type Positions } from '../positions'
+import { moveToLocation, useArea } from '../roadArea'
 import type { Taxi } from '../types'
 import { loadPlots, plotPopup, plotsGeoJSON, type Plot } from './plotLayer'
 
@@ -132,6 +133,11 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   const [nearest, setNearest] = useState<{ taxi: Taxi; metres: number }[]>([])
   const results = places && query && !selected ? searchPlaces(places, query) : []
   const placeName = (p: Place) => (lang === 'dv' && p.d ? p.d : p.e)
+  // The real app's map follows the viewer (src/roadArea.ts); the game map stays on its island.
+  const followsViewer = positionSource === subscribePositions
+  const area = useArea()
+  const graph = followsViewer ? area.graph : ROAD_GRAPH
+  const followRef = useRef(followsViewer) // fixed for the life of this map
 
   // Create the map once.
   useEffect(() => {
@@ -153,6 +159,15 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     // The viewer's own location: a blue dot with heading, asked only when they press the button.
     m.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: true }), 'top-right')
     m.on('load', () => setReady(true))
+    // Open where the viewer is: ask for their location once, then move the map and the demo taxis
+    // there. If they say no, the map stays on Kulhudhuffushi.
+    if (followRef.current && 'geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (p) => void moveToLocation([p.coords.latitude, p.coords.longitude]),
+        () => {},
+        { enableHighAccuracy: false, timeout: 10_000, maximumAge: 10 * 60_000 },
+      )
+    }
     map.current = m
     const all = markers.current
     return () => {
@@ -404,6 +419,15 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     m.flyTo({ center: ll(pickupAt), zoom: 18, duration: 800 })
   }, [pickupAt, t.pickupPin, trip])
 
+  // When the viewer's location arrives, fly there (the demo taxis restart on the roads there).
+  const areaKey = followsViewer && area.located ? area.center.join(',') : ''
+  useEffect(() => {
+    const m = map.current
+    if (!m || !areaKey) return
+    const [lat, lng] = areaKey.split(',').map(Number)
+    m.flyTo({ center: [lng!, lat!], zoom: 15, essential: true })
+  }, [areaKey, ready])
+
   // The trip: route along the roads (taxi follows one-way streets; walking doesn't), drawn with a
   // white casing like a ride app, start and end pins, distance and time. If a point is far from
   // any road (another island), a dashed straight line is drawn instead.
@@ -411,8 +435,8 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   const planned = useMemo(() => {
     if (!tripKey) return null
     const { from, to } = JSON.parse(tripKey) as { from: [number, number]; to: [number, number] }
-    const near = (p: [number, number]) => ROAD_GRAPH.nodes.some((n) => Math.abs(n[0] - p[0]) < 0.005 && Math.abs(n[1] - p[1]) < 0.005)
-    const r = near(from) && near(to) ? findRoute(ROAD_GRAPH, from, to, mode) : null
+    const near = (p: [number, number]) => graph.nodes.some((n) => Math.abs(n[0] - p[0]) < 0.005 && Math.abs(n[1] - p[1]) < 0.005)
+    const r = near(from) && near(to) ? findRoute(graph, from, to, mode) : null
     const straight = metresBetween(from, to)
     return {
       from,
@@ -420,7 +444,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       path: r?.path ?? [from, to],
       info: { metres: r?.metres ?? straight, seconds: r?.seconds ?? straight / (mode === 'walk' ? 1.25 : 5.6), onRoad: !!r },
     }
-  }, [tripKey, mode])
+  }, [tripKey, mode, graph])
   const tripInfo = planned?.info ?? null
 
   useEffect(() => {
@@ -645,7 +669,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
           )}
         </div>
       </div>
-      {positionSource === subscribePositions && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:text-sm">{t.mapPlaceholder}</p>}
+      {followsViewer && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:text-sm">{area.kind === 'here' ? t.mapDemoHere : area.kind === 'grid' ? t.mapDemoGrid : t.mapPlaceholder}</p>}
     </section>
   )
 }
