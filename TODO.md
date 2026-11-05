@@ -82,3 +82,8 @@ Needs a Firebase project from you, so this can't be done without it.
 - [ ] Audit log of assignments, reopens, suspensions and admin changes (needs the backend).
 - [ ] Native-speaker review of all Dhivehi strings in `src/i18n.tsx`.
 - [ ] Check the map and the phone layout on real devices.
+
+## Product direction (see plans/product-direction.md)
+
+- [ ] Two sides in the app and the game: public-service taxi and private hire (people and companies with their own cars). Answer the questions in §3 first.
+- [ ] v3: hire any land vehicle (types, ways to hire, providers).

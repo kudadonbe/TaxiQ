@@ -20,6 +20,7 @@ Decisions so far: **multiplayer from the start**, **build in v2 if possible, oth
 | G-D9 | Money is a **crypto-style ledger without a blockchain** (§5.4). |
 | G-D11 | **An always-running world.** **TaxiQ World** (Kulhudhuffushi) always exists, and one person can play it alone. Its people (bot drivers, centers with their owners, bot citizens) are made **once** when the world is created, saved, and never made again. Private worlds with join codes are also kept, not recreated. |
 | G-D12 | Clock for driving: **1 real minute = 6 game minutes**, so a trip takes about 30–60 s to watch. "1 real minute = 1 game day" for money is an open question (§14, question 10). |
+| G-D13 | **Two sides, like the app:** public-service taxis (centers and their queue) and **private hire** (players and companies offering their own cars at their own price). See `plans/product-direction.md`. |
 | G-D10 | **The main goal is practice for the real job:** drive, earn, keep a full record of it, and finish knowing you could make a living as a real driver. Every number (fares, fuel, car costs) is real, so the record is honest. "Off the meter" is the long-term goal for players who want to grow a business (§1.1). |
 
 > This is an **original** TaxiQ game. It's a business and economy game in the same family as

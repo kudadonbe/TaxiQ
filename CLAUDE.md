@@ -10,6 +10,8 @@ TaxiQ v2 is a visual model of the physical taxi queue at a call center. The oper
 
 **v3 is in progress on the `v3` branch.** When you add a feature to v2, also add it to `plans/v2-features-to-port.md` on `v3` (with the commit), so it isn't lost when v3 replaces v2.
 
+**Direction:** TaxiQ will have two sides, **public service (taxi)** and **private hire** (people and companies offering their own vehicles), in both the app and the game; v3 grows to hiring **any land vehicle**. See `plans/product-direction.md`.
+
 ## Commands
 
 Use pnpm (the repo has `pnpm-lock.yaml` and a local `.pnpm-store`).
