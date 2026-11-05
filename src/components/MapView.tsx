@@ -6,10 +6,11 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 // at it; otherwise it looks for a file next to its own module, which the build doesn't produce.
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 maplibregl.setWorkerUrl(workerUrl)
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../i18n'
 import { loadPlaces, metresBetween, searchPlaces, type Place, type PlaceType } from '../places'
-import { MAP_CENTER, subscribePositions, type Positions } from '../positions'
+import { route as findRoute, type TravelMode } from '../core/route'
+import { MAP_CENTER, ROAD_GRAPH, subscribePositions, type Positions } from '../positions'
 import type { Taxi } from '../types'
 import { loadPlots, plotPopup, plotsGeoJSON, type Plot } from './plotLayer'
 
@@ -22,6 +23,8 @@ interface Props {
   pickupAt: [number, number] | undefined
   // Public mode: tapping a car picks that taxi for hiring.
   onPickTaxi?: (id: string) => void
+  // A trip to draw (pickup -> destination), routed along the roads like a ride app.
+  trip?: { from: [number, number]; to: [number, number] }
 }
 
 const typeIcon: Record<PlaceType, string> = { h: '🏠', r: '🛣️', l: '📍', p: '▫️' }
@@ -101,7 +104,7 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
 // Live map of taxis, on MapLibre: rotate (two fingers / right-drag), tilt, pinch zoom, compass and
 // "my location" like Google Maps. Markers are driven imperatively so 60fps position updates don't
 // re-render React.
-export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Props) {
+export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip }: Props) {
   const { lang, t, driverName } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const map = useRef<MlMap | null>(null)
@@ -118,6 +121,8 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
 
   const [places, setPlaces] = useState<Place[] | null>(null)
   const [showPlots, setShowPlots] = useState(true)
+  const [mode, setMode] = useState<TravelMode>('taxi')
+  const tripPins = useRef<Marker[]>([])
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<Place | null>(null)
   const [nearest, setNearest] = useState<{ taxi: Taxi; metres: number }[]>([])
@@ -382,7 +387,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
     const m = map.current
     pickupPin.current?.remove()
     pickupPin.current = null
-    if (!m || !pickupAt) return
+    if (!m || !pickupAt || trip) return
     const el = document.createElement('div')
     el.className = 'flex flex-col items-center'
     const tag = document.createElement('span')
@@ -393,7 +398,66 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
     el.append(tag, pin)
     pickupPin.current = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat(ll(pickupAt)).addTo(m)
     m.flyTo({ center: ll(pickupAt), zoom: 18, duration: 800 })
-  }, [pickupAt, t.pickupPin])
+  }, [pickupAt, t.pickupPin, trip])
+
+  // The trip: route along the roads (taxi follows one-way streets; walking doesn't), drawn with a
+  // white casing like a ride app, start and end pins, distance and time. If a point is far from
+  // any road (another island), a dashed straight line is drawn instead.
+  const tripKey = trip ? JSON.stringify(trip) : ''
+  const planned = useMemo(() => {
+    if (!tripKey) return null
+    const { from, to } = JSON.parse(tripKey) as { from: [number, number]; to: [number, number] }
+    const near = (p: [number, number]) => ROAD_GRAPH.nodes.some((n) => Math.abs(n[0] - p[0]) < 0.005 && Math.abs(n[1] - p[1]) < 0.005)
+    const r = near(from) && near(to) ? findRoute(ROAD_GRAPH, from, to, mode) : null
+    const straight = metresBetween(from, to)
+    return {
+      from,
+      to,
+      path: r?.path ?? [from, to],
+      info: { metres: r?.metres ?? straight, seconds: r?.seconds ?? straight / (mode === 'walk' ? 1.25 : 5.6), onRoad: !!r },
+    }
+  }, [tripKey, mode])
+  const tripInfo = planned?.info ?? null
+
+  useEffect(() => {
+    const m = map.current
+    tripPins.current.forEach((x) => x.remove())
+    tripPins.current = []
+    if (!m || !ready) return
+    const empty: Feature<LineString> = { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } }
+    if (!m.getSource('trip')) {
+      m.addSource('trip', { type: 'geojson', data: empty })
+      m.addLayer({ id: 'trip-casing', type: 'line', source: 'trip', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 10 } })
+      m.addLayer({ id: 'trip-line', type: 'line', source: 'trip', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#2563eb', 'line-width': 6 } })
+    }
+    const src = m.getSource('trip') as maplibregl.GeoJSONSource
+    if (!planned) {
+      src.setData(empty)
+      return
+    }
+    const { from, to, path } = planned
+    src.setData({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: path.map(ll) } })
+    m.setPaintProperty('trip-line', 'line-dasharray', mode === 'walk' || !planned.info.onRoad ? [0.6, 1.6] : [1, 0])
+    m.setPaintProperty('trip-line', 'line-color', mode === 'walk' ? '#0f766e' : '#2563eb')
+    for (const [at, colour, label] of [
+      [from, '#059669', t.pickupPin],
+      [to, '#e11d48', t.destination],
+    ] as const) {
+      const el = document.createElement('div')
+      el.className = 'flex flex-col items-center'
+      const tag = document.createElement('span')
+      tag.className = 'mb-0.5 rounded px-1.5 text-xs font-bold text-white shadow'
+      tag.style.background = colour
+      tag.textContent = label
+      const pin = document.createElement('div')
+      pin.innerHTML = pinSvg(colour)
+      el.append(tag, pin)
+      tripPins.current.push(new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat(ll(at)).addTo(m))
+    }
+    const b = new maplibregl.LngLatBounds()
+    path.forEach((p) => b.extend(ll(p)))
+    m.fitBounds(b, { padding: { top: 90, bottom: 110, left: 50, right: 70 }, maxZoom: 18, duration: 800 })
+  }, [planned, mode, ready, t.pickupPin, t.destination])
 
   const target = selected?.p ?? (pickupAt ? [pickupAt] : null)
   const targetKey = target ? JSON.stringify(target) : ''
@@ -460,6 +524,34 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
           role="region"
           aria-label={t.map}
         />
+
+        {/* The trip: distance, time and travel mode, floating at the bottom like a ride app. */}
+        {tripInfo && (
+          <div className="absolute inset-x-2 bottom-8 z-[5] flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-xl backdrop-blur sm:inset-x-auto sm:start-2 sm:w-80">
+            <div className="min-w-0 flex-1" dir="ltr">
+              <p className="text-lg font-black tabular-nums">
+                {Math.max(1, Math.round(tripInfo.seconds / 60))} {t.minutes}
+              </p>
+              <p className="text-sm text-slate-500 tabular-nums">
+                {tripInfo.metres < 1000 ? `${Math.round(tripInfo.metres)} m` : `${(tripInfo.metres / 1000).toFixed(1)} km`}
+                {!tripInfo.onRoad && ` · ${t.straightLine}`}
+              </p>
+            </div>
+            <div className="flex rounded-xl bg-slate-100 p-1" role="group" aria-label={t.travelMode}>
+              {(['taxi', 'walk'] as const).map((x) => (
+                <button
+                  key={x}
+                  type="button"
+                  onClick={() => setMode(x)}
+                  aria-pressed={mode === x}
+                  className={`min-h-10 rounded-lg px-3 text-sm font-semibold ${mode === x ? 'bg-white shadow' : 'text-slate-600'}`}
+                >
+                  {x === 'taxi' ? `🚕 ${t.modeTaxi}` : `🚶 ${t.modeWalk}`}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Place search, floating over the map. */}
         <div className="absolute inset-x-2 top-2 z-[5] sm:inset-x-auto sm:start-2 sm:w-80 [@media(max-width:639px)]:end-14">

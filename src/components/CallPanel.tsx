@@ -56,7 +56,7 @@ export function CallPanel({ call, onChange }: Props) {
             hint={t.pickupHint}
             value={call.destination}
             error={!!errors.destination}
-            onChange={(destination) => onChange({ ...call, destination })}
+            onChange={(destination, destinationAt) => onChange({ ...call, destination, destinationAt })}
           />
           <label className="block">
             <span className="text-sm font-medium text-slate-700">

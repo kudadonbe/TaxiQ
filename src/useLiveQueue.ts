@@ -20,6 +20,8 @@ function parseCall(v: unknown): CallInfo | null {
   const s = (x: unknown) => (typeof x === 'string' ? x : '')
   const call: CallInfo = { pickup: s(c.pickup), destination: s(c.destination), phone: s(c.phone), note: s(c.note) }
   const at = c.pickupAt
+  const to = c.destinationAt
+  if (Array.isArray(to) && to.length === 2 && to.every((n) => typeof n === 'number' && Number.isFinite(n))) call.destinationAt = [to[0] as number, to[1] as number]
   if (Array.isArray(at) && at.length === 2 && at.every((n) => typeof n === 'number' && Number.isFinite(n))) {
     call.pickupAt = [at[0] as number, at[1] as number]
   }
@@ -32,8 +34,8 @@ function taxiData(t: Taxi) {
   return suspended ? { ...rest, suspended } : rest
 }
 function callData(c: CallInfo) {
-  const { pickupAt, ...rest } = c
-  return pickupAt ? { ...rest, pickupAt } : rest
+  const { pickupAt, destinationAt, ...rest } = c
+  return { ...rest, ...(pickupAt ? { pickupAt } : {}), ...(destinationAt ? { destinationAt } : {}) }
 }
 
 // Order ids from the state doc, keeping only registered taxis; any taxi missing from the order

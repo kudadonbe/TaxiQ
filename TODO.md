@@ -63,7 +63,7 @@ Needs a Firebase project from you, so this can't be done without it.
 ### Map (requested 2026-11-05)
 - [x] Map engine switched to MapLibre: rotate, tilt, pinch zoom, compass and "my location" with heading, like Google Maps.
 - [x] Whole-world map, island and town names (MV Bodu), house names in Dhanbumaa, opaque plot map.
-- [ ] Trip route on the map: pickup to destination along the roads, with pins, distance and time (Uber-style). Needs the destination chosen from the house search.
+- [x] Trip route on the map: pickup to destination along the roads (one-way streets for taxis), start and end pins, distance and time, Taxi / Walk switch. Shown when both ends are picked from the house search.
 - [ ] Travel modes like Google Maps where they apply in the Maldives: taxi or car (one-way streets), walking (ignores one-way), and ferry lines between islands from OpenStreetMap. Bus only where there is data (Malé area).
 - [ ] House names and plots for other islands, kept per island (`src/data/<island>/...`), starting with the Malé area. Plots can be traced the same way as Kulhudhuffushi once a plot chart is available.
 - [ ] v3: a base map from Hussain's drone photos (see `plans/` when v3 resumes): orthophoto processing (e.g. OpenDroneMap), map tiles served from the VPS, and a MapLibre raster layer. Centimetre-level detail is realistic; 5 mm accuracy needs RTK or surveyed ground control points, and a drone permit from the Civil Aviation Authority.

@@ -21,6 +21,9 @@ export const MAP_CENTER: [number, number] = [6.6217, 73.0696]
 const nodes = roads.n as [number, number][]
 const next = roads.a as number[][]
 
+// The island's road graph, for routing (src/core/route.ts).
+export const ROAD_GRAPH = { nodes, next }
+
 const M_PER_DEG = 111_320
 const cosLat = Math.cos((MAP_CENTER[0] * Math.PI) / 180)
 

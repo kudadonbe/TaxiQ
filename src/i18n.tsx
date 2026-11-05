@@ -165,6 +165,11 @@ const strings = {
     locating: 'Finding you…',
     locationDenied: 'Location permission is off.',
     locationUnavailable: 'Location not available.',
+    minutes: 'min',
+    straightLine: 'straight line',
+    travelMode: 'Travel mode',
+    modeTaxi: 'Taxi',
+    modeWalk: 'Walk',
     switchTo: 'ދިވެހި',
   },
   dv: {
@@ -325,6 +330,11 @@ const strings = {
     locating: 'ހޯދަނީ…',
     locationDenied: 'ލޮކޭޝަން ހުއްދަ ނިއްވާލާފައި.',
     locationUnavailable: 'ލޮކޭޝަން ނުލިބުނު.',
+    minutes: 'މިނިޓު',
+    straightLine: 'ސީދާ ރޮނގު',
+    travelMode: 'ދަތުރުކުރާ ގޮތް',
+    modeTaxi: 'ޓެކްސީ',
+    modeWalk: 'ހިނގައިގެން',
     switchTo: 'English',
   },
 } satisfies Record<Lang, Record<string, unknown>>

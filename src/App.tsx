@@ -55,6 +55,7 @@ export default function App() {
   const publicTaxis = usePublicTaxis(auth.fb, mode === 'public' || mode === 'driver' || mode === 'dev')
   const mapTaxis = useMemo(() => publicTaxis.map(asMapTaxi), [publicTaxis])
   const [chosen, setChosen] = useState<string | null>(null)
+  const [hireTrip, setHireTrip] = useState<{ from: [number, number]; to: [number, number] } | undefined>()
 
   const canAdmin = mode === 'demo' || auth.role === 'admin' || auth.role === 'dev'
   const { queue, history, interested, pick, call, setCall, callInProgress, canUndo, toggle, clear, undo } = q
@@ -235,10 +236,10 @@ export default function App() {
       {mode === 'public' || view === 'hire' ? (
         <main className="isolate mx-auto grid max-w-5xl gap-4 px-2 py-3 sm:px-4 sm:py-6 lg:grid-cols-[22rem_1fr]">
           <div className="lg:self-start">
-            <HirePanel taxis={publicTaxis} chosen={chosen} onClearChoice={() => setChosen(null)} />
+            <HirePanel taxis={publicTaxis} chosen={chosen} onClearChoice={() => setChosen(null)} onTrip={setHireTrip} />
           </div>
           <Suspense fallback={<p className="text-sm text-slate-500">{t.loading}</p>}>
-            <MapView taxis={mapTaxis} interested={EMPTY} pickupAt={undefined} onPickTaxi={setChosen} />
+            <MapView taxis={mapTaxis} interested={EMPTY} pickupAt={undefined} onPickTaxi={setChosen} trip={hireTrip} />
           </Suspense>
         </main>
       ) : view === 'driver' ? (
@@ -258,7 +259,7 @@ export default function App() {
             {mode === 'driver' ? (
               <MapView taxis={mapTaxis} interested={EMPTY} pickupAt={undefined} />
             ) : (
-              <MapView taxis={queue} interested={interested} pickupAt={call.pickupAt} />
+              <MapView taxis={queue} interested={interested} pickupAt={call.pickupAt} trip={call.pickupAt && call.destinationAt ? { from: call.pickupAt, to: call.destinationAt } : undefined} />
             )}
           </Suspense>
         </main>

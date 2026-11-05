@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../auth'
 import { useI18n } from '../i18n'
 import { cancelRide, OFFER_SECONDS, requestRide, type PublicTaxi } from '../rides'
@@ -10,11 +10,13 @@ interface Props {
   taxis: PublicTaxi[]
   chosen: string | null // a taxi tapped on the map
   onClearChoice: () => void
+  // The trip being planned (both ends picked from the house search), for the route on the map.
+  onTrip?: (trip: { from: [number, number]; to: [number, number] } | undefined) => void
 }
 
 // Public: ask for a ride. Either a specific taxi (tapped on the map) or the queue, where the offer
 // goes to each taxi in turn. Needs Google sign-in (no staff role).
-export function HirePanel({ taxis, chosen, onClearChoice }: Props) {
+export function HirePanel({ taxis, chosen, onClearChoice, onTrip }: Props) {
   const { fb, uid, name, status, signIn } = useAuth()
   const { lang, t } = useI18n()
   const ride = useMyRide(fb, uid)
@@ -22,12 +24,21 @@ export function HirePanel({ taxis, chosen, onClearChoice }: Props) {
   const [pickup, setPickup] = useState('')
   const [pickupAt, setPickupAt] = useState<[number, number] | undefined>()
   const [destination, setDestination] = useState('')
+  const [destinationAt, setDestinationAt] = useState<[number, number] | undefined>()
   const [phone, setPhone] = useState('')
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // A finished request the passenger cleared from the screen (it stays in the database until replaced).
   const [dismissed, setDismissed] = useState<number | null>(null)
+
+  const tripKey = pickupAt && destinationAt ? JSON.stringify([pickupAt, destinationAt]) : ''
+  useEffect(() => {
+    if (!onTrip) return
+    if (!tripKey) return onTrip(undefined)
+    const [from, to] = JSON.parse(tripKey) as [[number, number], [number, number]]
+    onTrip({ from, to })
+  }, [tripKey, onTrip])
 
   const byId = new Map(taxis.map((x) => [x.id, x]))
   const label = (id: string | null) => {
@@ -163,7 +174,10 @@ export function HirePanel({ taxis, chosen, onClearChoice }: Props) {
         hint={t.pickupHint}
         value={destination}
         error={!!destination.trim() && !isFreeText(destination.trim())}
-        onChange={(text) => setDestination(text)}
+        onChange={(text, at) => {
+          setDestination(text)
+          setDestinationAt(at)
+        }}
       />
       <label className="block">
         <span className="text-sm font-medium text-slate-700">{t.yourPhone}</span>

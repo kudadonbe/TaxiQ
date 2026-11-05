@@ -28,6 +28,7 @@ export interface Taxi {
 export interface CallInfo {
   pickup: string
   pickupAt?: [number, number] // set when the pickup was chosen from the place search
+  destinationAt?: [number, number] // same for the destination (used to draw the route)
   destination: string
   phone: string
   note: string
