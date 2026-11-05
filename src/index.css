@@ -64,8 +64,15 @@ h3 {
   }
 }
 
+/* Leaflet sets Helvetica/Arial on the whole map; use our fonts instead, so Dhivehi house names,
+   tooltips and popups on the map render in Dhanbumaa (MV Bodu stays for headings). */
+html .leaflet-container {
+  font-family: var(--font-sans);
+}
+
 /* House-name labels on the map (MapView), centred on the house point with a white halo. */
 .map-label {
+  font-family: var(--font-sans);
   position: absolute;
   transform: translate(-50%, -50%);
   white-space: nowrap;

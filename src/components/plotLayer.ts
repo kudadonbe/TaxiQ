@@ -32,7 +32,7 @@ export function createPlotLayer(plots: Plot[], { lang, plotWord }: Options): L.L
       color: '#1f2937',
       weight: 0.8,
       fillColor: plot.c,
-      fillOpacity: 0.95,
+      fillOpacity: 1,
       interactive: !!plot.h || !!plot.pl,
     })
     if (plot.h || plot.pl) {
