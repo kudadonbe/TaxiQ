@@ -109,6 +109,15 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
 - **v3:** use Lucide in `src/v3` and in the server's HTML, if it has any. Never use emoji.
 - [ ] Ported
 
+## 12. Map opens where the viewer is
+
+- **v2:** `9d026d4`:
+  - The map asks for the viewer's location and flies there (`src/roadArea.ts`).
+  - Outside Kulhudhuffushi, the demo taxis drive a stand-in grid, then the real roads from OSM Overpass (`src/core/osmRoads.ts`, with tests; the position is rounded to about 1 km).
+  - Trip routes use the same roads. The CSP allows the Overpass servers.
+- **v3:** keep it for the rider and staff maps: each center's own area by default, the viewer's location when shared. With real driver GPS, the demo taxis go away. Load road graphs on the server (cached per area) instead of each browser calling Overpass.
+- [ ] Ported
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
