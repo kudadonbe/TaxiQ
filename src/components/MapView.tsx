@@ -14,7 +14,8 @@ import { useI18n } from '../i18n'
 import { loadPlaces, metresBetween, searchPlaces, type Place } from '../places'
 import { route as findRoute, type TravelMode } from '../core/route'
 import { MAP_CENTER, ROAD_GRAPH, subscribePositions, type Positions } from '../positions'
-import { moveToLocation, useArea } from '../roadArea'
+import { graphFromLines } from '../core/osmRoads'
+import { moveToLocation, offerRoads, useArea } from '../roadArea'
 import type { Taxi } from '../types'
 import { loadPlots, plotPopup, plotsGeoJSON, type Plot } from './plotLayer'
 
@@ -91,6 +92,12 @@ function labelMarker(text: string, className: string, at: [number, number], m: M
   el.textContent = text
   return new maplibregl.Marker({ element: el, rotationAlignment: 'viewport', pitchAlignment: 'viewport' }).setLngLat(ll(at)).addTo(m)
 }
+
+// OpenFreeMap vector tiles (OpenStreetMap data, OpenMapTiles schema): only their road lines are read,
+// for demo taxis away from Kulhudhuffushi. Classes cars use; paths, tracks, rail and ferries are left out.
+const ROADS_SOURCE = 'ofm-roads'
+const ROADS_LAYER = 'ofm-roads-read'
+const DRIVABLE_CLASSES = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'minor', 'service', 'busway']
 
 const OSM_STYLE: maplibregl.StyleSpecification = {
   version: 8,
@@ -419,6 +426,36 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     m.flyTo({ center: ll(pickupAt), zoom: 18, duration: 800 })
   }, [pickupAt, t.pickupPin, trip])
 
+  // Roads for the demo taxis away from Kulhudhuffushi: read the road lines (with one-way streets) from
+  // OpenFreeMap vector tiles, which MapLibre loads and decodes for an invisible layer. Every time the
+  // map settles, the roads in view are offered; the Overpass backup in roadArea may replace them
+  // with fuller data.
+  const wantRoads = followsViewer && (area.kind === 'loading' || area.kind === 'none' || (area.kind === 'here' && area.source === 'tiles'))
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready || !wantRoads) return
+    if (!m.getSource(ROADS_SOURCE)) {
+      m.addSource(ROADS_SOURCE, { type: 'vector', url: 'https://tiles.openfreemap.org/planet', attribution: '<a href="https://openfreemap.org">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/">OpenMapTiles</a>' })
+      m.addLayer({ id: ROADS_LAYER, type: 'line', source: ROADS_SOURCE, 'source-layer': 'transportation', minzoom: 12, filter: ['in', ['get', 'class'], ['literal', DRIVABLE_CLASSES]], paint: { 'line-opacity': 0 } })
+    }
+    const read = () => {
+      const lines: { coords: number[][]; oneway?: number }[] = []
+      for (const f of m.querySourceFeatures(ROADS_SOURCE, { sourceLayer: 'transportation' })) {
+        if (!DRIVABLE_CLASSES.includes(String(f.properties?.class))) continue
+        const oneway = Number(f.properties?.oneway) || 0
+        const g = f.geometry
+        if (g.type === 'LineString') lines.push({ coords: g.coordinates, oneway })
+        else if (g.type === 'MultiLineString') for (const c of g.coordinates) lines.push({ coords: c, oneway })
+      }
+      const roads = graphFromLines(lines)
+      if (roads) offerRoads(roads, 'tiles')
+    }
+    m.on('idle', read)
+    return () => {
+      m.off('idle', read)
+    }
+  }, [ready, wantRoads])
+
   // When the viewer's location arrives, fly there (the demo taxis restart on the roads there).
   const areaKey = followsViewer && area.located ? area.center.join(',') : ''
   useEffect(() => {
@@ -669,7 +706,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
           )}
         </div>
       </div>
-      {followsViewer && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:text-sm">{area.kind === 'here' ? t.mapDemoHere : area.kind === 'grid' ? t.mapDemoGrid : t.mapPlaceholder}</p>}
+      {followsViewer && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:text-sm">{area.kind === 'here' ? t.mapDemoHere : area.kind === 'loading' ? t.mapDemoLoading : area.kind === 'none' ? t.mapDemoNone : t.mapPlaceholder}</p>}
     </section>
   )
 }

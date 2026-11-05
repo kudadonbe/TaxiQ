@@ -87,3 +87,4 @@ Needs a Firebase project from you, so this can't be done without it.
 
 - [ ] Two sides in the app and the game: public-service taxi and private hire (people and companies with their own cars). Answer the questions in §3 first.
 - [ ] v3: hire any land vehicle (types, ways to hire, providers).
+- [ ] Map roads: use road signs and turn restrictions when we have accurate data (our own survey, or OSM `restriction` relations via the v3 server).

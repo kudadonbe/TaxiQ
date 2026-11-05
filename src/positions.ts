@@ -114,9 +114,11 @@ function step(s: Sim, dt: number): Position {
 // Demo taxis drive on the roads of the current area (src/roadArea.ts): Kulhudhuffushi, or the
 // roads around the viewer. When the area changes they start again there.
 export function subscribePositions(ids: readonly string[], onUpdate: (p: Positions) => void): () => void {
-  let sims = ids.map((id) => create(getArea().graph, id))
+  // No roads for this area yet: no taxis (they never drive off the roads).
+  const make = () => (getArea().graph.nodes.length ? ids.map((id) => create(getArea().graph, id)) : [])
+  let sims = make()
   const stopArea = subscribeArea(() => {
-    sims = ids.map((id) => create(getArea().graph, id))
+    sims = make()
   })
   let last = performance.now()
   let frame = 0
