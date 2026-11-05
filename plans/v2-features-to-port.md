@@ -63,6 +63,22 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
   - per center, the Staff tab already does this for owners. Consider listing everyone who has used the center (drivers, operators, recent passengers) there too.
 - [ ] Ported
 
+## 6. Queue reorder / shuffle with a reason
+
+- **v2:** `51cb1b1`. `src/core/reorder.ts` (move, fair shuffle, `validReorder`, `reasonOk`) with tests, `src/components/ReorderPanel.tsx`, and `QueueChangesLog`. Reasons: late, returned, correction, shift, and other (note required). In live mode the change is saved in one transaction with a `queueChanges/{id}` entry (who, when, reason, note, before/after) that nobody can edit or delete. It's refused if the queue changed meanwhile.
+- **v3 (Hussain, 2026-11-05): a reorder changes only that center's queue**, never anything app-wide.
+  - `POST /v1/centers/:id/queue/reorder {order, kind, reason, note}`, allowed for that center's **owner, manager and operator** (`queue.write`).
+  - It runs `validReorder` against the locked queue row (409 `queue_changed` if it differs).
+  - It writes the before/after to that center's `audit_log` (`queue.reorder` / `queue.shuffle`).
+  - Partners and other centers get 403. Add integration tests for exactly this.
+- [ ] Ported
+
+## 7. Online now (People)
+
+- **v2:** `51cb1b1`. A heartbeat refreshes `users/{uid}.lastSeen` every minute while the app is open. People shows online people (seen in the last 150 s) with a green dot, an Online filter, online counts per role, and online people first.
+- **v3:** add `users.last_seen`, updated by any authenticated API call (at most once a minute) or by `POST /v1/me/heartbeat`. Show online people in the System admin People tab, and in each center's Staff and Drivers tabs (online drivers matter most for offers).
+- [ ] Ported
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
