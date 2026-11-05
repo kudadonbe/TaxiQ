@@ -1,5 +1,7 @@
 # How to play TaxiQ Game
 
+*Dedicated to Mohamed bin Hussain.*
+
 TaxiQ Game is a taxi business game on the real island map. You play with play money, and the real
 taxi service is never touched. It's being built in phases, and this guide says what you can do today
 and what's coming. (Game rules for the builders are in [game-mode.md](game-mode.md).)

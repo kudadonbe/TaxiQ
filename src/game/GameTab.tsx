@@ -64,6 +64,7 @@ function HowToPlay({ open = false }: { open?: boolean }) {
         ))}
       </ol>
       <p className="mt-2 text-xs text-fuchsia-800">{t.howNext}</p>
+      <p className="mt-3 border-t border-fuchsia-100 pt-2 text-center text-xs italic text-slate-500">💜 {t.gameDedication}</p>
     </details>
   )
 }
