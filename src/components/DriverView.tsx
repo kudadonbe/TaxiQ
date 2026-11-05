@@ -1,3 +1,5 @@
+import { ArrowRight, MapPin, Phone } from 'lucide-react'
+import { ic, icFlip } from './iconStyles'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../auth'
 import { useI18n } from '../i18n'
@@ -87,11 +89,11 @@ export function DriverView({ taxis }: { taxis: PublicTaxi[] }) {
                   </span>
                 </div>
                 <p className="text-lg font-bold">
-                  📍 <bdi>{r.pickup}</bdi>
+                  <MapPin className={`${ic} text-emerald-600`} aria-hidden="true" /> <bdi>{r.pickup}</bdi>
                 </p>
                 {r.destination && (
                   <p className="text-slate-600">
-                    → <bdi>{r.destination}</bdi>
+                    <ArrowRight className={`${icFlip} text-slate-400`} aria-hidden="true" /> <bdi>{r.destination}</bdi>
                   </p>
                 )}
                 {r.note && <bdi className="block text-sm text-slate-500">{r.note}</bdi>}
@@ -127,16 +129,16 @@ export function DriverView({ taxis }: { taxis: PublicTaxi[] }) {
               <li key={r.id} className="flex items-center gap-3 px-3 py-2 text-sm">
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-semibold">
-                    📍 <bdi>{r.pickup}</bdi>
+                    <MapPin className={`${ic} text-emerald-600`} aria-hidden="true" /> <bdi>{r.pickup}</bdi>
                   </span>
                   {r.destination && (
                     <span className="block truncate text-slate-500">
-                      → <bdi>{r.destination}</bdi>
+                      <ArrowRight className={`${icFlip} text-slate-400`} aria-hidden="true" /> <bdi>{r.destination}</bdi>
                     </span>
                   )}
                 </span>
                 <a href={`tel:${r.phone}`} dir="ltr" className="min-h-10 shrink-0 rounded-lg bg-slate-900 px-3 py-2 font-semibold text-white">
-                  ☎ {t.callPassenger}
+                  <Phone className={ic} aria-hidden="true" /> {t.callPassenger}
                 </a>
               </li>
             ))}

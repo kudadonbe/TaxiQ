@@ -1,3 +1,6 @@
+import { CarTaxiFront, Footprints, MapPin, X } from 'lucide-react'
+import { PlaceTypeIcon } from './icons'
+import { ic } from './iconStyles'
 import type { Feature, LineString } from 'geojson'
 import * as maplibregl from 'maplibre-gl'
 import type { Map as MlMap, Marker } from 'maplibre-gl'
@@ -8,7 +11,7 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 maplibregl.setWorkerUrl(workerUrl)
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../i18n'
-import { loadPlaces, metresBetween, searchPlaces, type Place, type PlaceType } from '../places'
+import { loadPlaces, metresBetween, searchPlaces, type Place } from '../places'
 import { route as findRoute, type TravelMode } from '../core/route'
 import { MAP_CENTER, ROAD_GRAPH, subscribePositions, type Positions } from '../positions'
 import type { Taxi } from '../types'
@@ -29,7 +32,6 @@ interface Props {
   positionSource?: (ids: readonly string[], onUpdate: (p: Positions) => void) => () => void
 }
 
-const typeIcon: Record<PlaceType, string> = { h: '🏠', r: '🛣️', l: '📍', p: '▫️' }
 
 // Pin for a searched place. Static markup, no user data.
 const pinSvg = (fill: string) => `<svg viewBox="0 0 24 32" width="28" height="36" aria-hidden="true">
@@ -548,7 +550,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
                   aria-pressed={mode === x}
                   className={`min-h-10 rounded-lg px-3 text-sm font-semibold ${mode === x ? 'bg-white shadow' : 'text-slate-600'}`}
                 >
-                  {x === 'taxi' ? `🚕 ${t.modeTaxi}` : `🚶 ${t.modeWalk}`}
+                  {x === 'taxi' ? <CarTaxiFront className={ic} aria-hidden="true" /> : <Footprints className={ic} aria-hidden="true" />} {x === 'taxi' ? t.modeTaxi : t.modeWalk}
                 </button>
               ))}
             </div>
@@ -574,7 +576,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
             />
             {query && (
               <button type="button" onClick={clearSearch} aria-label={t.clear} className="min-h-11 px-3 text-slate-500">
-                ✕
+                <X className="size-4" aria-hidden="true" />
               </button>
             )}
           </div>
@@ -589,7 +591,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
                       onClick={() => choose(p)}
                       className="flex min-h-11 w-full items-center gap-2 px-3 py-1.5 text-start hover:bg-slate-50"
                     >
-                      <span aria-hidden>{typeIcon[p.t]}</span>
+                      <PlaceTypeIcon type={p.t} />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate font-semibold">{placeName(p)}</span>
                         <span className="block truncate text-xs text-slate-500">
@@ -611,7 +613,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
             <div className="mt-1 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
               {selected ? (
                 <p className="font-bold">
-                  {typeIcon[selected.t]} {placeName(selected)}
+                  <PlaceTypeIcon type={selected.t} className={`${ic} text-slate-500`} /> {placeName(selected)}
                   {selected.pl && selected.t !== 'p' && (
                     <span className="ms-2 text-sm font-medium text-slate-500">
                       {t.plot} {selected.pl}
@@ -619,7 +621,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
                   )}
                 </p>
               ) : (
-                <p className="font-bold text-emerald-700">📍 {t.pickupPin}</p>
+                <p className="font-bold text-emerald-700"><MapPin className={ic} aria-hidden="true" /> {t.pickupPin}</p>
               )}
               <p className="mt-2 text-xs font-semibold uppercase tracking-widest text-slate-500">{t.nearestTaxis}</p>
               <ul className="mt-1 space-y-1">

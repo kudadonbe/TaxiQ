@@ -141,8 +141,9 @@ export function PeoplePanel({ taxis }: { taxis: Taxi[] }) {
             aria-pressed={filter === f}
             className={`min-h-9 rounded-full px-3 text-sm font-semibold ${filter === f ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
           >
-            {f === 'all' ? t.filterAll : f === 'online' ? `🟢 ${t.onlineNow}` : roleLabel(f)} <span className="tabular-nums opacity-70">{counts.total[f] ?? 0}</span>
-            {f !== 'online' && (counts.online[f] ?? 0) > 0 && <span className="ms-1 text-xs tabular-nums">· 🟢 {counts.online[f]}</span>}
+            {f === 'online' && <span className="me-1 inline-block size-2 rounded-full bg-emerald-500" aria-hidden="true" />}
+            {f === 'all' ? t.filterAll : f === 'online' ? t.onlineNow : roleLabel(f)} <span className="tabular-nums opacity-70">{counts.total[f] ?? 0}</span>
+            {f !== 'online' && (counts.online[f] ?? 0) > 0 && <span className="ms-1 inline-flex items-center gap-1 text-xs tabular-nums">· <span className="inline-block size-2 rounded-full bg-emerald-400" aria-hidden="true" /> {counts.online[f]}</span>}
           </button>
         ))}
       </div>

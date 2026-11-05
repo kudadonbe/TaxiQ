@@ -54,12 +54,13 @@ beyond Gate 1 applies yet. Treat it as a prototype for the design phase.
 - [x] Firebase project `kd-taxiq` and Firestore (Singapore) created, rules locked.
 - [ ] Approval for storing data in Singapore (no Maldives region).
 - [ ] Firebase SDK on the MDS-whitelisted dependency list, or an exception requested.
+- [ ] maplibre-gl (BSD-3) and lucide-react (ISC, icons) on the MDS-whitelisted dependency list, or an exception requested.
 - [ ] Data classification, retention rules for passenger details and GPS tracks, and a privacy notice.
 - [ ] Audit logging of dispatch and admin actions.
 - [ ] SBOM generated each release.
 
-SBOM: not generated yet. Direct dependencies are in `package.json` (react, react-dom, leaflet,
-@fontsource/noto-sans-thaana; build-time: vite, tailwindcss, typescript, oxlint), with versions locked in `pnpm-lock.yaml`.
+SBOM: not generated yet. Direct dependencies are in `package.json` (react, react-dom, firebase, maplibre-gl,
+lucide-react, @fontsource/noto-sans-thaana; build-time: vite, tailwindcss, typescript, oxlint, vitest), with versions locked in `pnpm-lock.yaml`.
 Exceptions:
 
 | # | Criterion | Exception | Compensating controls | Approval | Remediation |

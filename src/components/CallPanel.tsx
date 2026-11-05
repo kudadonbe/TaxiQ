@@ -1,3 +1,5 @@
+import { ArrowRight, ChevronDown, ChevronUp, Phone } from 'lucide-react'
+import { icFlip } from './iconStyles'
 import { useState } from 'react'
 import { useI18n } from '../i18n'
 import type { CallInfo } from '../types'
@@ -16,7 +18,6 @@ export function CallPanel({ call, onChange }: Props) {
   const [open, setOpen] = useState(false)
   const errors = validateCall(call)
   const filled = hasCallInfo(call)
-  const summary = [call.pickup, call.destination && `→ ${call.destination}`, call.phone].filter(Boolean).join(' ')
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white">
@@ -26,17 +27,32 @@ export function CallPanel({ call, onChange }: Props) {
         aria-expanded={open || undefined}
         className="flex min-h-12 w-full items-center gap-2 px-3 text-start"
       >
-        <span aria-hidden>📞</span>
+        <Phone className="size-5 shrink-0 text-slate-500" aria-hidden="true" />
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-semibold">{t.callTitle}</span>
           {!open && (
             <span className={`block truncate text-sm ${filled ? 'text-slate-700' : 'text-slate-400'}`}>
-              {filled ? <bdi>{summary || call.note}</bdi> : `${t.pickup}, ${t.destination}, ${t.passengerPhone}`}
+              {filled ? (
+                call.pickup || call.destination ? (
+                  <>
+                    <bdi>{call.pickup}</bdi>
+                    {call.destination && (
+                      <>
+                        {' '}
+                        <ArrowRight className={icFlip} aria-hidden="true" /> <bdi>{call.destination}</bdi>
+                      </>
+                    )}
+                    {call.phone && <bdi dir="ltr"> {call.phone}</bdi>}
+                  </>
+                ) : (
+                  <bdi>{call.phone || call.note}</bdi>
+                )
+              ) : `${t.pickup}, ${t.destination}, ${t.passengerPhone}`}
             </span>
           )}
         </span>
         <span aria-hidden className="text-slate-400">
-          {open ? '▴' : '▾'}
+          {open ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
         </span>
       </button>
 

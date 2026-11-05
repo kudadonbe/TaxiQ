@@ -1,3 +1,5 @@
+import { ArrowLeft, CircleHelp, Cog, Earth, Gamepad2, Heart, Pause, Play } from 'lucide-react'
+import { ic, icFlip, ROLE_ICONS } from '../components/iconStyles'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../auth'
 import { clockAt, PRESETS, type Preset } from '../core/gameSim'
@@ -57,7 +59,7 @@ function HowToPlay({ open = false }: { open?: boolean }) {
   const { t } = useI18n()
   return (
     <details open={open} className="rounded-xl border border-fuchsia-200 bg-white p-4">
-      <summary className="cursor-pointer font-bold">❓ {t.howToPlay}</summary>
+      <summary className="cursor-pointer font-bold"><CircleHelp className={ic} aria-hidden="true" /> {t.howToPlay}</summary>
       <p className="mt-2 text-sm text-slate-700">{t.howGoal}</p>
       <ol className="mt-2 list-decimal space-y-1 ps-5 text-sm text-slate-700">
         {Object.values(t.howSteps).map((step) => (
@@ -65,13 +67,18 @@ function HowToPlay({ open = false }: { open?: boolean }) {
         ))}
       </ol>
       <p className="mt-2 text-xs text-fuchsia-800">{t.howNext}</p>
-      <p className="mt-3 border-t border-fuchsia-100 pt-2 text-center text-xs italic text-slate-500">💜 {t.gameDedication}</p>
+      <p className="mt-3 border-t border-fuchsia-100 pt-2 text-center text-xs italic text-slate-500"><Heart className={`${ic} text-fuchsia-500`} aria-hidden="true" /> {t.gameDedication}</p>
     </details>
   )
 }
 
+function RoleIcon({ role }: { role: GameRole }) {
+  const Icon = ROLE_ICONS[role]
+  return <Icon className={ic} aria-hidden="true" />
+}
+
 function GameBadge() {
-  return <span className="rounded bg-fuchsia-600 px-1.5 py-0.5 text-xs font-black text-white">🎮 GAME</span>
+  return <span className="rounded bg-fuchsia-600 px-1.5 py-0.5 text-xs font-black text-white"><Gamepad2 className={ic} aria-hidden="true" /> GAME</span>
 }
 
 function Lobby({ onOpen, me }: { onOpen: (id: string) => void; me: { uid: string; name: string } }) {
@@ -102,7 +109,7 @@ function Lobby({ onOpen, me }: { onOpen: (id: string) => void; me: { uid: string
 
       <section className="flex flex-col gap-3 rounded-xl bg-gradient-to-br from-fuchsia-600 to-violet-700 p-5 text-white sm:flex-row sm:items-center">
         <div className="flex-1">
-          <h3 className="text-xl font-black">🌏 {t.gameWorldName}</h3>
+          <h3 className="text-xl font-black"><Earth className="inline-block size-6 align-[-0.25em]" aria-hidden="true" /> {t.gameWorldName}</h3>
           <p className="text-sm text-fuchsia-50">{t.gameWorldIntro}</p>
         </div>
         <button type="button" disabled={busy || !fb} onClick={() => fb && run(enterWorld(fb, me))} className="min-h-12 rounded-lg bg-white px-5 font-black text-fuchsia-700 hover:bg-fuchsia-50 disabled:opacity-40">
@@ -277,7 +284,7 @@ function Room({ gameId, onLeave }: { gameId: string; onLeave: () => void }) {
             <GameBadge />
             <h2 className="min-w-0 flex-1 truncate text-lg font-black">{isWorld ? t.gameWorldName : game.name}</h2>
             <button type="button" onClick={onLeave} className="min-h-9 rounded-lg px-2 text-sm text-slate-500 hover:bg-slate-100">
-              ← {t.gameLobby}
+              <ArrowLeft className={icFlip} aria-hidden="true" /> {t.gameLobby}
             </button>
           </div>
           {!isWorld && (
@@ -301,22 +308,22 @@ function Room({ gameId, onLeave }: { gameId: string; onLeave: () => void }) {
               </span>
             )}
           </p>
-          {engine && <p className="rounded-lg bg-emerald-50 px-2 py-1 text-xs text-emerald-800">⚙️ {t.gameEngineHere}</p>}
+          {engine && <p className="rounded-lg bg-emerald-50 px-2 py-1 text-xs text-emerald-800"><Cog className={ic} aria-hidden="true" /> {t.gameEngineHere}</p>}
           {isHost && !isWorld && (
             <div className="flex flex-wrap gap-2">
               {game.status === 'lobby' && (
                 <button type="button" onClick={() => act(hostControl(fb!, game, 'start'))} className="min-h-10 flex-1 rounded-lg bg-emerald-500 px-3 font-bold text-slate-950">
-                  ▶ {t.gameStart}
+                  <Play className={ic} aria-hidden="true" /> {t.gameStart}
                 </button>
               )}
               {game.status === 'running' && (
                 <button type="button" onClick={() => act(hostControl(fb!, game, 'pause'))} className="min-h-10 flex-1 rounded-lg border border-slate-300 px-3 font-semibold">
-                  ⏸ {t.gamePause}
+                  <Pause className={ic} aria-hidden="true" /> {t.gamePause}
                 </button>
               )}
               {game.status === 'paused' && (
                 <button type="button" onClick={() => act(hostControl(fb!, game, 'resume'))} className="min-h-10 flex-1 rounded-lg bg-emerald-500 px-3 font-bold text-slate-950">
-                  ▶ {t.gameResume}
+                  <Play className={ic} aria-hidden="true" /> {t.gameResume}
                 </button>
               )}
               {game.status !== 'ended' && (
@@ -338,7 +345,7 @@ function Room({ gameId, onLeave }: { gameId: string; onLeave: () => void }) {
                     onClick={() => me.role !== r && act(setRole(fb!, game.id, uid!, name ?? '', r))}
                     className={`min-h-10 rounded-lg px-1 text-xs font-bold ${me.role === r ? 'bg-fuchsia-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
                   >
-                    {t.gameRoleIcons[r]} {t.gameRoles[r]}
+                    <RoleIcon role={r} /> {t.gameRoles[r]}
                   </button>
                 ))}
               </div>

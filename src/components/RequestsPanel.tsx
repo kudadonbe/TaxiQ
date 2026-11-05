@@ -1,3 +1,5 @@
+import { ArrowRight, MapPin, Phone } from 'lucide-react'
+import { ic, icFlip } from './iconStyles'
 import { useAuth } from '../auth'
 import { useI18n } from '../i18n'
 import { cancelRide, OFFER_SECONDS } from '../rides'
@@ -24,18 +26,18 @@ export function RequestsPanel({ taxis }: { taxis: Taxi[] }) {
             return (
               <li key={r.id} className="space-y-1 px-3 py-2 text-sm">
                 <p className="font-semibold">
-                  📍 <bdi>{r.pickup}</bdi>
+                  <MapPin className={`${ic} text-emerald-600`} aria-hidden="true" /> <bdi>{r.pickup}</bdi>
                   {r.destination && (
                     <span className="font-normal text-slate-500">
                       {' '}
-                      → <bdi>{r.destination}</bdi>
+                      <ArrowRight className={`${icFlip} text-slate-400`} aria-hidden="true" /> <bdi>{r.destination}</bdi>
                     </span>
                   )}
                 </p>
                 <p className="flex flex-wrap items-center gap-2 text-xs">
                   <bdi className="text-slate-600">{r.name}</bdi>
                   <bdi dir="ltr" className="tabular-nums text-slate-500">
-                    ☎ {r.phone}
+                    <Phone className={ic} aria-hidden="true" /> {r.phone}
                   </bdi>
                   {r.status === 'offering' ? (
                     <span className="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-900">

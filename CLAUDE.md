@@ -73,6 +73,7 @@ There is no test runner set up yet. `pnpm build` is the type-check gate, since `
 
 - TypeScript is strict about unused code (`noUnusedLocals`, `noUnusedParameters`, `erasableSyntaxOnly`, `verbatimModuleSyntax`). Use `import type` for type-only imports, and don't use enums or parameter properties.
 - Code style is 2-space indent and single quotes in TS, with no semicolons. See `.editorconfig`.
+- **No emoji anywhere in the UI** (buttons, labels, badges, strings, map). Use **Lucide** icons (`lucide-react`): import them directly, or use the helpers in `src/components/icons.tsx` (`PlaceTypeIcon`, `TripLine`) and the class names in `src/components/iconStyles.ts` (`ic`, `icFlip` for arrows that mirror in Dhivehi). Decorative icons get `aria-hidden`; meaning comes from text or an `aria-label`.
 
 ## Security standard
 

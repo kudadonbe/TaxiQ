@@ -1,9 +1,11 @@
+import { Pencil, X } from 'lucide-react'
+import { ic } from './iconStyles'
 import { useMemo, useState } from 'react'
 import { useAuth } from '../auth'
 import { builtInStrings, useI18n } from '../i18n'
 import { checkFix, flatten } from '../translations'
 
-// Admins and devs: fix any Dhivehi string from inside the app. Opens as a side panel from the ✏️
+// Admins and devs: fix any Dhivehi string from inside the app. Opens as a side panel from the pencil
 // button, so you can fix a label while looking at it. Saved fixes go to Firestore
 // (translations/dv) and show for everyone at once; Export gives English → Dhivehi pairs to write
 // back into src/i18n.tsx.
@@ -72,9 +74,9 @@ export function TranslationEditor({ onClose }: { onClose: () => void }) {
       >
         <header className="space-y-2 border-b border-slate-200 p-4">
           <div className="flex items-center gap-2">
-            <h2 className="flex-1 font-bold">✏️ {t.translations}</h2>
+            <h2 className="flex-1 font-bold"><Pencil className={ic} aria-hidden="true" /> {t.translations}</h2>
             <button type="button" onClick={onClose} aria-label={t.cancel} className="min-h-10 rounded-lg px-3 text-slate-600 hover:bg-slate-100">
-              ✕
+              <X className="size-4" aria-hidden="true" />
             </button>
           </div>
           <p className="text-xs text-slate-500">{t.trNote}</p>

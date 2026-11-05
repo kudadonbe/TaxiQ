@@ -1,3 +1,6 @@
+import { Building2, CarTaxiFront, Check, NotebookText, Radio, Star, User } from 'lucide-react'
+import { TripLine } from '../components/icons'
+import { ic } from '../components/iconStyles'
 import { useState } from 'react'
 import { PlaceInput } from '../components/PlaceInput'
 import { FARES, FARES_ARE_PLACEHOLDER } from '../core/fares'
@@ -54,7 +57,7 @@ function DriverPanel({ fb, game, me, t, trips, myCar, onError }: Props) {
   return (
     <section className="space-y-3 rounded-xl border-2 border-emerald-300 bg-white p-4">
       <div className="flex items-center gap-2">
-        <h3 className="flex-1 font-bold">🚕 {myCar !== null ? tr.gameMyCar(myCar) : tr.gameNoCarYet}</h3>
+        <h3 className="flex-1 font-bold"><CarTaxiFront className={ic} aria-hidden="true" /> {myCar !== null ? tr.gameMyCar(myCar) : tr.gameNoCarYet}</h3>
         <button
           type="button"
           onClick={() => act(setOnline(fb, game.id, me.uid, !me.online))}
@@ -73,11 +76,11 @@ function DriverPanel({ fb, game, me, t, trips, myCar, onError }: Props) {
             <span className="rounded-full bg-amber-500 px-2 text-sm text-white tabular-nums">{left}s</span>
           </p>
           <p className="text-sm">
-            📍 {offer.pName || '—'} → 🏁 {offer.dName || '—'}
+            <TripLine from={offer.pName} to={offer.dName} />
           </p>
           <div className="flex gap-2">
             <button type="button" onClick={() => act(answerOffer(fb, game.id, offer.id, 'accept'))} className="min-h-11 flex-1 rounded-lg bg-emerald-500 font-bold text-slate-950">
-              ✓ {tr.gameAccept}
+              <Check className={ic} aria-hidden="true" /> {tr.gameAccept}
             </button>
             <button type="button" onClick={() => act(answerOffer(fb, game.id, offer.id, 'decline'))} className="min-h-11 flex-1 rounded-lg border border-slate-300 font-semibold">
               {tr.gameDecline}
@@ -90,7 +93,7 @@ function DriverPanel({ fb, game, me, t, trips, myCar, onError }: Props) {
         <div className="space-y-1 rounded-lg bg-emerald-50 p-3 text-sm">
           <p className="font-bold">{t < tripPickupAt(job) ? tr.gameToPickup(gameMinutes(tripPickupAt(job) - t)) : tr.gameOnBoard(gameMinutes(tripEnd(job) - t))}</p>
           <p>
-            📍 {job.pName || '—'} → 🏁 {job.dName || '—'}
+            <TripLine from={job.pName} to={job.dName} />
           </p>
           <p className="text-slate-600">
             {job.riderName || tr.gameBotRider} · {job.km?.toFixed(1)} km · MVR {job.fare}
@@ -137,11 +140,11 @@ function CitizenPanel({ fb, game, me, t, trips, onError }: Props) {
 
   return (
     <section className="space-y-3 rounded-xl border-2 border-sky-300 bg-white p-4">
-      <h3 className="font-bold">🙋 {tr.gameRequestRide}</h3>
+      <h3 className="font-bold"><User className={ic} aria-hidden="true" /> {tr.gameRequestRide}</h3>
       {active ? (
         <div className="space-y-2 rounded-lg bg-sky-50 p-3 text-sm">
           <p>
-            📍 {active.pName} → 🏁 {active.dName}
+            <TripLine from={active.pName} to={active.dName} />
           </p>
           <p className="font-bold">
             {active.status === 'searching'
@@ -194,7 +197,7 @@ function OperatorPanel({ game, players, t, nowMs: now, cars, trips, roster }: Pr
   const waiting = trips.filter((x) => x.status === 'searching')
   return (
     <section className="space-y-3 rounded-xl border-2 border-amber-300 bg-white p-4">
-      <h3 className="font-bold">📻 {tr.gameQueueBoard}</h3>
+      <h3 className="font-bold"><Radio className={ic} aria-hidden="true" /> {tr.gameQueueBoard}</h3>
       <div>
         <h4 className="text-sm font-semibold text-slate-500">{tr.gameRidesWaiting(waiting.length)}</h4>
         {waiting.length === 0 ? (
@@ -204,7 +207,7 @@ function OperatorPanel({ game, players, t, nowMs: now, cars, trips, roster }: Pr
             {waiting.map((x) => (
               <li key={x.id} className="py-1.5">
                 <span className="block truncate">
-                  📍 {x.pName || '—'} → 🏁 {x.dName || '—'}
+                  <TripLine from={x.pName} to={x.dName} />
                 </span>
                 <span className="text-xs text-slate-500">
                   {x.riderName || tr.gameBotRider} · {x.offerCar !== null ? tr.gameAsking(x.offerCar) : tr.gameSearching}
@@ -224,7 +227,7 @@ function OperatorPanel({ game, players, t, nowMs: now, cars, trips, roster }: Pr
               <span className="w-10 font-mono font-bold">#{r.n}</span>
               <span className="min-w-0 flex-1 truncate">
                 {r.name}
-                {r.isPlayer && <span className="ms-1 text-xs text-fuchsia-700">★</span>}
+                {r.isPlayer && <Star className="ms-1 inline-block size-3 fill-fuchsia-600 text-fuchsia-600" aria-label={tr.gamePlayerCar} />}
               </span>
               <span className="text-xs text-slate-500">{r.offer ? tr.gameCarOffered : tr.gameCarWaiting}</span>
             </li>
@@ -258,7 +261,7 @@ function OwnerPanel({ trips, roster }: Props) {
   const done = trips.filter((x) => x.status === 'done' && x.carNo !== null)
   return (
     <section className="space-y-2 rounded-xl border-2 border-violet-300 bg-white p-4">
-      <h3 className="font-bold">🏢 {tr.gameCenters}</h3>
+      <h3 className="font-bold"><Building2 className={ic} aria-hidden="true" /> {tr.gameCenters}</h3>
       <ul className="divide-y divide-slate-100 text-sm">
         {centers.map((c, i) => {
           const mine = done.filter((x) => (x.carNo! - 1) % centers.length === i)
@@ -285,7 +288,7 @@ function Logbook({ me, trips, myCar }: Props) {
   const km = rows.reduce((s, x) => s + (x.km ?? 0), 0)
   return (
     <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-4">
-      <h3 className="font-bold">📒 {me.role === 'driver' ? tr.gameLogbook : me.role === 'citizen' ? tr.gameMyRides : tr.gameAllTrips}</h3>
+      <h3 className="font-bold"><NotebookText className={ic} aria-hidden="true" /> {me.role === 'driver' ? tr.gameLogbook : me.role === 'citizen' ? tr.gameMyRides : tr.gameAllTrips}</h3>
       <p className="grid grid-cols-3 gap-2 text-center">
         <span className="rounded-lg bg-slate-50 p-2">
           <span className="block text-lg font-black tabular-nums">{rows.length}</span>
@@ -310,7 +313,7 @@ function Logbook({ me, trips, myCar }: Props) {
                 {tr.gameDayShort(clockAt(x.doneT ?? 0).day)} {hhmm(x.doneT ?? 0)}
               </span>
               <span className="min-w-0 flex-1 truncate">
-                {x.pName || '—'} → {x.dName || '—'}
+                <TripLine from={x.pName} to={x.dName} flag={false} />
                 {me.role === 'owner' && <span className="text-xs text-slate-500"> · #{x.carNo}</span>}
               </span>
               <span className="shrink-0 font-semibold tabular-nums">{x.fare}</span>

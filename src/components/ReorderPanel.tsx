@@ -1,3 +1,5 @@
+import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpDown, ArrowUpToLine, Shuffle } from 'lucide-react'
+import { ic } from './iconStyles'
 import { useState } from 'react'
 import { move, REORDER_REASONS, reasonOk, shuffle, type ReorderReason } from '../core/reorder'
 import { useI18n } from '../i18n'
@@ -29,7 +31,7 @@ export function ReorderPanel({
   return (
     <section className="space-y-3 rounded-xl border-2 border-amber-400 bg-amber-50 p-3">
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="flex-1 font-bold">↕ {t.reorderTitle}</h3>
+        <h3 className="flex-1 font-bold"><ArrowUpDown className={ic} aria-hidden="true" /> {t.reorderTitle}</h3>
         <button
           type="button"
           onClick={() => {
@@ -39,7 +41,7 @@ export function ReorderPanel({
           }}
           className="min-h-10 rounded-lg border border-amber-500 bg-white px-3 text-sm font-semibold hover:bg-amber-100"
         >
-          🔀 {t.shuffle}
+          <Shuffle className={ic} aria-hidden="true" /> {t.shuffle}
         </button>
         <button type="button" onClick={onClose} className="min-h-10 rounded-lg px-3 text-sm text-slate-600 hover:bg-white">
           {t.cancel}
@@ -58,16 +60,16 @@ export function ReorderPanel({
               <span className="min-w-0 flex-1 truncate text-sm">{driverName(x.driver)}</span>
               <span className="flex gap-1" dir="ltr">
                 <button type="button" aria-label={t.moveFront} title={t.moveFront} disabled={i === 0} onClick={() => (setDraft(move(draft, id, 'front')), setKind('reorder'))} className={btn}>
-                  ⤒
+                  <ArrowUpToLine className="size-4" aria-hidden="true" />
                 </button>
                 <button type="button" aria-label={t.moveUp} title={t.moveUp} disabled={i === 0} onClick={() => (setDraft(move(draft, id, 'up')), setKind('reorder'))} className={btn}>
-                  ↑
+                  <ArrowUp className="size-4" aria-hidden="true" />
                 </button>
                 <button type="button" aria-label={t.moveDown} title={t.moveDown} disabled={i === draft.length - 1} onClick={() => (setDraft(move(draft, id, 'down')), setKind('reorder'))} className={btn}>
-                  ↓
+                  <ArrowDown className="size-4" aria-hidden="true" />
                 </button>
                 <button type="button" aria-label={t.moveBack} title={t.moveBack} disabled={i === draft.length - 1} onClick={() => (setDraft(move(draft, id, 'back')), setKind('reorder'))} className={btn}>
-                  ⤓
+                  <ArrowDownToLine className="size-4" aria-hidden="true" />
                 </button>
               </span>
             </li>
@@ -122,7 +124,7 @@ export function QueueChangesLog({ changes, queue }: { changes: QueueChange[]; qu
           <li key={c.id} className="space-y-0.5 px-3 py-2">
             <p className="flex items-center justify-between gap-2">
               <span className="font-semibold">
-                {c.kind === 'shuffle' ? '🔀' : '↕'} {t.reorderReasons[c.reason]}
+                {c.kind === 'shuffle' ? <Shuffle className={ic} aria-hidden="true" /> : <ArrowUpDown className={ic} aria-hidden="true" />} {t.reorderReasons[c.reason]}
               </span>
               <time dir="ltr" className="text-xs text-slate-400">
                 {time.format(c.at)}

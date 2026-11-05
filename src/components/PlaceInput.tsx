@@ -1,3 +1,4 @@
+import { PlaceTypeIcon } from './icons'
 import { useState } from 'react'
 import { useI18n } from '../i18n'
 import { loadPlaces, searchPlaces, type Place } from '../places'
@@ -12,7 +13,6 @@ interface Props {
   onChange: (text: string, at?: [number, number]) => void
 }
 
-const typeIcon = { h: '🏠', r: '🛣️', l: '📍', p: '▫️' } as const
 
 // Text field with Kulhudhuffushi house/road/landmark suggestions. Free text is still allowed.
 export function PlaceInput({ id, label, hint, value, error, onChange }: Props) {
@@ -66,7 +66,7 @@ export function PlaceInput({ id, label, hint, value, error, onChange }: Props) {
                 }}
                 className="flex min-h-11 w-full items-center gap-2 px-3 py-1.5 text-start hover:bg-slate-50"
               >
-                <span aria-hidden>{typeIcon[p.t]}</span>
+                <PlaceTypeIcon type={p.t} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-semibold">{name(p)}</span>
                   <span className="block truncate text-xs text-slate-500">

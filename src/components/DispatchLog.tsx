@@ -1,3 +1,5 @@
+import { ArrowRight, MapPin, Phone } from 'lucide-react'
+import { ic, icFlip } from './iconStyles'
 import { useState } from 'react'
 import { useI18n } from '../i18n'
 import type { Taxi } from '../types'
@@ -58,18 +60,18 @@ export function DispatchLog({ history, queue, callInProgress, onReopen }: Props)
               <p className="text-slate-700">
                 {d.call.pickup && (
                   <span>
-                    📍 <bdi>{d.call.pickup}</bdi>
+                    <MapPin className={`${ic} text-emerald-600`} aria-hidden="true" /> <bdi>{d.call.pickup}</bdi>
                   </span>
                 )}
                 {d.call.destination && (
                   <span>
                     {' '}
-                    → <bdi>{d.call.destination}</bdi>
+                    <ArrowRight className={`${icFlip} text-slate-400`} aria-hidden="true" /> <bdi>{d.call.destination}</bdi>
                   </span>
                 )}
                 {d.call.phone && (
                   <bdi className="block tabular-nums text-slate-500" dir="ltr">
-                    ☎ {d.call.phone}
+                    <Phone className={ic} aria-hidden="true" /> {d.call.phone}
                   </bdi>
                 )}
                 {d.call.note && (

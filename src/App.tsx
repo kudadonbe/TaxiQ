@@ -1,3 +1,5 @@
+import { ArrowUpDown, Eye, Gamepad2, MapPin, Pencil } from 'lucide-react'
+import { ic } from './components/iconStyles'
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useAuth } from './auth'
 import { AdminPanel } from './components/AdminPanel'
@@ -148,6 +150,8 @@ export default function App() {
               </>
             )}
             {isDev && (
+              <label className="flex items-center gap-1">
+                <Eye className={`size-4 ${viewAs === 'dev' ? 'text-slate-500' : 'text-fuchsia-600'}`} aria-hidden="true" />
               <select
                 value={viewAs}
                 onChange={(e) => setViewAs(e.target.value as ViewAs)}
@@ -157,10 +161,11 @@ export default function App() {
               >
                 {VIEW_AS.map((v) => (
                   <option key={v} value={v}>
-                    👁 {t.viewAsRoles[v]}
+                    {t.viewAsRoles[v]}
                   </option>
                 ))}
               </select>
+              </label>
             )}
             {canTranslate && (
               <button
@@ -170,7 +175,7 @@ export default function App() {
                 aria-label={t.translations}
                 className="min-h-10 rounded-lg border border-slate-200 px-3 hover:bg-slate-100"
               >
-                ✏️
+                <Pencil className="size-4" aria-hidden="true" />
               </button>
             )}
             <button
@@ -209,7 +214,12 @@ export default function App() {
                 aria-current={view === v ? 'page' : undefined}
                 className={`min-h-10 rounded-lg px-3 font-semibold ${view === v ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
               >
-                {{ queue: t.queue, map: t.map, admin: t.admin, driver: t.driver, hire: t.hireTab, game: `🎮 ${t.gameTab}` }[v]}
+                {{ queue: t.queue, map: t.map, admin: t.admin, driver: t.driver, hire: t.hireTab, game: (
+                    <span className="inline-flex items-center gap-1">
+                      <Gamepad2 className="size-4" aria-hidden="true" />
+                      {t.gameTab}
+                    </span>
+                  ) }[v]}
                 {v === 'queue' && <span className="ms-1 tabular-nums opacity-70 sm:hidden">({queue.length})</span>}
               </button>
             ))}
@@ -259,7 +269,7 @@ export default function App() {
                   )}
                   {call.pickup && (
                     <span className="block truncate text-emerald-800">
-                      📍 <bdi>{call.pickup}</bdi>
+                      <MapPin className={`${ic} text-emerald-600`} aria-hidden="true" /> <bdi>{call.pickup}</bdi>
                     </span>
                   )}
                   {!callValid && (
@@ -329,7 +339,7 @@ export default function App() {
                   title={callInProgress ? t.callBusy : undefined}
                   className="min-h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium hover:bg-slate-50 disabled:opacity-40"
                 >
-                  ↕ {t.reorder}
+                  <ArrowUpDown className={ic} aria-hidden="true" /> {t.reorder}
                 </button>
               )}
             </div>

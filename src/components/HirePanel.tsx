@@ -1,3 +1,5 @@
+import { ArrowRight, CarTaxiFront, CircleCheck, MapPin } from 'lucide-react'
+import { ic, icFlip } from './iconStyles'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../auth'
 import { useI18n } from '../i18n'
@@ -97,11 +99,11 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip }: Props) {
       <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4" aria-live="polite">
         <h2 className="font-bold">{t.hire}</h2>
         <p className="text-sm text-slate-600">
-          📍 <bdi>{ride.pickup}</bdi>
+          <MapPin className={`${ic} text-emerald-600`} aria-hidden="true" /> <bdi>{ride.pickup}</bdi>
           {ride.destination && (
             <>
               {' '}
-              → <bdi>{ride.destination}</bdi>
+              <ArrowRight className={`${icFlip} text-slate-400`} aria-hidden="true" /> <bdi>{ride.destination}</bdi>
             </>
           )}
         </p>
@@ -115,7 +117,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip }: Props) {
           </div>
         )}
         {ride.status === 'accepted' && (
-          <p className="rounded-lg bg-emerald-50 p-3 font-semibold text-emerald-900">✅ {t.acceptedBy(taker.no, taker.name)}</p>
+          <p className="rounded-lg bg-emerald-50 p-3 font-semibold text-emerald-900"><CircleCheck className={ic} aria-hidden="true" /> {t.acceptedBy(taker.no, taker.name)}</p>
         )}
         {ride.status === 'expired' && (
           <div className="space-y-2">
@@ -208,7 +210,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip }: Props) {
 
       {chosenTaxi && !chosenTaxi.suspended && (
         <p className="flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-sm">
-          <span className="flex-1 font-semibold">🚕 {t.chosenTaxi(chosenTaxi.taxiNo, label(chosenTaxi.id).name)}</span>
+          <span className="flex-1 font-semibold"><CarTaxiFront className={ic} aria-hidden="true" /> {t.chosenTaxi(chosenTaxi.taxiNo, label(chosenTaxi.id).name)}</span>
           <button type="button" onClick={onClearChoice} className="min-h-9 rounded-lg px-2 text-slate-600 hover:bg-white">
             {t.clearChoice}
           </button>
