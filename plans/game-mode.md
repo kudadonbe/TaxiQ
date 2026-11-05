@@ -13,9 +13,10 @@ Decisions so far: **multiplayer from the start**, **build in v2 if possible, oth
 | G-D4 | A bank, **KD-Bank**, lends to players by the same rules for everyone, **the Islamic way (no interest)**. See §6.1. |
 | G-D5 | KD-Bank's capital is **sized per game room** from what it has to finance. The **Standard** preset is ≈ MVR 6 million (in Dinar and Dirham); see §5.3. The earlier "7 billion" is replaced: that much would make money meaningless in a room. |
 | G-D6 | The base currency is the **gold Dinar** and **silver Dirham**, each worth its real gold or silver weight and **moving with live gold and silver prices**. Players can also hold **digital MVR**, converted at the current rate. See §5.2. |
-| G-D7 | How much drivers control: **still to decide**. The options are in §8.1. |
+| G-D7 | Driver control: **A + B**. Drivers go online, accept or decline offers, and choose where to wait; cars drive trips themselves (§8.1). |
 | G-D8 | **Backing is in the game only (option A):** KD-Bank's Dinar and Dirham are backed by gold and silver *in the game*, valued at live prices. No real coins are held, nothing can be redeemed, and no real money goes in or out. A real gold-backed product would be a separate, licensed project (MMA). |
 | G-D9 | Money is a **crypto-style ledger without a blockchain** (§5.4). |
+| G-D10 | **The main goal is practice for the real job:** drive, earn, keep a full record of it, and finish knowing you could make a living as a real driver. Every number (fares, fuel, car costs) is real, so the record is honest. "Off the meter" is the long-term goal for players who want to grow a business (§1.1). |
 
 > This is an **original** TaxiQ game. It's a business and economy game in the same family as
 > property-trading and "get out of the rat race" games, but it uses none of their names, boards,
@@ -23,11 +24,26 @@ Decisions so far: **multiplayer from the start**, **build in v2 if possible, oth
 
 ## 1. The idea
 
+### 1.1 The goal (G-D10)
+
+**Drive, earn, keep the record, and feel ready to earn for real.** A player learns the real job in
+the simulation: going online, taking offers in queue order, driving real routes, charging real fares,
+and paying real costs. Everything is written into their **driver's logbook**, so at the end they can
+see, in real numbers, what a day, a week and a month of driving earns.
+
+- **Driver's logbook:** every trip (time, pickup, destination, km, fare), every cost (fuel, car payment, center fee, repairs), and hours online.
+- **Earnings report:** per day, week and month: income, costs, **take-home**, earnings per hour and per km, the busiest hours and places, and progress compared with earlier weeks.
+- **Real-life check:** "At real fares and real costs, this month would have paid you MVR X." It shows the player that the job pays, and what makes it pay better (waiting in the right places, keeping costs down, good ratings).
+- **Ready for the real thing (later):** after enough game days with a positive take-home, a certificate in the game and a link to apply as a real TaxiQ driver. The game record is never shared with anyone unless the player chooses to.
+- **Honest, not a promise:** reports say they are estimates from the game. Real earnings depend on real demand.
+
+**Long-term goal: "Off the meter".** For players who keep going, the next step is growing a business.
+
 Players run the island's taxi economy on the real TaxiQ map. Citizens need rides, drivers earn fares
 and pay their costs, and center owners build fleets. Everything runs on the same engine as the real
 app: the radio queue, offers in queue order, routes along the real roads, and cars that move.
 
-**Goal: "Off the meter".** A player wins when their **passive income** (earnings that come in without
+**Long-term goal (advanced): "Off the meter".** A player wins when their **passive income** (earnings that come in without
 them driving: cars rented to other drivers, center fees, subscriptions) is **higher than their
 monthly expenses**. Driving yourself pays the bills, but only owning things sets you free.
 
@@ -187,7 +203,8 @@ At random times, an event card affects everyone or one player. These are origina
 
 - **Win:** passive income ≥ monthly expenses at a payday. The game can then continue, scored by net worth.
 - **Lose:** bankrupt, meaning you can't cover a payday after selling assets. The player can restart as a citizen in the same game.
-- **Scoreboard:** time to get off the meter, net worth, trips, ratings.
+- **Scoreboard:** take-home per month, trips, ratings, time to get off the meter, net worth.
+- **Driver's logbook and earnings report** are kept for every player, win or lose (§1.1).
 
 ## 10. Multiplayer
 
@@ -220,7 +237,7 @@ The game uses the same core engine (`src/core/queue.ts`, `offers.ts`, `route.ts`
 | G1 | Rooms: create, join by code, pick a role, host settings; the map with game cars | Friends in one shared game world |
 | G2 | Core loop: ride requests (players and bots), queue offers, auto-driving along routes, fares | A playable taxi day |
 | G3 | Economy: statements, payday, buying or leasing cars, loans, center fees and subscriptions | Money that matters |
-| G4 | Winning ("off the meter"), bankruptcy, scoreboard, save and resume | A complete game |
+| G4 | Winning ("off the meter"), bankruptcy, scoreboard, save and resume, the "ready for the real thing" certificate | A complete game |
 | G5 | Events, deals between players, renting cars to others | Variety and strategy |
 | G6 | Port to v3: server-run clock and bots, fair play, more maps (Malé) | The fair, always-on version |
 
