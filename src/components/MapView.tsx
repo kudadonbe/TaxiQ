@@ -25,6 +25,8 @@ interface Props {
   onPickTaxi?: (id: string) => void
   // A trip to draw (pickup -> destination), routed along the roads like a ride app.
   trip?: { from: [number, number]; to: [number, number] }
+  // Where car positions come from: the demo simulation (default) or the game world. Keep it stable.
+  positionSource?: (ids: readonly string[], onUpdate: (p: Positions) => void) => () => void
 }
 
 const typeIcon: Record<PlaceType, string> = { h: '🏠', r: '🛣️', l: '📍', p: '▫️' }
@@ -104,7 +106,7 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
 // Live map of taxis, on MapLibre: rotate (two fingers / right-drag), tilt, pinch zoom, compass and
 // "my location" like Google Maps. Markers are driven imperatively so 60fps position updates don't
 // re-render React.
-export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip }: Props) {
+export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions }: Props) {
   const { lang, t, driverName } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const map = useRef<MlMap | null>(null)
@@ -328,7 +330,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip 
   // Subscribe to positions and move markers. The car is turned by its heading minus the map's
   // bearing, so it points the right way however the map is rotated.
   useEffect(() => {
-    return subscribePositions(ids.split(',').filter(Boolean), (latest) => {
+    return positionSource(ids.split(',').filter(Boolean), (latest) => {
       positions.current = latest
       const m = map.current
       if (!m) return
@@ -350,7 +352,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip 
         }
       }
     })
-  }, [ids])
+  }, [ids, positionSource])
 
   // Show the selected place: a pin for a house/landmark, a line along a road.
   useEffect(() => {
@@ -641,7 +643,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip 
           )}
         </div>
       </div>
-      <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:text-sm">{t.mapPlaceholder}</p>
+      {positionSource === subscribePositions && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:text-sm">{t.mapPlaceholder}</p>}
     </section>
   )
 }

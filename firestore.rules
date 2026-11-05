@@ -237,6 +237,70 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // ---- TaxiQ Game (plans/game-mode.md). Completely separate from the real service: play money,
+    // game cars and players only; nothing here touches taxis, the queue, dispatches or roles.
+    // The game as it will be after this write (so the host's own player entry can be created in
+    // the same batch as the game).
+    function gameDoc(gameId) {
+      return getAfter(/databases/$(database)/documents/games/$(gameId)).data;
+    }
+
+    match /games/{gameId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['name', 'code', 'seed', 'hostUid', 'hostName', 'status', 'preset', 'bots', 'createdAt', 'startedAt', 'pausedMs', 'pausedAt'])
+        && request.resource.data.hostUid == request.auth.uid
+        && str(request.resource.data.name, 60) && request.resource.data.name.size() > 0
+        && str(request.resource.data.hostName, 80)
+        && request.resource.data.code is string && request.resource.data.code.matches('^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$')
+        && request.resource.data.seed == gameId
+        && request.resource.data.status == 'lobby'
+        && request.resource.data.preset in ['small', 'standard', 'large']
+        && request.resource.data.bots is bool
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.startedAt == null
+        && request.resource.data.pausedMs == 0
+        && request.resource.data.pausedAt == null;
+      // Only the host changes the game: start, pause, resume, end, settings in the lobby.
+      allow update: if signedIn() && resource.data.hostUid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['name', 'code', 'seed', 'hostUid', 'hostName', 'status', 'preset', 'bots', 'createdAt', 'startedAt', 'pausedMs', 'pausedAt'])
+        && request.resource.data.hostUid == resource.data.hostUid
+        && request.resource.data.code == resource.data.code
+        && request.resource.data.seed == resource.data.seed
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.status in ['lobby', 'running', 'paused', 'ended']
+        && request.resource.data.preset in ['small', 'standard', 'large']
+        && request.resource.data.pausedMs is int && request.resource.data.pausedMs >= resource.data.pausedMs;
+      allow delete: if false;
+
+      // Each player writes only their own entry: name and role.
+      match /players/{uid} {
+        allow read: if signedIn();
+        allow create, update: if signedIn() && uid == request.auth.uid
+          && request.resource.data.keys().hasOnly(['name', 'role', 'joinedAt'])
+          && str(request.resource.data.name, 80)
+          && request.resource.data.role in ['citizen', 'driver', 'owner']
+          && request.resource.data.joinedAt is timestamp
+          && gameDoc(gameId).status in ['lobby', 'running', 'paused'];
+        allow delete: if signedIn() && uid == request.auth.uid;
+      }
+    }
+
+    // Join code -> game. Created once with the game; a taken code fails (create only), so the app
+    // tries another.
+    match /gameCodes/{code} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && code.matches('^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$')
+        && request.resource.data.keys().hasOnly(['gameId', 'hostUid'])
+        && request.resource.data.hostUid == request.auth.uid
+        && request.resource.data.gameId is string
+        // The code must point at a game created in the same write, carrying this code and host.
+        && getAfter(/databases/$(database)/documents/games/$(request.resource.data.gameId)).data.code == code
+        && getAfter(/databases/$(database)/documents/games/$(request.resource.data.gameId)).data.hostUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
     // Live Dhivehi translation fixes (Admin → Translations). Everyone reads them (they're UI text);
     // only admins and devs change them. The app renders them as plain text, never as HTML.
     match /translations/{lang} {

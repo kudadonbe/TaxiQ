@@ -9,6 +9,7 @@ import { QueueRow } from './components/QueueRow'
 import { RequestsPanel } from './components/RequestsPanel'
 import { QueueChangesLog, ReorderPanel } from './components/ReorderPanel'
 import { TranslationEditor } from './components/TranslationEditor'
+import { GameTab } from './game/GameTab'
 import { PeoplePanel } from './components/PeoplePanel'
 import { useI18n } from './i18n'
 import { asMapTaxi } from './rides'
@@ -32,7 +33,7 @@ const DEMO_HOST = location.hostname.endsWith('github.io')
 //   public   signed out, or signed in without a role: the map and Hire a taxi
 //   dev      full access, for testing: every screen, incl. driver (any taxi) and hire
 type Mode = 'demo' | 'staff' | 'driver' | 'public' | 'dev'
-type View = 'queue' | 'map' | 'admin' | 'driver' | 'hire'
+type View = 'queue' | 'map' | 'admin' | 'driver' | 'hire' | 'game'
 
 const EMPTY = new Set<string>()
 
@@ -65,16 +66,20 @@ export default function App() {
   // Invalid passenger details block assigning, so bad input is never attached to a dispatch.
   const assign = (id: string) => callValid && q.assign(id)
 
+  // TaxiQ Game is open to everyone on the live site (not the demo host).
+  const game: View[] = DEMO_HOST ? [] : ['game']
   const tabs: View[] =
     mode === 'dev'
-      ? ['queue', 'map', 'admin', 'driver', 'hire']
+      ? ['queue', 'map', 'admin', 'driver', 'hire', ...game]
       : mode === 'driver'
-        ? ['driver', 'map']
+        ? ['driver', 'map', ...game]
         : mode === 'public'
-          ? []
+          ? DEMO_HOST
+            ? []
+            : ['hire', ...game]
           : canAdmin
-            ? ['queue', 'map', 'admin']
-            : ['queue', 'map']
+            ? ['queue', 'map', 'admin', ...game]
+            : ['queue', 'map', ...game]
   const [viewState, setView] = useState<View>('queue')
   const view: View = tabs.includes(viewState) ? viewState : (tabs[0] ?? 'map')
   const { lang, t, toggleLang, driverName, setDvFixes } = useI18n()
@@ -156,7 +161,7 @@ export default function App() {
         </div>
 
         {tabs.length > 0 && (
-          <nav className={`mx-auto grid max-w-5xl gap-1 px-4 pb-2 text-sm sm:flex ${tabs.length === 5 ? 'grid-cols-5' : tabs.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`} aria-label={t.nav}>
+          <nav className={`mx-auto grid max-w-5xl gap-1 px-4 pb-2 text-sm sm:flex ${({ 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4', 5: 'grid-cols-5', 6: 'grid-cols-6' } as Record<number, string>)[tabs.length] ?? 'grid-cols-3'}`} aria-label={t.nav}>
             {tabs.map((v) => (
               <button
                 key={v}
@@ -165,7 +170,7 @@ export default function App() {
                 aria-current={view === v ? 'page' : undefined}
                 className={`min-h-10 rounded-lg px-3 font-semibold ${view === v ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
               >
-                {{ queue: t.queue, map: t.map, admin: t.admin, driver: t.driver, hire: t.hireTab }[v]}
+                {{ queue: t.queue, map: t.map, admin: t.admin, driver: t.driver, hire: t.hireTab, game: `🎮 ${t.gameTab}` }[v]}
                 {v === 'queue' && <span className="ms-1 tabular-nums opacity-70 sm:hidden">({queue.length})</span>}
               </button>
             ))}
@@ -235,7 +240,11 @@ export default function App() {
         )}
       </header>
 
-      {mode === 'public' || view === 'hire' ? (
+      {view === 'game' ? (
+        <main className="isolate mx-auto max-w-6xl px-2 py-3 sm:px-4 sm:py-6">
+          <GameTab />
+        </main>
+      ) : mode === 'public' || view === 'hire' ? (
         <main className="isolate mx-auto grid max-w-5xl gap-4 px-2 py-3 sm:px-4 sm:py-6 lg:grid-cols-[22rem_1fr]">
           <div className="lg:self-start">
             <HirePanel taxis={publicTaxis} chosen={chosen} onClearChoice={() => setChosen(null)} onTrip={setHireTrip} />

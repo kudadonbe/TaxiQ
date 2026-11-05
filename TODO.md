@@ -70,7 +70,8 @@ Needs a Firebase project from you, so this can't be done without it.
 
 ### Game mode (idea, 2026-11-05)
 - [ ] Review the design: `plans/game-mode.md` (multiplayer business game on the real map, play money, roles citizen/driver/center owner, "off the meter" goal).
-- [ ] G1–G5 in v2 (Firestore rooms, host-run clock and bots); G6 port to v3 (server-run, fair).
+- [x] G1: rooms with join codes, roles, host start/pause/resume/end, game clock, shared map of game cars; How to play (in the app and `plans/how-to-play.md`).
+- [ ] G2: rides and fares. G3: money and KD-Bank. G4: winning. G5: events and deals. G6: port to v3.
 
 ## Backlog
 - [ ] **Driver app** that sends GPS while on duty, and shows "my location" (an idea from mapkf).
