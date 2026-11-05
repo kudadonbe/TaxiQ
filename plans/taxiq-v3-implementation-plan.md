@@ -86,6 +86,8 @@ The name stays **TaxiQ** for now. The queue is still the heart of the engine. A 
 
 ### Phase 3 - Identity, roles and registration
 
+**Status (2026-11-05): done in the API and the v3 web app.** The role switcher shows only roles the server confirms. Centers register and a system admin approves them. Drivers register a vehicle and apply to a center; the owner or manager approves them with a center number. Staff are managed per center, subscriptions are recorded, and reports exist. Still open: expiry checks blocking drivers (the dates are stored but not enforced yet), and the separate `vehicle_owner` flow (for now the person applying must own the vehicle).
+
 - One account, role switcher (citizen / driver / operator), permissions enforced in the core.
 - Center registration and admin approval.
 - Driver application, vehicle registration, center approval, expiry checks.
@@ -93,6 +95,8 @@ The name stays **TaxiQ** for now. The queue is still the heart of the engine. A 
 - **Deliverable:** full onboarding flow for centers and drivers.
 
 ### Phase 4 - v2 app becomes the first v3 client
+
+**Status (2026-11-05): built, waiting for the VPS.** `src/v3/` runs every screen (citizen, driver, operator queue, center admin, system admin) on the API only. It switches on with `VITE_API_URL`, so the live v2 site is unchanged until the API is deployed. Live updates are by polling (2 s) until the WebSocket channel exists. The demo map is the same; real GPS is Phase 5.
 
 - Web app calls the API only. Remove direct Firestore writes.
 - Operator, driver, citizen and admin screens on the API.

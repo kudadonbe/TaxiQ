@@ -39,7 +39,12 @@ pnpm deploy    # build + deploy docs/ to Firebase Hosting (needs the firebase CL
 - `queueStore.ts` loads a center's queue with `SELECT ... FOR UPDATE`, applies a core rule, and saves it, all inside `tx()`. `offerStore.ts` does the same for ride offers. `sweepTimedOut` (run from `main.ts`) moves offers on after `OFFER_SECONDS` on the server.
 - Every change writes `audit()`. Errors are `ApiError(status, code)` and return `{error: code}` only.
 - Tests: `server/test/api.test.ts` drives the API with `app.inject` against a real PostgreSQL (`TEST_DATABASE_URL`). It covers each role's permissions and isolation between centers. Update `openapi.yaml` with every route change.
-- The web app doesn't call this server yet. That's Phase 4 of the plan.
+- **v3 web app (`src/v3/`)**: when the build has `VITE_API_URL` set, `main.tsx` renders `V3App` instead of the v2 `App`, and every screen talks only to the API. The pieces:
+  - `api.ts`: `apiCall` attaches the Firebase ID token; `usePoll` refreshes every 2 s (there's no realtime channel yet, so polling until WebSocket); `useAction` runs a write and refreshes.
+  - The **Act as** switcher in `V3App` offers only the roles that `GET /v1/me` reports (citizen, driver per membership, center per staff role, system admin). It changes the view only; the API checks every action.
+  - Screens: `CitizenScreen` (hire, apply to drive, register a center), `DriverScreen` (offers), `CenterScreen` (tabs by role: Queue, Drivers, Staff, Subscriptions, Reports), `PlatformScreen` (approve centers). Strings are in `strings.ts`, English and Dhivehi with the same keys.
+  - Without `VITE_API_URL`, the v2 Firebase app runs unchanged.
+  - Deploying v3 to Firebase Hosting needs the API origin added to `connect-src` in `firebase.json`, and the web origin in the server's `CORS_ORIGINS`.
 
 ## Architecture
 

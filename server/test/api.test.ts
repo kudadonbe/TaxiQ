@@ -98,6 +98,12 @@ describe('drivers join a center', () => {
       expect((await call(owner, 'POST', `/v1/centers/${centerA}/memberships/${members[i]}/decide`, { decision: 'approved', taxiNo: no })).status).toBe(200)
     }
   })
+  it('drivers see their vehicles and memberships; applicants see their centers', async () => {
+    expect((await call(drivers[0]!, 'GET', '/v1/me/vehicles')).body.vehicles[0].plate).toBe('T5110')
+    const me = await call(drivers[0]!, 'GET', '/v1/me')
+    expect(me.body.memberships[0]).toMatchObject({ centerId: centerA, taxiNo: '34', status: 'approved' })
+    expect((await call(owner, 'GET', '/v1/me')).body.centersApplied[0]).toMatchObject({ id: centerA, status: 'approved' })
+  })
   it('a driver cannot apply with someone else\'s vehicle', async () => {
     const v = await call(citizen, 'POST', '/v1/vehicles', { plate: 'T9999' })
     expect((await call(drivers[0]!, 'POST', `/v1/centers/${centerB}/memberships`, { vehicleId: v.body.id, driverName: 'X', driverPhone: '7777777' })).status).toBe(403)
@@ -176,6 +182,8 @@ describe('passenger requests (offers in queue order)', () => {
     const offer = (await call(drivers[2]!, 'GET', '/v1/me/offers')).body.offers[0]
     const a = await call(drivers[2]!, 'POST', `/v1/requests/${offer.id}/accept`)
     expect(a.body.status).toBe('accepted')
+    const mine = await call(citizen, 'GET', '/v1/me/requests')
+    expect(mine.body.requests[0]).toMatchObject({ status: 'accepted', acceptedTaxiNo: '17', centerName: 'Kulhudhuffushi Taxi' })
     const queue = await call(op, 'GET', `/v1/centers/${centerA}/queue`)
     expect(queue.body.taxis.at(-1).membershipId).toBe(members[2])
     const log = await call(op, 'GET', `/v1/centers/${centerA}/dispatches`)

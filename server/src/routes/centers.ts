@@ -18,7 +18,18 @@ export async function centerRoutes(app: FastifyInstance, { db }: { db: Db }) {
       'SELECT m.id, m.center_id AS "centerId", c.name AS "centerName", m.taxi_no AS "taxiNo", m.status, m.suspended FROM memberships m JOIN centers c ON c.id = m.center_id WHERE m.driver_user_id = $1',
       [me.uid],
     )
-    return { uid: me.uid, email: me.email, name: me.name, platform: me.platform, staff: staff.rows, memberships: memberships.rows }
+    const applied = await db.query('SELECT id, name, status FROM centers WHERE created_by = $1 ORDER BY created_at DESC', [me.uid])
+    return { uid: me.uid, email: me.email, name: me.name, platform: me.platform, staff: staff.rows, memberships: memberships.rows, centersApplied: applied.rows }
+  })
+
+  app.get('/v1/me/vehicles', async (req) => {
+    const me = signedIn(req)
+    const r = await db.query(
+      `SELECT id, plate, seats, to_char(permit_expiry, 'YYYY-MM-DD') AS "permitExpiry", to_char(insurance_expiry, 'YYYY-MM-DD') AS "insuranceExpiry"
+       FROM vehicles WHERE owner_user_id = $1 ORDER BY created_at`,
+      [me.uid],
+    )
+    return { vehicles: r.rows }
   })
 
   // Public: approved centers.

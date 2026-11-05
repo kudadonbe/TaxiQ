@@ -9,9 +9,6 @@ import { body, call, uuid } from '../input'
 import { asOffer, moveOn, orderAndSuspended, type RequestRow } from '../offerStore'
 import { saveQueue } from '../queueStore'
 
-const PUBLIC_FIELDS = `id, center_id AS "centerId", mode, pickup, pickup_lat AS "pickupLat", pickup_lng AS "pickupLng", destination, note,
-  status, offer_to AS "offerTo", offer_at AS "offerAt", accepted_by AS "acceptedBy", created_at AS "createdAt"`
-
 export async function rideRoutes(app: FastifyInstance, { db }: { db: Db }) {
   // Public map: a center's approved taxis. No phone numbers, no personal data.
   app.get<{ Params: { id: string } }>('/v1/centers/:id/taxis', async (req) => {
@@ -51,7 +48,16 @@ export async function rideRoutes(app: FastifyInstance, { db }: { db: Db }) {
   // Citizen: their recent requests.
   app.get('/v1/me/requests', async (req) => {
     const me = signedIn(req)
-    const r = await db.query(`SELECT ${PUBLIC_FIELDS} FROM ride_requests WHERE passenger_user_id = $1 ORDER BY created_at DESC LIMIT 5`, [me.uid])
+    const r = await db.query(
+      `SELECT r.id, r.center_id AS "centerId", c.name AS "centerName", r.mode, r.pickup, r.destination, r.note, r.status,
+              r.offer_to AS "offerTo", o.taxi_no AS "offerTaxiNo", r.offer_at AS "offerAt",
+              r.accepted_by AS "acceptedBy", a.taxi_no AS "acceptedTaxiNo", a.driver_name AS "acceptedDriverName", a.driver_name_dv AS "acceptedDriverNameDv",
+              r.created_at AS "createdAt"
+       FROM ride_requests r JOIN centers c ON c.id = r.center_id
+       LEFT JOIN memberships o ON o.id = r.offer_to LEFT JOIN memberships a ON a.id = r.accepted_by
+       WHERE r.passenger_user_id = $1 ORDER BY r.created_at DESC LIMIT 5`,
+      [me.uid],
+    )
     return { requests: r.rows }
   })
 
@@ -74,7 +80,12 @@ export async function rideRoutes(app: FastifyInstance, { db }: { db: Db }) {
     const me = signedIn(req)
     const centerId = uuid(req.params.id)
     if (!(await can(db, me, centerId, 'queue.read'))) throw forbidden()
-    const r = await db.query(`SELECT ${PUBLIC_FIELDS}, phone FROM ride_requests WHERE center_id = $1 AND status IN ('offering', 'expired') ORDER BY created_at DESC LIMIT 50`, [centerId])
+    const r = await db.query(
+      `SELECT r.id, r.mode, r.pickup, r.destination, r.note, r.phone, r.status, r.offer_to AS "offerTo", o.taxi_no AS "offerTaxiNo", r.offer_at AS "offerAt", r.created_at AS "createdAt"
+       FROM ride_requests r LEFT JOIN memberships o ON o.id = r.offer_to
+       WHERE r.center_id = $1 AND r.status IN ('offering', 'expired') ORDER BY r.created_at DESC LIMIT 50`,
+      [centerId],
+    )
     return { requests: r.rows }
   })
 
