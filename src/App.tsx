@@ -37,22 +37,46 @@ type View = 'queue' | 'map' | 'admin' | 'driver' | 'hire' | 'game'
 
 const EMPTY = new Set<string>()
 
+const VIEW_AS = ['dev', 'admin', 'operator', 'driver', 'citizen'] as const
+type ViewAs = (typeof VIEW_AS)[number]
+const VIEW_AS_KEY = 'taxiq.viewAs'
+
 export default function App() {
   const auth = useAuth()
   const signedIn = auth.status === 'signedIn'
+  // Developers can view the app as any role ("View as" in the header). It only changes what this
+  // screen shows; the real role stays dev, and the rules still treat them as dev.
+  const [viewAs, setViewAsState] = useState<ViewAs>(() => {
+    try {
+      const v = sessionStorage.getItem(VIEW_AS_KEY)
+      return VIEW_AS.find((x) => x === v) ?? 'dev'
+    } catch {
+      return 'dev'
+    }
+  })
+  const setViewAs = (v: ViewAs) => {
+    setViewAsState(v)
+    try {
+      sessionStorage.setItem(VIEW_AS_KEY, v)
+    } catch {
+      // Storage unavailable: the choice lasts until reload.
+    }
+  }
+  const isDev = signedIn && auth.role === 'dev'
+  const role = isDev ? (viewAs === 'citizen' ? null : viewAs) : auth.role
   const mode: Mode = DEMO_HOST
     ? 'demo'
-    : signedIn && auth.role === 'dev'
+    : signedIn && role === 'dev'
       ? 'dev'
-      : signedIn && (auth.role === 'admin' || auth.role === 'operator')
+      : signedIn && (role === 'admin' || role === 'operator')
       ? 'staff'
-      : signedIn && auth.role === 'driver'
+      : signedIn && role === 'driver'
         ? 'driver'
         : 'public'
 
   const local = useLocalQueue()
   const live = mode === 'staff' || mode === 'dev'
-  const remote = useLiveQueue(auth.fb, live, auth.email, auth.role === 'admin' || auth.role === 'dev')
+  const remote = useLiveQueue(auth.fb, live, auth.email, role === 'admin' || role === 'dev')
   const q = live ? remote : local
   const publicTaxis = usePublicTaxis(auth.fb, mode === 'public' || mode === 'driver' || mode === 'dev')
   const mapTaxis = useMemo(() => publicTaxis.map(asMapTaxi), [publicTaxis])
@@ -60,7 +84,7 @@ export default function App() {
   const [reordering, setReordering] = useState(false)
   const [hireTrip, setHireTrip] = useState<{ from: [number, number]; to: [number, number] } | undefined>()
 
-  const canAdmin = mode === 'demo' || auth.role === 'admin' || auth.role === 'dev'
+  const canAdmin = mode === 'demo' || role === 'admin' || role === 'dev'
   const { queue, history, interested, pick, call, setCall, callInProgress, canUndo, toggle, clear, undo } = q
   const callValid = Object.keys(validateCall(call)).length === 0
   // Invalid passenger details block assigning, so bad input is never attached to a dispatch.
@@ -84,7 +108,7 @@ export default function App() {
   const view: View = tabs.includes(viewState) ? viewState : (tabs[0] ?? 'map')
   const { lang, t, toggleLang, driverName, setDvFixes } = useI18n()
   const [editingTranslations, setEditingTranslations] = useState(false)
-  const canTranslate = !DEMO_HOST && (auth.role === 'admin' || auth.role === 'dev')
+  const canTranslate = !DEMO_HOST && (role === 'admin' || role === 'dev')
 
   // Live Dhivehi fixes (Admin → Translations), readable by everyone.
   const fb = auth.fb
@@ -122,6 +146,21 @@ export default function App() {
                   {t.undo}
                 </button>
               </>
+            )}
+            {isDev && (
+              <select
+                value={viewAs}
+                onChange={(e) => setViewAs(e.target.value as ViewAs)}
+                aria-label={t.viewAs}
+                title={t.viewAs}
+                className={`min-h-10 rounded-lg border px-1 text-sm font-semibold ${viewAs === 'dev' ? 'border-slate-200 bg-white' : 'border-fuchsia-400 bg-fuchsia-50 text-fuchsia-800'}`}
+              >
+                {VIEW_AS.map((v) => (
+                  <option key={v} value={v}>
+                    👁 {t.viewAsRoles[v]}
+                  </option>
+                ))}
+              </select>
             )}
             {canTranslate && (
               <button
