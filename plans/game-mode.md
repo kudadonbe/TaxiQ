@@ -3,6 +3,18 @@
 Status: design draft, 2026-11-05. Owner: Hussain. Nothing is built yet.
 Decisions so far: **multiplayer from the start**, **build in v2 if possible, otherwise v3**, design first.
 
+## Decisions (Hussain, 2026-11-05)
+
+| # | Decision |
+|---|----------|
+| G-D1 | Name: **TaxiQ Game**. |
+| G-D2 | **Real fares**: the real fare table (see §5.1). |
+| G-D3 | Audience: **both** learning (drivers, centers) and fun (public). |
+| G-D4 | A bank, **KD-Bank**, lends to players by the same rules for everyone, **the Islamic way (no interest)**. See §6.1. |
+| G-D5 | KD-Bank's capital: **7 billion** (in Dinar and Dirham; see open question 6). |
+| G-D6 | The base currency is the **gold Dinar** and **silver Dirham**, each worth its real gold or silver weight and **moving with live gold and silver prices**. Players can also hold **digital MVR**, converted at the current rate. See §5.2. |
+| G-D7 | How much drivers control: **still to decide**. The options are in §8.1. |
+
 > This is an **original** TaxiQ game. It's a business and economy game in the same family as
 > property-trading and "get out of the rat race" games, but it uses none of their names, boards,
 > cards, rules text or artwork. Its board is the real island map, and its rules are TaxiQ's own queue.
@@ -42,7 +54,7 @@ Every player starts in one role and can move up during the game.
 - **Payday** is every game month (for example every 7 game days): salaries, subscriptions, rents, lease and loan payments, and licence fees are all settled.
 - A typical session is 30–90 minutes, and games can be saved and resumed.
 
-## 5. Money (play money, shown as "MVR")
+## 5. Money
 
 Each player has a simple statement on screen:
 
@@ -63,12 +75,43 @@ Starting values (all host-adjustable):
 
 Fares follow the real model: a base fare plus a per-km amount. The center takes a fee (for example 10%), and fuel is charged per km driven, including the empty km driving to the pickup.
 
+### 5.1 Real fares (G-D2)
+
+- Use each center's **real fare table**: base fare, per-km rate, night or holiday rates, and waiting time. It's stored per map/island, and the game charges exactly what a real ride would cost.
+- Known so far: MTCC charges **MVR 30 within Malé and Hulhumalé** (reported April 2026). **Still needed:** the Kulhudhuffushi fare table, from a center or the council.
+- Fares are set in MVR (the real price) and converted to Dinar and Dirham at the current rate.
+
+### 5.2 Currency: gold Dinar, silver Dirham, digital MVR (G-D6)
+
+- **Dinar (gold):** the classical weight of **4.25 g of 22-carat gold** (≈ 3.9 g of pure gold).
+- **Dirham (silver):** the classical weight of **2.975 g of pure silver**.
+- Their value follows **live gold and silver prices**, updated at least daily, so prices in the game move as they do in the real world.
+- **Digital MVR:** players can hold MVR too, converted to and from Dinar and Dirham at the current rate. The rate uses the gold and silver price in USD and the MVR/USD exchange rate.
+- **Price source:** a gold/silver price feed (to choose; see open question 7). If the feed is down, the last known price is used, and an admin can set the price by hand. Every rate is saved with its time, so a game's history can always be explained.
+- Statements show both: for example "12.5 Dirham (≈ MVR 480)".
+
 ## 6. Assets and deals
 
 - **Cars:** buy outright, or take a loan (deposit + monthly payment + interest), or lease. A car can be driven by its owner or **rented to another driver** for a monthly fee, which is passive income.
 - **Center licence:** expensive, but it earns subscriptions from every member driver and a share of every fare in its queue.
 - **Deals between players:** sell a car, rent a car, hire someone as an operator, join or leave a center. Both players must accept.
-- **Bank:** gives loans at the host's interest rate. A player with negative cash at payday must sell assets, or they go bankrupt.
+- **Bank:** KD-Bank (§6.1). A player with negative cash at payday must sell assets, or they go bankrupt.
+
+### 6.1 KD-Bank: Islamic finance, no interest (G-D4, G-D5)
+
+KD-Bank is the only bank in the game. It applies the **same rules to every player** and never charges interest (*riba*). Every deal is clear up front, with a fixed price and no hidden costs (avoiding *gharar*). It offers:
+
+| Product | How it works in the game | Used for |
+|---------|--------------------------|----------|
+| **Murabaha** (cost-plus sale) | The bank buys the car, then sells it to the player at cost plus a **fixed, agreed profit**, paid in instalments. The total never grows, even if payments are late. | Buying a car |
+| **Ijara wa iqtina** (lease to own) | The bank owns the car and leases it to the player for monthly rent. At the end the player owns it. The bank, as owner, pays for major repairs and insurance. | Leasing a car |
+| **Diminishing Musharaka** (partnership) | The bank and the player co-own a center or a fleet and share its profit by ownership. The player buys the bank's share bit by bit until they own it all. | Buying a center licence |
+| **Qard Hasan** (goodwill loan) | A small interest-free loan, repaid at the same amount, for emergencies (a repair, rent). Limited per player. | Hard times |
+
+- **Late payments:** no interest and no compounding penalties. A fixed late charge can be **given to charity** (a game charity pool), which is the common Islamic-banking practice. Repeated missed payments lead to the asset being sold to repay what's owed.
+- **Capital: 7 billion.** The bank lends only from its capital and what is repaid. If it is fully lent out, new financing waits, so money in the game is limited and realistic.
+- **Zakat (optional rule):** a yearly 2.5% on savings above the *nisab* (85 g of gold, or 595 g of silver), paid to the game charity pool. This teaches the real rule.
+- Chance-heavy features (betting, lottery-like rewards) are left out to stay clear of *maysir*. Events are life events (§7), not gambling.
 
 ## 7. Events
 
@@ -84,6 +127,17 @@ At random times, an event card affects everyone or one player. These are origina
 3. The driver accepts. The car drives the road route to the pickup, then to the destination. The fare is paid, the center takes its fee, and fuel is deducted.
 4. The taxi joins the back of the queue. Center owners and operators can reorder it, with a reason, as in the real app.
 5. Payday settles everything, and the "off the meter" bars move.
+
+### 8.1 How much the driver controls (G-D7, to decide)
+
+| Option | What the driver does | Feels like | Effort |
+|--------|----------------------|-----------|--------|
+| **A. Decide only** | Go online or offline, accept or decline offers. The car drives itself along the best route. | The real driver app | Lowest; works well on phones and in multiplayer |
+| **B. + Choose where to wait** | Also send the empty car to a spot: a stand, near the hospital, the harbour at ferry time. Waiting near demand gets more offers but uses fuel. | Strategy (where's the money tonight?) | Medium |
+| **C. + Choose the route** | For each trip, pick from two or three routes: shortest, main road, avoid the market. These trade time against fuel and passenger rating. | Planning | Medium |
+| **D. Drive it yourself** | Steer the car along the roads with on-screen controls, like a driving game. The fare and rating depend on driving well. | An action game | Highest; hard to keep fair in multiplayer, and needs good phones |
+
+**Recommendation:** start with **A + B**, add **C** in phase G5, and keep **D** as a separate mini-game later.
 
 ## 9. Winning and losing
 
@@ -128,8 +182,11 @@ The game uses the same core engine (`src/core/queue.ts`, `offers.ts`, `route.ts`
 
 ## 14. Open questions for Hussain
 
-1. **Name:** keep "TaxiQ Game", or give it its own name?
-2. **Fares:** use one center's real fare table, or invented game values?
-3. **Player control:** should drivers also choose routes or waiting spots, or only accept and decline?
-4. **Age and audience:** is it for drivers and centers to learn, for the public as fun, or both? This decides how much accounting the screen shows.
-5. **Real-money link:** confirm it stays play money only, with no prizes or purchases. That avoids gambling and payment rules.
+Answered: name (TaxiQ Game), fares (real), audience (both), bank (KD-Bank, Islamic), currency (Dinar and Dirham).
+
+3. **Driver control:** A, B, C, D or a mix (§8.1)?
+5. **Real-money link:** confirm the game stays **play money only**, with no real deposits, prizes or purchases. The Dinar, Dirham and MVR in the game track real prices, but they aren't real money. Real money would bring financial-regulation and gambling questions.
+6. **"7 billion":** is that 7 billion **Dirham** (silver), 7 billion **Dinar** (gold), or 7 billion MVR worth? At today's prices these are very different sizes.
+7. **Gold and silver price source:** is there a source you prefer (for example a Maldivian bank's or MMA's published rate, or an international feed)? Some international feeds need a paid key.
+8. **Kulhudhuffushi fare table:** who can give us the official fares?
+9. **Zakat rule:** on by default, optional, or off?
