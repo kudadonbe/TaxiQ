@@ -8,7 +8,9 @@ import type { Taxi } from '../types'
 // profiles in users/{uid} are written by each person on sign-in. The rules check every change.
 
 type RoleOrCitizen = Role | 'citizen'
-const FILTERS: (RoleOrCitizen | 'all')[] = ['all', 'citizen', 'driver', 'operator', 'admin', 'dev']
+const FILTERS: (RoleOrCitizen | 'all' | 'online')[] = ['all', 'online', 'citizen', 'driver', 'operator', 'admin', 'dev']
+// Seen within this long counts as online now (the app sends a heartbeat every minute).
+const ONLINE_MS = 150_000
 const emailRule = /^[a-z0-9._%+-]{1,64}@[a-z0-9.-]{1,190}\.[a-z]{2,}$/
 
 interface Person {
@@ -26,7 +28,13 @@ export function PeoplePanel({ taxis }: { taxis: Taxi[] }) {
   const { lang, t } = useI18n()
   const [profiles, setProfiles] = useState<{ email: string; name: string; lastSeen: number | null }[]>([])
   const [roles, setRoles] = useState<Map<string, { role: Role; taxiId?: string }>>(new Map())
-  const [filter, setFilter] = useState<RoleOrCitizen | 'all'>('all')
+  const [filter, setFilter] = useState<RoleOrCitizen | 'all' | 'online'>('all')
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(t)
+  }, [])
+  const isOnline = (p: Person) => p.lastSeen !== null && now - p.lastSeen < ONLINE_MS
   const [search, setSearch] = useState('')
   const [editing, setEditing] = useState<{ email: string; role: RoleOrCitizen; taxiId: string } | null>(null)
   const [adding, setAdding] = useState({ email: '', role: 'operator' as Role, taxiId: '' })
@@ -74,13 +82,24 @@ export function PeoplePanel({ taxis }: { taxis: Taxi[] }) {
   }, [profiles, roles])
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = { all: people.length }
-    for (const p of people) c[p.role] = (c[p.role] ?? 0) + 1
-    return c
-  }, [people])
+    const c: Record<string, number> = { all: people.length, online: 0 }
+    const on: Record<string, number> = { all: 0 }
+    for (const p of people) {
+      c[p.role] = (c[p.role] ?? 0) + 1
+      if (p.lastSeen !== null && now - p.lastSeen < ONLINE_MS) {
+        c.online!++
+        on.all!++
+        on[p.role] = (on[p.role] ?? 0) + 1
+      }
+    }
+    return { total: c, online: on }
+  }, [people, now])
 
   const q = search.trim().toLowerCase()
-  const shown = people.filter((p) => (filter === 'all' || p.role === filter) && (!q || p.email.includes(q) || p.name.toLowerCase().includes(q)))
+  // Online people first, then most recently seen.
+  const shown = people
+    .filter((p) => (filter === 'all' || (filter === 'online' ? isOnline(p) : p.role === filter)) && (!q || p.email.includes(q) || p.name.toLowerCase().includes(q)))
+    .sort((a, b) => Number(isOnline(b)) - Number(isOnline(a)))
   const taxiNo = (id?: string) => taxis.find((x) => x.id === id)?.taxiNo ?? '?'
   const time = new Intl.DateTimeFormat(lang === 'dv' ? 'dv-MV' : undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
@@ -122,7 +141,8 @@ export function PeoplePanel({ taxis }: { taxis: Taxi[] }) {
             aria-pressed={filter === f}
             className={`min-h-9 rounded-full px-3 text-sm font-semibold ${filter === f ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
           >
-            {f === 'all' ? t.filterAll : roleLabel(f)} <span className="tabular-nums opacity-70">{counts[f] ?? 0}</span>
+            {f === 'all' ? t.filterAll : f === 'online' ? `🟢 ${t.onlineNow}` : roleLabel(f)} <span className="tabular-nums opacity-70">{counts.total[f] ?? 0}</span>
+            {f !== 'online' && (counts.online[f] ?? 0) > 0 && <span className="ms-1 text-xs tabular-nums">· 🟢 {counts.online[f]}</span>}
           </button>
         ))}
       </div>
@@ -146,12 +166,17 @@ export function PeoplePanel({ taxis }: { taxis: Taxi[] }) {
             <li key={p.email} className="space-y-2 py-2 text-sm">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-semibold">{p.name || '—'}</span>
+                  <span className="flex items-center gap-1.5 truncate font-semibold">
+                    {isOnline(p) && <span className="size-2.5 shrink-0 rounded-full bg-emerald-500 ring-2 ring-emerald-200" title={t.onlineNow} aria-label={t.onlineNow} />}
+                    {p.name || '—'}
+                  </span>
                   <bdi dir="ltr" className="block truncate text-xs text-slate-500">
                     {p.email}
                   </bdi>
                 </span>
-                <span className="text-xs text-slate-400">{p.lastSeen ? `${t.lastSeen}: ${time.format(p.lastSeen)}` : t.notSignedIn}</span>
+                <span className={`text-xs ${isOnline(p) ? 'font-semibold text-emerald-700' : 'text-slate-400'}`}>
+                  {isOnline(p) ? t.onlineNow : p.lastSeen ? `${t.lastSeen}: ${time.format(p.lastSeen)}` : t.notSignedIn}
+                </span>
                 <span className={`rounded px-2 py-0.5 text-xs font-semibold ${badge[p.role]}`}>
                   {roleLabel(p.role)}
                   {p.role === 'driver' && ` · ${taxiNo(p.taxiId)}`}

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { initialTaxis } from './data/taxis'
 import type { CallInfo, SuspendReason, Taxi } from './types'
-import type { Dispatch, QueueApi } from './useQueue'
+import { REORDER_REASONS, validReorder, type ReorderReason } from './core/reorder'
+import type { Dispatch, QueueApi, QueueChange } from './useQueue'
 import { placeAt } from './useQueue'
 import { EMPTY_CALL, hasCallInfo, parseStoredTaxi, toTaxi, validateCall, type TaxiInput } from './validate'
 
@@ -51,6 +52,7 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
   const [taxis, setTaxis] = useState<Map<string, Taxi>>(new Map())
   const [state, setState] = useState<{ order: unknown; interested: unknown }>({ order: [], interested: [] })
   const [log, setLog] = useState<(Dispatch & { undone: boolean })[]>([])
+  const [changes, setChanges] = useState<QueueChange[]>([])
   const [call, setCall] = useState<CallInfo>(EMPTY_CALL)
   const [error, setError] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
@@ -100,6 +102,22 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
           }
           setLog(rows)
         },
+        fail,
+      ),
+      // Manual reorders/shuffles by staff, newest first.
+      onSnapshot(
+        query(collection(db, 'queueChanges'), orderBy('at', 'desc'), limit(20)),
+        (snap) =>
+          setChanges(
+            snap.docs.flatMap((d) => {
+              const x = d.data()
+              const reason = REORDER_REASONS.find((r) => r === x.reason)
+              const at = x.at?.toMillis?.()
+              if (!reason || (x.kind !== 'reorder' && x.kind !== 'shuffle') || typeof at !== 'number') return []
+              const ids = (v: unknown) => (Array.isArray(v) ? v.filter((i): i is string => typeof i === 'string') : [])
+              return [{ id: d.id, at, by: String(x.by ?? ''), kind: x.kind, reason, note: String(x.note ?? ''), before: ids(x.before), after: ids(x.after) }]
+            }),
+          ),
         fail,
       ),
     ]
@@ -245,6 +263,23 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
   }
 
   // Admin, empty database only: load the 10 sample drivers to try the live queue.
+  // Staff: a manual reorder or shuffle, with its reason, in one transaction with its log entry.
+  // Refused if the queue changed since the new order was prepared (someone assigned meanwhile).
+  const reorder = (order: string[], kind: QueueChange['kind'], reason: ReorderReason, note: string) => {
+    if (!fb) return
+    const { db, doc, collection, runTransaction, serverTimestamp } = fb
+    setError(null)
+    void runTransaction(db, async (tx) => {
+      const ref = doc(db, 'queue', 'state')
+      const snap = await tx.get(ref)
+      const current = normalize(snap.data()?.order, taxis)
+      const next = validReorder(current, order)
+      if (!next) throw Object.assign(new Error('queue_changed'), { code: 'queue_changed' })
+      tx.set(ref, { order: next, interested: Array.isArray(snap.data()?.interested) ? snap.data()!.interested : [], updatedAt: serverTimestamp(), updatedBy: email ?? '' })
+      tx.set(doc(collection(db, 'queueChanges')), { at: serverTimestamp(), by: email ?? '', kind, reason, note: note.trim(), before: current, after: next })
+    }).catch((e: { code?: string }) => setError(e.code ?? 'error'))
+  }
+
   const seedDemo = () => {
     if (!fb || taxis.size) return
     const batch = fb.writeBatch(fb.db)
@@ -276,5 +311,7 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
     remove,
     reset: null,
     seedDemo: taxis.size ? null : seedDemo,
+    reorder,
+    changes,
   }
 }

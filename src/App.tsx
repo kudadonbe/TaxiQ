@@ -7,6 +7,7 @@ import { DriverView } from './components/DriverView'
 import { HirePanel } from './components/HirePanel'
 import { QueueRow } from './components/QueueRow'
 import { RequestsPanel } from './components/RequestsPanel'
+import { QueueChangesLog, ReorderPanel } from './components/ReorderPanel'
 import { TranslationEditor } from './components/TranslationEditor'
 import { PeoplePanel } from './components/PeoplePanel'
 import { useI18n } from './i18n'
@@ -55,6 +56,7 @@ export default function App() {
   const publicTaxis = usePublicTaxis(auth.fb, mode === 'public' || mode === 'driver' || mode === 'dev')
   const mapTaxis = useMemo(() => publicTaxis.map(asMapTaxi), [publicTaxis])
   const [chosen, setChosen] = useState<string | null>(null)
+  const [reordering, setReordering] = useState(false)
   const [hireTrip, setHireTrip] = useState<{ from: [number, number]; to: [number, number] } | undefined>()
 
   const canAdmin = mode === 'demo' || auth.role === 'admin' || auth.role === 'dev'
@@ -267,7 +269,30 @@ export default function App() {
         <main className="mx-auto grid max-w-5xl gap-6 px-4 py-4 sm:py-6 lg:grid-cols-[1fr_18rem]">
           <section className="space-y-3">
             <CallPanel call={call} onChange={setCall} />
-            <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">{t.queue}</h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">{t.queue}</h2>
+              {!reordering && queue.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setReordering(true)}
+                  disabled={callInProgress}
+                  title={callInProgress ? t.callBusy : undefined}
+                  className="min-h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium hover:bg-slate-50 disabled:opacity-40"
+                >
+                  ↕ {t.reorder}
+                </button>
+              )}
+            </div>
+            {reordering && (
+              <ReorderPanel
+                queue={queue}
+                onClose={() => setReordering(false)}
+                onSave={(order, kind, reason, note) => {
+                  q.reorder(order, kind, reason, note)
+                  setReordering(false)
+                }}
+              />
+            )}
             {live && !q.loaded && <p className="text-sm text-slate-500">{t.loading}</p>}
             {live && q.loaded && !queue.length && (
               <div className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">
@@ -280,7 +305,7 @@ export default function App() {
               </div>
             )}
             {/* Left gutter is the room a row slides into when its driver answers. */}
-            <ol className="space-y-2 pl-20">
+            <ol className={`space-y-2 pl-20 ${reordering ? 'hidden' : ''}`}>
               {queue.map((taxi, i) => (
                 <QueueRow
                   key={taxi.id}
@@ -300,6 +325,7 @@ export default function App() {
             <section className="space-y-3">
               <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">{t.recent}</h2>
               <DispatchLog history={history} queue={queue} callInProgress={callInProgress} onReopen={q.reopen} />
+              <QueueChangesLog changes={q.changes} queue={queue} />
               {q.reset && (
                 <button type="button" onClick={q.reset} className="text-sm text-slate-500 underline hover:text-slate-700">
                   {t.reset}

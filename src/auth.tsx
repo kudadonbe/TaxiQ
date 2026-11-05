@@ -72,6 +72,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           : fb.setDoc(ref, { email: user.email, name: user.name.slice(0, 80), createdAt: fb.serverTimestamp(), lastSeen: fb.serverTimestamp() }),
       )
       .catch(() => {})
+    // Heartbeat: while the app is open, refresh lastSeen every minute (and when the tab comes
+    // back), so admins can see who is online now.
+    const beat = () => {
+      if (document.visibilityState !== 'visible') return
+      fb.setDoc(ref, { email: user.email, name: user.name.slice(0, 80), lastSeen: fb.serverTimestamp() }, { merge: true }).catch(() => {})
+    }
+    const timer = setInterval(beat, 60_000)
+    document.addEventListener('visibilitychange', beat)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', beat)
+    }
   }, [fb, user])
 
   // Follow this user's staff entry (role can be granted or revoked while signed in).

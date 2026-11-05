@@ -220,6 +220,23 @@ service cloud.firestore {
       );
     }
 
+    // Manual queue changes (reorder / shuffle) by staff, each with a reason. A permanent log:
+    // anyone on staff can add an entry for themselves, nobody can edit or delete one.
+    match /queueChanges/{id} {
+      allow read: if isStaff();
+      allow create: if isStaff()
+        && request.resource.data.keys().hasOnly(['at', 'by', 'kind', 'reason', 'note', 'before', 'after'])
+        && request.resource.data.at == request.time
+        && request.resource.data.by == email()
+        && request.resource.data.kind in ['reorder', 'shuffle']
+        && request.resource.data.reason in ['late', 'returned', 'correction', 'shift', 'other']
+        && str(request.resource.data.note, 120)
+        && (request.resource.data.reason != 'other' || request.resource.data.note.size() > 0)
+        && request.resource.data.before is list && request.resource.data.before.size() <= 500
+        && request.resource.data.after is list && request.resource.data.after.size() == request.resource.data.before.size();
+      allow update, delete: if false;
+    }
+
     // Live Dhivehi translation fixes (Admin → Translations). Everyone reads them (they're UI text);
     // only admins and devs change them. The app renders them as plain text, never as HTML.
     match /translations/{lang} {

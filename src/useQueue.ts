@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { initialTaxis } from './data/taxis'
 import type { CallInfo, SuspendReason, Taxi } from './types'
+import { validReorder, type ReorderReason } from './core/reorder'
 import { EMPTY_CALL, hasCallInfo, parseStoredTaxi, toTaxi, type TaxiInput } from './validate'
 
 // The queue holds every registered taxi, in rank order (suspended ones keep their place). Stored as
@@ -19,6 +20,18 @@ export interface Dispatch {
   reopened: boolean
   // `from` is exact only until the queue changes some other way (a reopen or a removal).
   exact: boolean
+}
+
+// A manual change to the queue order by staff, with its reason (logged, never edited).
+export interface QueueChange {
+  id: string
+  at: number
+  by: string
+  kind: 'reorder' | 'shuffle'
+  reason: ReorderReason
+  note: string
+  before: string[]
+  after: string[]
 }
 
 // Everything the screens need from the queue, in both modes: the local demo (this file) and the live
@@ -46,6 +59,9 @@ export interface QueueApi {
   remove: (id: string) => void
   reset: (() => void) | null // demo only
   seedDemo: (() => void) | null // live only, empty database
+  // Staff: set a new order (same taxis) with a reason; logged in `changes`.
+  reorder: (order: string[], kind: QueueChange['kind'], reason: ReorderReason, note: string) => void
+  changes: QueueChange[]
 }
 
 function load(): Taxi[] {
@@ -73,6 +89,7 @@ function load(): Taxi[] {
 export function useLocalQueue(): QueueApi {
   const [queue, setQueue] = useState<Taxi[]>(load)
   const [history, setHistory] = useState<Dispatch[]>([])
+  const [changes, setChanges] = useState<QueueChange[]>([])
   // Drivers who answered the current radio call (their rows are slid left).
   const [interested, setInterested] = useState<ReadonlySet<string>>(new Set())
   // Passenger details for the call being taken now.
@@ -190,6 +207,17 @@ export function useLocalQueue(): QueueApi {
     setInterested(next)
   }
 
+  // Demo: apply a staff reorder/shuffle and keep it in the (in-memory) log.
+  const reorder = (order: string[], kind: QueueChange['kind'], reason: ReorderReason, note: string) => {
+    const before = queue.map((t) => t.id)
+    const next = validReorder(before, order)
+    if (!next) return
+    const byId = new Map(queue.map((t) => [t.id, t]))
+    setQueue(next.map((id) => byId.get(id)!))
+    setHistory(history.map((x) => ({ ...x, exact: false })))
+    setChanges([{ id: crypto.randomUUID(), at: Date.now(), by: 'demo', kind, reason, note: note.trim(), before, after: next }, ...changes].slice(0, 30))
+  }
+
   const reset = () => {
     setQueue(initialTaxis)
     setHistory([])
@@ -201,6 +229,8 @@ export function useLocalQueue(): QueueApi {
     loaded: true,
     error: null,
     seedDemo: null,
+    reorder,
+    changes,
     queue,
     history,
     interested,
