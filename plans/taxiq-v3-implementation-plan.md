@@ -75,6 +75,8 @@ The name stays **TaxiQ** for now. The queue is still the heart of the engine. A 
 
 ### Phase 2 - Multi-tenant model and API v1 (Firebase)
 
+**Status (2026-11-05): done, built for the VPS instead of Firebase (decision D2).** `server/` holds the schema (centers, staff, vehicles, memberships, a queue per center, dispatches, ride requests, subscriptions, audit, API keys), API v1 (see `server/openapi.yaml`), role checks and the server-side offer timeouts. 26 integration tests run against PostgreSQL, including isolation between centers, and CI runs them. Still open from this phase: issuing center API keys (the table exists, the routes don't), rate limits, and migrating the Firestore data.
+
 - Centers, staff, memberships, per-center queues, vehicles, permits.
 - API v1 on Cloud Functions using the Firestore adapter.
 - Tenant API keys, rate limits, audit log.

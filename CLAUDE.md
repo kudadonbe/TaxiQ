@@ -31,6 +31,16 @@ pnpm deploy    # build + deploy docs/ to Firebase Hosting (needs the firebase CL
 - `plans/` holds the v3 plans (read `plans/README.md` first). Notes go there, never in `docs/` (build output).
 - Ask Hussain before changing the stack, the data model or the plans.
 
+## API server (`server/`, v3)
+
+`server/` is a pnpm workspace package: Fastify + PostgreSQL (`pg`) + `jose`, run with `tsx`. It imports the core engine straight from `../src/core`, and the allow-list helpers from `../src/validate.ts`. Read `server/README.md` and `server/openapi.yaml`.
+- Every center (tenant) has its own rows, keyed by `center_id`. The schema is in `server/migrations/*.sql`, applied by `migrate()`; add a new numbered file for every change and never edit an applied one.
+- `access.ts` decides who may do what: platform roles (`dev`, `system_admin`) plus center staff roles (`owner`, `partner`, `manager`, `operator`), and drivers through `memberships`. Every route calls `require(...)`. `identity.ts` is the auth adapter: Firebase ID tokens now, eFaas later.
+- `queueStore.ts` loads a center's queue with `SELECT ... FOR UPDATE`, applies a core rule, and saves it, all inside `tx()`. `offerStore.ts` does the same for ride offers. `sweepTimedOut` (run from `main.ts`) moves offers on after `OFFER_SECONDS` on the server.
+- Every change writes `audit()`. Errors are `ApiError(status, code)` and return `{error: code}` only.
+- Tests: `server/test/api.test.ts` drives the API with `app.inject` against a real PostgreSQL (`TEST_DATABASE_URL`). It covers each role's permissions and isolation between centers. Update `openapi.yaml` with every route change.
+- The web app doesn't call this server yet. That's Phase 4 of the plan.
+
 ## Architecture
 
 - **Core engine (`src/core/`)**: the queue and offer rules as pure functions, with no React, UI or Firebase imports. `queue.ts` covers normalizeOrder, toggleInterest, assign, undo/canUndo, reopen, onSuspend, removeTaxi and driverToBack. `offers.ts` covers nextTaxi, startOffer, moveOffer, offerTimedOut and canAccept. Each action returns the new `{order, interested}`, or `null` when it isn't allowed. Every client calls these functions: the demo hook, the live Firestore hook, `rides.ts`, and later the API server. Change a rule here, add a test, and keep `firestore.rules` matching it.

@@ -1,0 +1,26 @@
+{
+  "name": "@taxiq/server",
+  "private": true,
+  "version": "3.0.0-dev",
+  "type": "module",
+  "description": "TaxiQ v3 API server: core engine + PostgreSQL, for the VPS",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "migrate": "tsx src/migrate.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "fastify": "^5.12.8",
+    "jose": "^6.2.15",
+    "pg": "^8.23.1",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/pg": "^8.23.1",
+    "typescript": "~7.0.2",
+    "vitest": "^5.1.0"
+  }
+}

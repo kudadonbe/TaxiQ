@@ -1,0 +1,169 @@
+openapi: 3.1.0
+info:
+  title: TaxiQ API
+  version: 1.0.0-draft
+  description: |
+    Multi-center taxi queue and dispatch. Every center (tenant) has its own queue; every call is
+    checked on the server against the caller's roles (plans/decisions.md, D3).
+
+    Auth: `Authorization: Bearer <Firebase ID token>` (Google sign-in) for now; eFaas later.
+    Errors: `{ "error": "<code>" }` with 400 invalid input, 401 not signed in, 403 not allowed,
+    404 not found, 409 conflict (e.g. `cannot_assign`, `offer_gone`, `last_owner`).
+servers:
+  - url: https://api.example.mv
+    description: Production VPS (domain to be decided)
+  - url: http://127.0.0.1:8080
+    description: Local development
+security:
+  - bearer: []
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer, bearerFormat: JWT }
+  schemas:
+    Id: { type: string, format: uuid }
+    Call:
+      type: object
+      properties:
+        pickup: { type: string, maxLength: 120 }
+        pickupAt: { type: array, items: { type: number }, minItems: 2, maxItems: 2, description: '[lat, lng]' }
+        destination: { type: string, maxLength: 120 }
+        phone: { type: string, pattern: '^[0-9]{7}$' }
+        note: { type: string, maxLength: 120 }
+    QueueView:
+      type: object
+      properties:
+        version: { type: integer }
+        suggestion: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }], description: answered driver highest in the queue }
+        interested: { type: array, items: { $ref: '#/components/schemas/Id' } }
+        taxis:
+          type: array
+          items:
+            type: object
+            properties:
+              membershipId: { $ref: '#/components/schemas/Id' }
+              position: { type: integer }
+              taxiNo: { type: string }
+              driverName: { type: string }
+              driverNameDv: { type: string }
+              suspended: { type: [object, 'null'] }
+    Error:
+      type: object
+      properties: { error: { type: string } }
+paths:
+  /v1/health:
+    get: { summary: Health check, security: [], responses: { '200': { description: OK } } }
+  /v1/me:
+    get: { summary: Signed-in user, platform role, staff roles, memberships, responses: { '200': { description: OK } } }
+  /v1/centers:
+    get: { summary: Approved centers (public), security: [], responses: { '200': { description: OK } } }
+    post:
+      summary: Register a center (starts pending)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type]
+              properties:
+                name: { type: string, maxLength: 80 }
+                type: { enum: [private, government] }
+                island: { type: string }
+                contact: { type: string }
+                licenseNo: { type: string }
+      responses: { '201': { description: Created } }
+  /v1/centers/pending:
+    get: { summary: Centers awaiting approval (system admin), responses: { '200': { description: OK } } }
+  /v1/centers/{id}/decide:
+    post:
+      summary: Approve or reject a center (system admin). Approval makes the applicant owner.
+      requestBody: { content: { application/json: { schema: { type: object, properties: { decision: { enum: [approved, rejected] } } } } } }
+      responses: { '200': { description: OK } }
+  /v1/centers/{id}/staff:
+    get: { summary: List staff (owner), responses: { '200': { description: OK } } }
+    post:
+      summary: Add staff by email (owner)
+      requestBody: { content: { application/json: { schema: { type: object, properties: { email: { type: string }, role: { enum: [owner, partner, manager, operator] } } } } } }
+      responses: { '201': { description: Added } }
+  /v1/centers/{id}/staff/{uid}/{role}:
+    delete: { summary: Remove a staff role (owner; not the last owner), responses: { '200': { description: OK } } }
+  /v1/vehicles:
+    post:
+      summary: Register a vehicle you own
+      requestBody: { content: { application/json: { schema: { type: object, properties: { plate: { type: string }, seats: { type: integer }, permitExpiry: { type: string, format: date }, insuranceExpiry: { type: string, format: date } } } } } }
+      responses: { '201': { description: Created } }
+  /v1/centers/{id}/memberships:
+    get: { summary: Driver applications and members (owner, manager), responses: { '200': { description: OK } } }
+    post:
+      summary: Apply to drive for a center
+      requestBody: { content: { application/json: { schema: { type: object, properties: { vehicleId: { $ref: '#/components/schemas/Id' }, driverName: { type: string }, driverNameDv: { type: string }, driverPhone: { type: string } } } } } }
+      responses: { '201': { description: Applied } }
+  /v1/centers/{id}/memberships/{mid}/decide:
+    post:
+      summary: Approve (with center number) or reject (owner, manager). Approved drivers join the back of the queue.
+      requestBody: { content: { application/json: { schema: { type: object, properties: { decision: { enum: [approved, rejected] }, taxiNo: { type: string } } } } } }
+      responses: { '200': { description: OK } }
+  /v1/centers/{id}/memberships/{mid}/suspend:
+    post:
+      summary: Suspend (red card); keeps queue place (owner, manager)
+      requestBody: { content: { application/json: { schema: { type: object, properties: { reason: { enum: [conduct, fees, other] }, note: { type: string } } } } } }
+      responses: { '200': { description: OK } }
+  /v1/centers/{id}/memberships/{mid}/lift:
+    post: { summary: Lift a suspension (owner, manager), responses: { '200': { description: OK } } }
+  /v1/centers/{id}/queue:
+    get: { summary: The center's queue (owner, manager, operator), responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/QueueView' } } } } } }
+  /v1/centers/{id}/queue/toggle:
+    post:
+      summary: Mark a driver as having answered the radio call, or un-mark
+      requestBody: { content: { application/json: { schema: { type: object, properties: { membershipId: { $ref: '#/components/schemas/Id' } } } } } }
+      responses: { '200': { description: OK }, '409': { description: Suspended or unknown } }
+  /v1/centers/{id}/queue/clear:
+    post: { summary: Cancel the current call, responses: { '200': { description: OK } } }
+  /v1/centers/{id}/queue/assign:
+    post:
+      summary: Assign to an answered driver; the taxi goes to the back and the call is finished
+      requestBody: { content: { application/json: { schema: { type: object, properties: { membershipId: { $ref: '#/components/schemas/Id' }, call: { $ref: '#/components/schemas/Call' } } } } } }
+      responses: { '201': { description: Dispatch created }, '409': { description: cannot_assign } }
+  /v1/centers/{id}/dispatches:
+    get: { summary: Last 30 dispatches, responses: { '200': { description: OK } } }
+  /v1/centers/{id}/dispatches/{did}/undo:
+    post: { summary: Undo the latest dispatch exactly, responses: { '200': { description: OK }, '409': { description: not_latest_dispatch or queue_changed } } }
+  /v1/centers/{id}/dispatches/{did}/reopen:
+    post: { summary: Reopen a dispatch (driver back in place, call returns), responses: { '200': { description: OK } } }
+  /v1/centers/{id}/taxis:
+    get: { summary: Public map list (no phone numbers), security: [], responses: { '200': { description: OK } } }
+  /v1/centers/{id}/requests:
+    get: { summary: Open/expired passenger requests (owner, manager, operator), responses: { '200': { description: OK } } }
+    post:
+      summary: Request a ride — the queue (offered one taxi at a time, 20 s each) or a specific taxi
+      requestBody:
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/Call'
+                - type: object
+                  required: [pickup, phone]
+                  properties: { membershipId: { $ref: '#/components/schemas/Id' } }
+      responses: { '201': { description: Created }, '409': { description: already has an open request } }
+  /v1/me/requests:
+    get: { summary: My recent ride requests, responses: { '200': { description: OK } } }
+  /v1/me/offers:
+    get: { summary: Offers waiting for me as a driver (with passenger phone), responses: { '200': { description: OK } } }
+  /v1/requests/{rid}/accept:
+    post: { summary: Accept the offer (the offered driver only), responses: { '200': { description: OK }, '409': { description: offer_gone } } }
+  /v1/requests/{rid}/decline:
+    post: { summary: Decline; the offer moves to the next taxi in the queue, responses: { '200': { description: OK } } }
+  /v1/requests/{rid}/cancel:
+    post: { summary: Cancel (passenger, or center staff), responses: { '200': { description: OK } } }
+  /v1/centers/{id}/subscriptions:
+    get: { summary: Subscriptions (owner, manager, partner), responses: { '200': { description: OK } } }
+    post:
+      summary: Record a subscription (owner, manager). Recorded only; no money handled.
+      requestBody: { content: { application/json: { schema: { type: object, properties: { membershipId: { $ref: '#/components/schemas/Id' }, periodStart: { type: string, format: date }, periodEnd: { type: string, format: date }, amountMvr: { type: number }, status: { enum: [due, paid, waived] } } } } } }
+      responses: { '201': { description: Recorded } }
+  /v1/centers/{id}/reports/trips:
+    get: { summary: Trips per day, last 30 days (owner, manager, partner), responses: { '200': { description: OK } } }
+  /v1/centers/{id}/audit:
+    get: { summary: Last 100 audit entries (owner, manager, partner), responses: { '200': { description: OK } } }
+  /v1/platform/users/{uid}/block:
+    post: { summary: Block an account platform-wide (system admin), responses: { '200': { description: OK } } }

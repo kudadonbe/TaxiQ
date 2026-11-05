@@ -38,6 +38,19 @@ beyond Gate 1 applies yet. Treat it as a prototype for the design phase.
 | Third parties | OpenStreetMap tiles (each viewer's IP address goes to OSM). Place-name data from the Kulhudhuffushi City Council map (via mapkf, used with permission). Fonts are self-hosted. The "Share pickup" link opens mapkf.vercel.app with the pickup coordinates in the URL, but only when the operator chooses to share it. |
 | Logging / audit | None yet. Production needs an audit trail for assignments, reopens, suspensions and admin changes. |
 
+## Permissions and approvals
+
+Reported by the product owner on 2026-11-05 (see `plans/decisions.md`, D5). File the written references here.
+
+| From | Covers | Reference | Date |
+|------|--------|-----------|------|
+| Ministry | TaxiQ operating as a taxi platform/app | _pending_ | |
+| Ministry | One taxi working with more than one center | _pending_ | |
+| Ministry | Shared rides and paid private rides | _pending_ | |
+| Council(s) | Use of available map, plot and house-name data | _pending (name the councils)_ | |
+
+These don't replace the MDS gates or the eFaas and data-residency items below.
+
 ## Gates
 
 | Gate | Status | Date | Approver | Notes |

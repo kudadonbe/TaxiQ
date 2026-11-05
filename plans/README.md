@@ -2,6 +2,7 @@
 
 Read in this order:
 
+0. [Decision log](decisions.md): Hussain's decisions; these override the plans where they differ
 1. [v3 implementation plan](taxiq-v3-implementation-plan.md): phases, timeline, resources, devices, and risks
 2. [Core API and hosting plan](taxiq-v2-core-api-hosting-plan.md): core engine rules, and Firebase to VPS
 3. [Multi-center platform and rules](taxiq-multi-center-platform.md): tenants, roles, and regulation findings
