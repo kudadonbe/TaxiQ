@@ -8,6 +8,8 @@ TaxiQ v2 is a visual model of the physical taxi queue at a call center. The oper
 
 `v2` is the **default branch**, a rewrite in React 19 + TypeScript + Vite + Tailwind CSS v4. Branch from and open PRs against `v2`. The `v1` branch (formerly `main`) holds the Angular 15 v1, so don't diff against `v1` expecting related code. There is no `main` branch.
 
+**v3 is in progress on the `v3` branch.** When you add a feature to v2, also add it to `plans/v2-features-to-port.md` on `v3` (with the commit), so it isn't lost when v3 replaces v2.
+
 ## Commands
 
 Use pnpm (the repo has `pnpm-lock.yaml` and a local `.pnpm-store`).
