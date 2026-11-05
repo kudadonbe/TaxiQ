@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { applyOverrides, type Overrides } from './translations'
 import type { Driver } from './types'
 
 export type Lang = 'en' | 'dv'
@@ -149,6 +150,17 @@ const strings = {
     changeRole: 'Change role',
     saveRole: 'Save',
     you: 'you',
+    translations: 'Translations',
+    trNote: 'Fix any Dhivehi text here; it changes for everyone straight away. Keep {1}, {2} where they appear: they are filled in with numbers or names.',
+    trSearch: 'Search English or Dhivehi',
+    trOnlyChanged: (n: number) => `Fixed only (${n})`,
+    trFixed: 'fixed',
+    trReset: 'Back to original',
+    trSave: (n: number) => `Save (${n})`,
+    trSaved: 'Saved. Everyone sees the fix now.',
+    trExport: 'Export fixes',
+    trCopied: 'Copied as English → Dhivehi pairs.',
+    trProblem: { empty: 'Empty', too_long: 'Too long (300 max)', placeholders: 'Keep the same {1}, {2} placeholders' },
     switchTo: 'ދިވެހި',
   },
   dv: {
@@ -294,6 +306,17 @@ const strings = {
     changeRole: 'ރޯލް ބަދަލުކުރޭ',
     saveRole: 'ރައްކާކުރޭ',
     you: 'ތިބާ',
+    translations: 'ތަރުޖަމާ',
+    trNote: 'މިތާނގައި ކޮންމެ ދިވެހި ލިޔުމެއް ރަނގަޅުކުރެވޭނެ؛ އެއީ އެންމެންނަށް އެވަގުތު ބަދަލުވާނެ. {1}، {2} ހުރި ތަންތަނުގައި އެ ބަހައްޓާ: އެތަނަށް ނަންބަރު ނުވަތަ ނަން ލެވޭނެ.',
+    trSearch: 'އިނގިރޭސި ނުވަތަ ދިވެހި ހޯދާ',
+    trOnlyChanged: (n: number) => `ރަނގަޅުކުރި އެއްޗެހި (${n})`,
+    trFixed: 'ރަނގަޅުކުރި',
+    trReset: 'އަސްލަށް',
+    trSave: (n: number) => `ރައްކާކުރޭ (${n})`,
+    trSaved: 'ރައްކާކުރެވިއްޖެ. އެންމެންނަށް މިހާރު ފެންނާނެ.',
+    trExport: 'އެކްސްޕޯޓް',
+    trCopied: 'އިނގިރޭސި → ދިވެހި ގޮތަށް ކޮޕީކުރެވިއްޖެ.',
+    trProblem: { empty: 'ހުސް', too_long: 'ވަރަށް ދިގު (އެންމެ ގިނަވެގެން 300)', placeholders: 'އެއް {1}، {2} ބަހައްޓާ' },
     switchTo: 'English',
   },
 } satisfies Record<Lang, Record<string, unknown>>
@@ -308,9 +331,16 @@ function loadLang(): Lang {
   }
 }
 
+// The built-in strings, for the translation editor (Admin → Translations).
+// oxlint-disable-next-line react/only-export-components
+export const builtInStrings = strings
+
 interface I18n {
   lang: Lang
   t: Strings
+  // Live Dhivehi fixes from Firestore (translations/dv), applied on top of the built-in strings.
+  dvFixes: Overrides
+  setDvFixes: (o: Overrides) => void
   toggleLang: () => void
   driverName: (d: Driver) => string
   time: Intl.DateTimeFormat
@@ -320,6 +350,8 @@ const Ctx = createContext<I18n | null>(null)
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLang] = useState<Lang>(loadLang)
+  const [dvFixes, setDvFixes] = useState<Overrides>({})
+  const dv = useMemo(() => applyOverrides(strings.dv, dvFixes), [dvFixes])
 
   useEffect(() => {
     // Dhivehi (Thaana) is written right to left.
@@ -334,7 +366,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const value: I18n = {
     lang,
-    t: strings[lang],
+    t: lang === 'dv' ? dv : strings.en,
+    dvFixes,
+    setDvFixes,
     toggleLang: () => setLang(lang === 'en' ? 'dv' : 'en'),
     driverName: (d) => (lang === 'dv' ? d.nameDv : d.name),
     time: new Intl.DateTimeFormat(lang === 'dv' ? 'dv-MV' : undefined, { hour: '2-digit', minute: '2-digit' }),

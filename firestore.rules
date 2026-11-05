@@ -220,6 +220,17 @@ service cloud.firestore {
       );
     }
 
+    // Live Dhivehi translation fixes (Admin → Translations). Everyone reads them (they're UI text);
+    // only admins and devs change them. The app renders them as plain text, never as HTML.
+    match /translations/{lang} {
+      allow read: if lang in ['dv'];
+      allow write: if isAdmin() && lang in ['dv']
+        && request.resource.data.keys().hasOnly(['entries', 'updatedBy', 'updatedAt'])
+        && request.resource.data.entries is map
+        && request.resource.data.entries.size() <= 600
+        && request.resource.data.updatedBy == email();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

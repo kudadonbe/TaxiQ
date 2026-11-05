@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useAuth } from './auth'
 import { AdminPanel } from './components/AdminPanel'
 import { CallPanel } from './components/CallPanel'
@@ -7,9 +7,11 @@ import { DriverView } from './components/DriverView'
 import { HirePanel } from './components/HirePanel'
 import { QueueRow } from './components/QueueRow'
 import { RequestsPanel } from './components/RequestsPanel'
+import { TranslationEditor } from './components/TranslationEditor'
 import { PeoplePanel } from './components/PeoplePanel'
 import { useI18n } from './i18n'
 import { asMapTaxi } from './rides'
+import { parseOverrides } from './translations'
 import { useLiveQueue } from './useLiveQueue'
 import { useLocalQueue } from './useQueue'
 import { usePublicTaxis } from './useRides'
@@ -72,11 +74,25 @@ export default function App() {
             : ['queue', 'map']
   const [viewState, setView] = useState<View>('queue')
   const view: View = tabs.includes(viewState) ? viewState : (tabs[0] ?? 'map')
-  const { lang, t, toggleLang, driverName } = useI18n()
+  const { lang, t, toggleLang, driverName, setDvFixes } = useI18n()
+  const [editingTranslations, setEditingTranslations] = useState(false)
+  const canTranslate = !DEMO_HOST && (auth.role === 'admin' || auth.role === 'dev')
+
+  // Live Dhivehi fixes (Admin → Translations), readable by everyone.
+  const fb = auth.fb
+  useEffect(() => {
+    if (!fb || DEMO_HOST) return
+    return fb.onSnapshot(
+      fb.doc(fb.db, 'translations', 'dv'),
+      (snap) => setDvFixes(parseOverrides(snap.data())),
+      () => {},
+    )
+  }, [fb, setDvFixes])
   const operatorScreens = mode === 'demo' || mode === 'staff' || mode === 'dev'
 
   return (
     <div className="min-h-dvh bg-slate-100 text-slate-900">
+      {editingTranslations && canTranslate && <TranslationEditor onClose={() => setEditingTranslations(false)} />}
       <header className="sticky top-0 z-[1200] border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-4 py-2 sm:py-3">
           <h1 className="flex shrink-0 items-center gap-2 text-xl font-black tracking-tight" dir="ltr">
@@ -98,6 +114,17 @@ export default function App() {
                   {t.undo}
                 </button>
               </>
+            )}
+            {canTranslate && (
+              <button
+                type="button"
+                onClick={() => setEditingTranslations(true)}
+                title={t.translations}
+                aria-label={t.translations}
+                className="min-h-10 rounded-lg border border-slate-200 px-3 hover:bg-slate-100"
+              >
+                ✏️
+              </button>
             )}
             <button
               type="button"
