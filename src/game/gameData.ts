@@ -10,7 +10,8 @@ import { gameClock, isJoinCode, newJoinCode, PRESETS, type CarPlan, type Preset 
 
 type Fb = typeof import('../firebase')
 
-export type GameRole = 'citizen' | 'driver' | 'owner'
+export type GameRole = 'citizen' | 'driver' | 'operator' | 'owner'
+export const GAME_ROLES: GameRole[] = ['citizen', 'driver', 'operator', 'owner']
 export type GameStatus = 'lobby' | 'running' | 'paused' | 'ended'
 
 export interface Game {
@@ -43,7 +44,7 @@ const num = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : n
 const text = (x: unknown, max = 80) => (typeof x === 'string' ? x.slice(0, max) : '')
 
 function parsePlayer(uid: string, d: Record<string, unknown>): GamePlayer | null {
-  const role = (['citizen', 'driver', 'owner'] as const).find((r) => r === d.role)
+  const role = GAME_ROLES.find((r) => r === d.role)
   if (!role) return null
   return { uid, name: text(d.name), role, online: d.online === true, waitLat: num(d.waitLat), waitLng: num(d.waitLng), waitT: num(d.waitT) ?? 0, beatAt: ms(d.beatAt) }
 }

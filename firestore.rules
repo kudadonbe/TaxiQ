@@ -292,7 +292,7 @@ service cloud.firestore {
         allow create, update: if signedIn() && uid == request.auth.uid
           && request.resource.data.keys().hasOnly(['name', 'role', 'joinedAt', 'online', 'waitLat', 'waitLng', 'waitT', 'beatAt'])
           && str(request.resource.data.name, 80)
-          && request.resource.data.role in ['citizen', 'driver', 'owner']
+          && request.resource.data.role in ['citizen', 'driver', 'operator', 'owner']
           && request.resource.data.joinedAt is timestamp
           && request.resource.data.get('online', false) is bool
           && request.resource.data.get('waitT', 0) is number

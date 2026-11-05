@@ -3,7 +3,7 @@ import { useAuth } from '../auth'
 import { clockAt, PRESETS, type Preset } from '../core/gameSim'
 import { useI18n } from '../i18n'
 import type { Taxi } from '../types'
-import { beat, BEAT_MS, createGame, enterWorld, hostControl, joinByCode, leaveGame, setRole, simNow, useGameRoom, useGameWorld, useMyGames, useRoster, WORLD_ID, type GameRole } from './gameData'
+import { beat, BEAT_MS, createGame, enterWorld, hostControl, joinByCode, leaveGame, setRole, simNow, GAME_ROLES, useGameRoom, useGameWorld, useMyGames, useRoster, WORLD_ID, type GameRole } from './gameData'
 import { PlayPanel } from './PlayPanel'
 import { useGameEngine } from './useGameEngine'
 import { gamePositionSource } from './gamePositions'
@@ -184,7 +184,7 @@ function Lobby({ onOpen, me }: { onOpen: (id: string) => void; me: { uid: string
 }
 
 function Room({ gameId, onLeave }: { gameId: string; onLeave: () => void }) {
-  const { fb, uid, name } = useAuth()
+  const { fb, uid, name, role: authRole } = useAuth()
   const { t, lang } = useI18n()
   const { game, players, error } = useGameRoom(fb, gameId)
   const { cars: carDocs, trips } = useGameWorld(fb, gameId)
@@ -326,7 +326,25 @@ function Room({ gameId, onLeave }: { gameId: string; onLeave: () => void }) {
               )}
             </div>
           )}
-          {me && game.status !== 'ended' && (
+          {me && game.status !== 'ended' && authRole === 'dev' && (
+            <div>
+              <p className="text-sm font-medium">{t.gameViewAs}</p>
+              <div className="mt-1 grid grid-cols-4 gap-1" role="group" aria-label={t.gameViewAs}>
+                {GAME_ROLES.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    aria-pressed={me.role === r}
+                    onClick={() => me.role !== r && act(setRole(fb!, game.id, uid!, name ?? '', r))}
+                    className={`min-h-10 rounded-lg px-1 text-xs font-bold ${me.role === r ? 'bg-fuchsia-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                  >
+                    {t.gameRoleIcons[r]} {t.gameRoles[r]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {me && game.status !== 'ended' && authRole !== 'dev' && (
             <label className="block">
               <span className="text-sm font-medium">{t.gameYourRole}</span>
               <select
@@ -334,7 +352,7 @@ function Room({ gameId, onLeave }: { gameId: string; onLeave: () => void }) {
                 onChange={(e) => act(setRole(fb!, game.id, uid!, name ?? '', e.target.value as GameRole))}
                 className="mt-1 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-2 text-base"
               >
-                {(['citizen', 'driver', 'owner'] as const).map((r) => (
+                {GAME_ROLES.map((r) => (
                   <option key={r} value={r}>
                     {t.gameRoles[r]}
                   </option>
@@ -346,7 +364,7 @@ function Room({ gameId, onLeave }: { gameId: string; onLeave: () => void }) {
         </section>
 
         {me && game.status !== 'lobby' && game.status !== 'ended' && (
-          <PlayPanel fb={fb!} game={game} me={me} t={simT} cars={carDocs} trips={trips} roster={roster} myCar={myCar} onError={setActionError} />
+          <PlayPanel fb={fb!} game={game} me={me} players={players} t={simT} nowMs={now} cars={carDocs} trips={trips} roster={roster} myCar={myCar} onError={setActionError} />
         )}
         {game.status === 'lobby' && <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">{t.gameWaitHost}</p>}
 

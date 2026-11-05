@@ -69,5 +69,7 @@ await expect('C cannot set a fare', 'c', [write('games/world/trips/t1', { fare: 
 await expect('B cancels their own searching ride', 'b', [write('games/world/trips/t3', { status: 'cancelled' }, { merge: true })], true)
 await expect('A (not the rider) cannot cancel B\'s ride… as a non-engine field change', 'c', [write('games/world/trips/t3', { status: 'cancelled' }, { merge: true })], false)
 await expect('the engine completes a trip', 'a', [write('games/world/trips/t1', { status: 'done', doneT: 50 }, { merge: true })], true)
+await expect('B switches to the operator role', 'b', [write('games/world/players/b', player('operator'))], true)
+await expect('a made-up role is refused', 'b', [write('games/world/players/b', player('admin'))], false)
 console.log(fails ? `\n${fails} FAILED` : '\nAll rules checks passed')
 process.exit(fails ? 1 : 0)

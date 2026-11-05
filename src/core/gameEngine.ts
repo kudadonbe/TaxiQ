@@ -49,7 +49,7 @@ export interface TripDoc {
 export interface PlayerState {
   uid: string
   name: string
-  role: 'citizen' | 'driver' | 'owner'
+  role: 'citizen' | 'driver' | 'operator' | 'owner'
   online: boolean
   waitLat: number | null
   waitLng: number | null

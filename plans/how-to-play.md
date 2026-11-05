@@ -38,9 +38,10 @@ In the room, choose **Your role**:
 |------|---------|----------------|
 | **Citizen** | Someone with a job and a salary who needs rides | Save money and buy or lease your first car |
 | **Driver** | A taxi driver in a center's queue | Earn fares, keep costs down, then buy more cars |
+| **Operator** | A center's dispatcher at the radio | Watch the queue and keep rides moving |
 | **Center owner** | The owner of a taxi center | Grow your fleet and drivers, and earn from every trip |
 
-You can change your role until the host starts the game. Bots take any role nobody chose.
+You can change your role at any time. Developers get a **View as** bar to switch between all four roles in one tap. Bots take any role nobody chose.
 
 ### 4. Start the game (host)
 The person who created the game is the **host**. The host presses **Start game**, and can later **Pause**, **Resume** or **End** it.
@@ -48,6 +49,7 @@ The person who created the game is the **host**. The host presses **Start game**
 ### 5. Play your role
 - **Driver:** press **Online**. Ride offers come in **queue order**, like at a real center: the car that has waited longest gets the next ride. You have **20 seconds** to **Accept** or **Decline**. Your car then drives itself to the pickup and on to the destination, and the fare goes into your **logbook**. You go to the back of the queue. When you're free, choose **Wait at** to drive to a spot such as the harbour.
 - **Citizen:** choose a **pickup** and **destination** from the house search and press **Book the ride**. You see which car is coming, when it arrives, and the fare.
+- **Operator:** the center's dispatcher. The **queue board** shows the rides waiting, which car is being asked, the queue in order (the top car gets the next ride), the cars on a job and the cars offline.
 - **Center owner:** watch each center's trips and fares.
 - **Logbook:** every finished trip with its time, places, km and fare, plus your totals.
 

@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { PlaceInput } from '../components/PlaceInput'
 import { FARES, FARES_ARE_PLACEHOLDER } from '../core/fares'
-import { OFFER_GAME_SEC, tripEnd, tripPickupAt, type CarDoc, type TripDoc } from '../core/gameEngine'
+import { defaultCar, OFFER_GAME_SEC, tripEnd, tripPickupAt, type CarDoc, type TripDoc } from '../core/gameEngine'
 import type { Roster } from '../core/gameNames'
-import { clockAt, SIM_RATE } from '../core/gameSim'
+import { clockAt, PRESETS, SIM_RATE } from '../core/gameSim'
+import { ROAD_GRAPH } from '../positions'
 import { useI18n } from '../i18n'
 import { answerOffer, cancelRide, requestRide, setOnline, waitAt, type Game, type GamePlayer } from './gameData'
 
@@ -13,7 +14,9 @@ interface Props {
   fb: Fb
   game: Game
   me: GamePlayer
+  players: GamePlayer[]
   t: number // game seconds now
+  nowMs: number // real time now (ticks every second)
   cars: ReadonlyMap<number, CarDoc>
   trips: TripDoc[]
   roster: Roster | null
@@ -33,6 +36,7 @@ export function PlayPanel(props: Props) {
     <>
       {me.role === 'driver' && <DriverPanel {...props} />}
       {me.role === 'citizen' && <CitizenPanel {...props} />}
+      {me.role === 'operator' && <OperatorPanel {...props} />}
       {me.role === 'owner' && <OwnerPanel {...props} />}
       <Logbook {...props} />
     </>
@@ -169,6 +173,85 @@ function CitizenPanel({ fb, game, me, t, trips, onError }: Props) {
   )
 }
 
+// The center operator's board: the live queue (who gets the next ride) and the rides waiting.
+function OperatorPanel({ game, players, t, nowMs: now, cars, trips, roster }: Props) {
+  const { t: tr, lang } = useI18n()
+  const byUid = new Map(players.map((p) => [p.uid, p]))
+  const rows = Array.from({ length: PRESETS[game.preset].cars }, (_, i) => {
+    const n = i + 1
+    const car = cars.get(n) ?? defaultCar(ROAD_GRAPH, game.seed, n)
+    const player = car.driverUid ? byUid.get(car.driverUid) : undefined
+    const bot = roster?.drivers[i]
+    const name = player?.name || (bot ? (lang === 'dv' && bot.d ? bot.d : bot.e) : tr.gameBotDriver(n))
+    const active = player ? player.online && player.beatAt !== null && now - player.beatAt < 90_000 : game.bots
+    const job = trips.find((x) => x.status === 'assigned' && x.carNo === n)
+    const offer = trips.find((x) => x.status === 'searching' && x.offerCar === n)
+    return { n, car, name, isPlayer: !!player, active, job, offer }
+  })
+  const queue = rows.filter((r) => r.active && !r.job).sort((a, b) => a.car.queuedAt - b.car.queuedAt || a.n - b.n)
+  const onJob = rows.filter((r) => r.job)
+  const off = rows.filter((r) => !r.active && !r.job)
+  const waiting = trips.filter((x) => x.status === 'searching')
+  return (
+    <section className="space-y-3 rounded-xl border-2 border-amber-300 bg-white p-4">
+      <h3 className="font-bold">📻 {tr.gameQueueBoard}</h3>
+      <div>
+        <h4 className="text-sm font-semibold text-slate-500">{tr.gameRidesWaiting(waiting.length)}</h4>
+        {waiting.length === 0 ? (
+          <p className="text-sm text-slate-500">{tr.gameNoRidesWaiting}</p>
+        ) : (
+          <ul className="divide-y divide-slate-100 text-sm">
+            {waiting.map((x) => (
+              <li key={x.id} className="py-1.5">
+                <span className="block truncate">
+                  📍 {x.pName || '—'} → 🏁 {x.dName || '—'}
+                </span>
+                <span className="text-xs text-slate-500">
+                  {x.riderName || tr.gameBotRider} · {x.offerCar !== null ? tr.gameAsking(x.offerCar) : tr.gameSearching}
+                  {x.declined.length > 0 && ` · ${tr.gameDeclinedBy(x.declined.length)}`} · {gameMinutesAgo(t - x.createdT)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div>
+        <h4 className="text-sm font-semibold text-slate-500">{tr.gameQueueNow(queue.length)}</h4>
+        <ol className="divide-y divide-slate-100 text-sm">
+          {queue.map((r, i) => (
+            <li key={r.n} className={`flex items-center gap-2 py-1.5 ${r.offer ? 'bg-amber-50' : ''}`}>
+              <span className="w-6 text-end font-bold tabular-nums text-slate-400">{i + 1}</span>
+              <span className="w-10 font-mono font-bold">#{r.n}</span>
+              <span className="min-w-0 flex-1 truncate">
+                {r.name}
+                {r.isPlayer && <span className="ms-1 text-xs text-fuchsia-700">★</span>}
+              </span>
+              <span className="text-xs text-slate-500">{r.offer ? tr.gameCarOffered : tr.gameCarWaiting}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+      {onJob.length > 0 && (
+        <div>
+          <h4 className="text-sm font-semibold text-slate-500">{tr.gameOnJobs(onJob.length)}</h4>
+          <ul className="divide-y divide-slate-100 text-sm">
+            {onJob.map((r) => (
+              <li key={r.n} className="flex items-center gap-2 py-1.5">
+                <span className="w-10 font-mono font-bold">#{r.n}</span>
+                <span className="min-w-0 flex-1 truncate">{r.job!.dName || '—'}</span>
+                <span className="text-xs text-slate-500">{t < tripPickupAt(r.job!) ? tr.gamePhasePickup : tr.gamePhaseOnBoard}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {off.length > 0 && <p className="text-xs text-slate-500">{tr.gameOfflineCars(off.map((r) => `#${r.n}`).join(', '))}</p>}
+      <p className="text-xs text-slate-500">{tr.gameOperatorNext}</p>
+    </section>
+  )
+}
+const gameMinutesAgo = (s: number) => `${Math.max(0, Math.floor(s / 60))}′`
+
 function OwnerPanel({ trips, roster }: Props) {
   const { t: tr, lang } = useI18n()
   const centers = roster?.centers ?? []
@@ -197,7 +280,7 @@ function OwnerPanel({ trips, roster }: Props) {
 
 function Logbook({ me, trips, myCar }: Props) {
   const { t: tr } = useI18n()
-  const rows = trips.filter((x) => x.status === 'done' && (me.role === 'driver' ? myCar !== null && x.carNo === myCar : me.role === 'citizen' ? x.riderUid === me.uid : true))
+  const rows = trips.filter((x) => x.status === 'done' && (me.role === 'driver' ? myCar !== null && x.carNo === myCar : me.role === 'citizen' ? x.riderUid === me.uid : true))  // operators and owners see every trip
   const total = rows.reduce((s, x) => s + (x.fare ?? 0), 0)
   const km = rows.reduce((s, x) => s + (x.km ?? 0), 0)
   return (
