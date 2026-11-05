@@ -9,7 +9,6 @@ import { QueueRow } from './components/QueueRow'
 import { RequestsPanel } from './components/RequestsPanel'
 import { QueueChangesLog, ReorderPanel } from './components/ReorderPanel'
 import { TranslationEditor } from './components/TranslationEditor'
-import { GameTab } from './game/GameTab'
 import { PeoplePanel } from './components/PeoplePanel'
 import { useI18n } from './i18n'
 import { asMapTaxi } from './rides'
@@ -21,6 +20,7 @@ import { validateCall } from './validate'
 
 // Leaflet is only loaded when a map is shown.
 const MapView = lazy(() => import('./components/MapView'))
+const GameTab = lazy(() => import('./game/GameTab').then((m) => ({ default: m.GameTab })))
 
 // The GitHub Pages copy can't sign in (Firebase only allows its own domains), so it runs the
 // local demo of the operator screens.
@@ -242,7 +242,9 @@ export default function App() {
 
       {view === 'game' ? (
         <main className="isolate mx-auto max-w-6xl px-2 py-3 sm:px-4 sm:py-6">
-          <GameTab />
+          <Suspense fallback={<p className="text-sm text-slate-500">{t.loading}</p>}>
+            <GameTab />
+          </Suspense>
         </main>
       ) : mode === 'public' || view === 'hire' ? (
         <main className="isolate mx-auto grid max-w-5xl gap-4 px-2 py-3 sm:px-4 sm:py-6 lg:grid-cols-[22rem_1fr]">

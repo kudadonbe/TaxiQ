@@ -71,7 +71,9 @@ Needs a Firebase project from you, so this can't be done without it.
 ### Game mode (idea, 2026-11-05)
 - [ ] Review the design: `plans/game-mode.md` (multiplayer business game on the real map, play money, roles citizen/driver/center owner, "off the meter" goal).
 - [x] G1: rooms with join codes, roles, host start/pause/resume/end, game clock, shared map of game cars; How to play (in the app and `plans/how-to-play.md`).
-- [ ] G2: rides and fares. G3: money and KD-Bank. G4: winning. G5: events and deals. G6: port to v3.
+- [x] G2: rides, queue offers, fares (placeholders), logbook; always-running TaxiQ World with saved people; rules tests.
+- [ ] Real Kulhudhuffushi fare table (replace placeholders in `src/core/fares.ts`).
+- [ ] G3: money and KD-Bank, starting with a job or a loan; decide "1 minute = 1 day" (game-mode §14 q10). G4: winning. G5: events and deals. G6: port to v3.
 
 ## Backlog
 - [ ] **Driver app** that sends GPS while on duty, and shows "my location" (an idea from mapkf).

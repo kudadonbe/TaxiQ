@@ -239,31 +239,44 @@ service cloud.firestore {
 
     // ---- TaxiQ Game (plans/game-mode.md). Completely separate from the real service: play money,
     // game cars and players only; nothing here touches taxis, the queue, dispatches or roles.
-    // The game as it will be after this write (so the host's own player entry can be created in
-    // the same batch as the game).
+    // games/world is the shared TaxiQ World: created once by whoever opens it first, always running,
+    // nobody can change, pause or end it. Other games are private worlds run by their host.
     function gameDoc(gameId) {
       return getAfter(/databases/$(database)/documents/games/$(gameId)).data;
+    }
+    function gameKeys() {
+      return ['name', 'code', 'seed', 'hostUid', 'hostName', 'status', 'preset', 'bots', 'createdAt', 'startedAt', 'pausedMs', 'pausedAt'];
+    }
+    // The device that runs a world's ride service holds its lease (games/{id}/engine/lease).
+    function isEngine(gameId) {
+      let lease = get(/databases/$(database)/documents/games/$(gameId)/engine/lease).data;
+      return lease.uid == request.auth.uid && lease.until > request.time;
+    }
+    function inGame(gameId) {
+      return exists(/databases/$(database)/documents/games/$(gameId)/players/$(request.auth.uid));
     }
 
     match /games/{gameId} {
       allow read: if signedIn();
       allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['name', 'code', 'seed', 'hostUid', 'hostName', 'status', 'preset', 'bots', 'createdAt', 'startedAt', 'pausedMs', 'pausedAt'])
-        && request.resource.data.hostUid == request.auth.uid
+        && request.resource.data.keys().hasOnly(gameKeys())
         && str(request.resource.data.name, 60) && request.resource.data.name.size() > 0
         && str(request.resource.data.hostName, 80)
         && request.resource.data.code is string && request.resource.data.code.matches('^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$')
         && request.resource.data.seed == gameId
-        && request.resource.data.status == 'lobby'
         && request.resource.data.preset in ['small', 'standard', 'large']
         && request.resource.data.bots is bool
         && request.resource.data.createdAt == request.time
-        && request.resource.data.startedAt == null
         && request.resource.data.pausedMs == 0
-        && request.resource.data.pausedAt == null;
-      // Only the host changes the game: start, pause, resume, end, settings in the lobby.
-      allow update: if signedIn() && resource.data.hostUid == request.auth.uid
-        && request.resource.data.keys().hasOnly(['name', 'code', 'seed', 'hostUid', 'hostName', 'status', 'preset', 'bots', 'createdAt', 'startedAt', 'pausedMs', 'pausedAt'])
+        && request.resource.data.pausedAt == null
+        && (gameId == 'world'
+          ? request.resource.data.hostUid == 'world' && request.resource.data.status == 'running'
+            && request.resource.data.startedAt == request.time && request.resource.data.bots == true
+          : request.resource.data.hostUid == request.auth.uid && request.resource.data.status == 'lobby'
+            && request.resource.data.startedAt == null);
+      // Only the host changes a private world: start, pause, resume, end. The shared world never changes.
+      allow update: if signedIn() && gameId != 'world' && resource.data.hostUid == request.auth.uid
+        && request.resource.data.keys().hasOnly(gameKeys())
         && request.resource.data.hostUid == resource.data.hostUid
         && request.resource.data.code == resource.data.code
         && request.resource.data.seed == resource.data.seed
@@ -273,21 +286,91 @@ service cloud.firestore {
         && request.resource.data.pausedMs is int && request.resource.data.pausedMs >= resource.data.pausedMs;
       allow delete: if false;
 
-      // Each player writes only their own entry: name and role.
+      // Each player writes only their own entry: name, role, online, where to wait, heartbeat.
       match /players/{uid} {
         allow read: if signedIn();
         allow create, update: if signedIn() && uid == request.auth.uid
-          && request.resource.data.keys().hasOnly(['name', 'role', 'joinedAt'])
+          && request.resource.data.keys().hasOnly(['name', 'role', 'joinedAt', 'online', 'waitLat', 'waitLng', 'waitT', 'beatAt'])
           && str(request.resource.data.name, 80)
           && request.resource.data.role in ['citizen', 'driver', 'owner']
           && request.resource.data.joinedAt is timestamp
+          && request.resource.data.get('online', false) is bool
+          && request.resource.data.get('waitT', 0) is number
           && gameDoc(gameId).status in ['lobby', 'running', 'paused'];
         allow delete: if signedIn() && uid == request.auth.uid;
       }
+
+      // The world's people, made once with the world and never made again.
+      match /world/{docId} {
+        allow read: if signedIn();
+        allow create: if signedIn() && docId == 'roster'
+          && request.resource.data.keys().hasOnly(['drivers', 'citizens', 'centers'])
+          && request.resource.data.drivers is list && request.resource.data.drivers.size() <= 100
+          && request.resource.data.citizens is list && request.resource.data.citizens.size() <= 200
+          && request.resource.data.centers is list && request.resource.data.centers.size() <= 10
+          && (gameId == 'world' || gameDoc(gameId).hostUid == request.auth.uid);
+        allow update, delete: if false;
+      }
+
+      // Who runs the ride service now. A player of the world (the host, for a private world) takes
+      // the lease when it is free or theirs, for up to a minute at a time.
+      match /engine/{docId} {
+        allow read: if signedIn();
+        allow create, update: if signedIn() && docId == 'lease'
+          && request.resource.data.keys().hasOnly(['uid', 'until'])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.until is timestamp
+          && request.resource.data.until <= request.time + duration.value(60, 's')
+          && (resource == null || resource.data.uid == request.auth.uid || resource.data.until < request.time)
+          && (gameId == 'world' ? inGame(gameId) : gameDoc(gameId).hostUid == request.auth.uid);
+        allow delete: if false;
+      }
+
+      // Cars: written only by the engine.
+      match /cars/{carNo} {
+        allow read: if signedIn();
+        allow create, update: if signedIn() && isEngine(gameId)
+          && carNo.matches('^[0-9]{1,3}$')
+          && request.resource.data.keys().hasOnly(['driverUid', 'plan', 'queuedAt', 'waitT'])
+          && request.resource.data.plan is map
+          && request.resource.data.queuedAt is number;
+        allow delete: if false;
+      }
+
+      // Rides. A player books their own; the engine books bot rides and runs every ride. The driver
+      // the ride is offered to only answers it; the rider may cancel while it is still searching.
+      match /trips/{tripId} {
+        allow read: if signedIn();
+        allow create: if signedIn()
+          && request.resource.data.keys().hasOnly(['riderUid', 'riderName', 'bot', 'pLat', 'pLng', 'pName', 'dLat', 'dLng', 'dName', 'status', 'createdT', 'offerCar', 'offerT', 'response', 'declined', 'carNo', 'driverName', 't0', 'dPick', 'dTotal', 'km', 'fare', 'doneT', 'createdAt'])
+          && request.resource.data.status == 'searching'
+          && request.resource.data.offerCar == null && request.resource.data.carNo == null && request.resource.data.fare == null
+          && request.resource.data.pLat is number && request.resource.data.pLng is number
+          && request.resource.data.dLat is number && request.resource.data.dLng is number
+          && str(request.resource.data.pName, 80) && str(request.resource.data.dName, 80) && str(request.resource.data.riderName, 80)
+          && request.resource.data.createdAt == request.time
+          && (request.resource.data.bot == true
+            ? isEngine(gameId) && request.resource.data.riderUid == 'bot'
+            : request.resource.data.riderUid == request.auth.uid && inGame(gameId));
+        allow update: if signedIn() && (
+          (isEngine(gameId)
+            && request.resource.data.riderUid == resource.data.riderUid
+            && request.resource.data.bot == resource.data.bot
+            && request.resource.data.createdAt == resource.data.createdAt
+            && request.resource.data.status in ['searching', 'assigned', 'done', 'cancelled', 'expired'])
+          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['response'])
+            && resource.data.status == 'searching'
+            && request.resource.data.response in ['accept', 'decline']
+            && get(/databases/$(database)/documents/games/$(gameId)/cars/$(string(resource.data.offerCar))).data.driverUid == request.auth.uid)
+          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+            && resource.data.status == 'searching' && request.resource.data.status == 'cancelled'
+            && resource.data.riderUid == request.auth.uid));
+        allow delete: if false;
+      }
     }
 
-    // Join code -> game. Created once with the game; a taken code fails (create only), so the app
-    // tries another.
+    // Join code -> private world. Created once with the world; a taken code fails (create only), so
+    // the app tries another.
     match /gameCodes/{code} {
       allow read: if signedIn();
       allow create: if signedIn()

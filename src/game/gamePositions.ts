@@ -1,21 +1,29 @@
-import { GameCar, gameClock } from '../core/gameSim'
+import { defaultCar, type CarDoc } from '../core/gameEngine'
+import { CarRunner } from '../core/gameSim'
 import { ROAD_GRAPH, type Position, type Positions } from '../positions'
-import type { Game } from './gameData'
+import { simNow, type Game } from './gameData'
 
 export type PositionSource = (ids: readonly string[], onUpdate: (p: Positions) => void) => () => void
 
-// Game cars on the map. Every device computes the same positions from the game's seed and how long
-// it has been running (paused time excluded), so no positions are written to the database.
-// In the lobby the cars wait at their starting spots.
-export function gamePositionSource(game: Game): PositionSource {
+// Game cars on the map. Every device computes the same positions from each car's plan and the game
+// time, so no positions are written to the database. Car ids are `car-<n>`.
+export function gamePositionSource(game: Game, getCars: () => ReadonlyMap<number, CarDoc>): PositionSource {
   return (ids, onUpdate) => {
-    const cars = new Map(ids.map((id) => [id, new GameCar(ROAD_GRAPH, game.seed, Number(id.replace(/\D/g, '')) || 0)]))
+    const runners = new Map<number, { plan: CarDoc['plan']; runner: CarRunner }>()
+    const defaults = new Map<number, CarDoc['plan']>()
     let frame = 0
     const tick = () => {
-      const now = game.status === 'paused' && game.pausedAt ? game.pausedAt : Date.now()
-      const elapsed = game.startedAt && game.status !== 'lobby' ? gameClock(game.startedAt, now, game.pausedMs).realSec : 0
+      const t = simNow(game)
       const out = new Map<string, Position>()
-      for (const [id, car] of cars) out.set(id, car.at(elapsed))
+      for (const id of ids) {
+        const n = Number(id.replace(/\D/g, '')) || 0
+        let plan = getCars().get(n)?.plan ?? defaults.get(n)
+        if (!plan) defaults.set(n, (plan = defaultCar(ROAD_GRAPH, game.seed, n).plan))
+        let r = runners.get(n)
+        // Same plan object until the car's doc changes, so the runner keeps its progress.
+        if (!r || r.plan !== plan) runners.set(n, (r = { plan, runner: new CarRunner(ROAD_GRAPH, game.seed, n, plan) }))
+        out.set(id, r.runner.at(t))
+      }
       onUpdate(out)
       frame = requestAnimationFrame(tick)
     }

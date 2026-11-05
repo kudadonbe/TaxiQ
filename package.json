@@ -10,7 +10,8 @@
     "lint": "oxlint",
     "test": "vitest run",
     "preview": "vite preview",
-    "deploy": "pnpm build && firebase deploy --only hosting"
+    "deploy": "pnpm build && firebase deploy --only hosting",
+    "test:rules": "firebase emulators:exec --only firestore --project kd-taxiq \"node scripts/rules/game-rules.test.mjs\""
   },
   "dependencies": {
     "@fontsource/noto-sans-thaana": "^5.3.0",
