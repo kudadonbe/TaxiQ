@@ -60,6 +60,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // Record the sign-in in users/{uid} (email, name, first and last seen) so admins can see
+  // everyone who uses TaxiQ. The rules only let a person write their own profile.
+  useEffect(() => {
+    if (!fb || !user) return
+    const ref = fb.doc(fb.db, 'users', user.uid)
+    fb.getDoc(ref)
+      .then((snap) =>
+        snap.exists()
+          ? fb.setDoc(ref, { email: user.email, name: user.name.slice(0, 80), lastSeen: fb.serverTimestamp() }, { merge: true })
+          : fb.setDoc(ref, { email: user.email, name: user.name.slice(0, 80), createdAt: fb.serverTimestamp(), lastSeen: fb.serverTimestamp() }),
+      )
+      .catch(() => {})
+  }, [fb, user])
+
   // Follow this user's staff entry (role can be granted or revoked while signed in).
   useEffect(() => {
     if (!fb || !user) return

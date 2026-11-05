@@ -7,7 +7,7 @@ import { DriverView } from './components/DriverView'
 import { HirePanel } from './components/HirePanel'
 import { QueueRow } from './components/QueueRow'
 import { RequestsPanel } from './components/RequestsPanel'
-import { StaffPanel } from './components/StaffPanel'
+import { PeoplePanel } from './components/PeoplePanel'
 import { useI18n } from './i18n'
 import { asMapTaxi } from './rides'
 import { useLiveQueue } from './useLiveQueue'
@@ -221,7 +221,7 @@ export default function App() {
       ) : view === 'admin' ? (
         <main className="mx-auto max-w-5xl px-4 py-4 sm:py-6">
           <div className="space-y-6">
-            {live && canAdmin && <StaffPanel taxis={queue} />}
+            {live && canAdmin && <PeoplePanel taxis={queue} />}
             <AdminPanel taxis={queue} onRegister={q.register} onRemove={q.remove} onSuspend={q.suspend} onLift={q.lift} />
           </div>
         </main>

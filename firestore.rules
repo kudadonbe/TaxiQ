@@ -51,14 +51,41 @@ service cloud.firestore {
     }
 
     match /roles/{userEmail} {
+      // Only a dev may give, change or remove the dev role (an admin can't make themselves dev).
+      function touchesDev() {
+        return (resource != null && resource.data.role == 'dev')
+          || (request.resource != null && request.resource.data.role == 'dev');
+      }
       allow read: if signedIn() && (userEmail == email() || isAdmin());
       allow create, update: if isAdmin()
+        && (!touchesDev() || role() == 'dev')
         && request.resource.data.keys().hasOnly(['role', 'taxiId', 'addedBy', 'addedAt'])
         && request.resource.data.role in ['admin', 'operator', 'driver', 'dev']
         && (request.resource.data.role != 'driver' || str(request.resource.data.taxiId, 40))
         && userEmail == userEmail.lower();
-      // An admin can't remove their own entry (avoids locking everyone out).
-      allow delete: if isAdmin() && userEmail != email();
+      // Nobody removes their own entry (avoids locking everyone out).
+      allow delete: if isAdmin() && userEmail != email() && (!touchesDev() || role() == 'dev');
+    }
+
+    // Everyone who has signed in: written by the person themselves on sign-in; readable by admins
+    // (and devs) to see and manage all users. Holds no more than email, name and when.
+    match /users/{uid} {
+      function profile() {
+        return request.resource.data;
+      }
+      allow read: if signedIn() && (uid == request.auth.uid || isAdmin());
+      allow create: if signedIn() && uid == request.auth.uid
+        && profile().keys().hasOnly(['email', 'name', 'createdAt', 'lastSeen'])
+        && profile().email == email()
+        && str(profile().name, 80)
+        && profile().createdAt == request.time
+        && profile().lastSeen == request.time;
+      allow update: if signedIn() && uid == request.auth.uid
+        && profile().keys().hasOnly(['email', 'name', 'createdAt', 'lastSeen'])
+        && profile().email == email()
+        && str(profile().name, 80)
+        && profile().createdAt == resource.data.createdAt
+        && profile().lastSeen == request.time;
     }
 
     // Full taxi records, including driver phone numbers: staff, and each driver for their own taxi.
