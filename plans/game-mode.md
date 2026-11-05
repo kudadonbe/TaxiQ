@@ -18,6 +18,9 @@ Decisions so far: **multiplayer from the start**, **build in v2 if possible, oth
 | G-D7 | Driver control: **A + B**. Drivers go online, accept or decline offers, and choose where to wait; cars drive trips themselves (§8.1). |
 | G-D8 | **Backing is in the game only (option A):** KD-Bank's Dinar and Dirham are backed by gold and silver *in the game*, valued at live prices. No real coins are held, nothing can be redeemed, and no real money goes in or out. A real gold-backed product would be a separate, licensed project (MMA). |
 | G-D9 | Money is a **crypto-style ledger without a blockchain** (§5.4). |
+| G-D11 | **An always-running world.** **TaxiQ World** (Kulhudhuffushi) always exists, and one person can play it alone. Its people (bot drivers, centers with their owners, bot citizens) are made **once** when the world is created, saved, and never made again. Private worlds with join codes are also kept, not recreated. |
+| G-D12 | Clock for driving: **1 real minute = 6 game minutes**, so a trip takes about 30–60 s to watch. "1 real minute = 1 game day" for money is an open question (§14, question 10). |
+| G-D13 | **Two sides, like the app:** public-service taxis (centers and their queue) and **private hire** (players and companies offering their own cars at their own price). See `plans/product-direction.md`. |
 | G-D10 | **The main goal is practice for the real job:** drive, earn, keep a full record of it, and finish knowing you could make a living as a real driver. Every number (fares, fuel, car costs) is real, so the record is honest. "Off the meter" is the long-term goal for players who want to grow a business (§1.1). |
 
 > This is an **original** TaxiQ game. It's a business and economy game in the same family as
@@ -219,8 +222,8 @@ At random times, an event card affects everyone or one player. These are origina
 | | v2 (Firebase, now) | v3 (server, later) |
 |---|---|---|
 | Rooms and live updates | Firestore `games/{id}` with subcollections `players`, `cars`, `trips`, `events`, `ledger` | Game tables in the API, live updates over WebSocket |
-| Game clock and bots | Run on the **host's device**. If the host leaves, the game pauses, or another player takes over as host | Run on the server, always on |
-| Fairness | Rules let each player write only their own moves. Money transfers go into an append-only ledger. A modified app on the host's device could still cheat | Server-authoritative: no client can cheat |
+| Game clock and bots | The clock is real time, so the world never stops: cars keep driving from their saved plans even with nobody online. The ride service runs on **one player's device at a time**, whoever holds the world's engine lease (`games/{id}/engine/lease`, at most 60 s, renewed every 10 s). If they leave, another player takes over in about 30 s. With nobody online, no new rides start, and rides already started finish when someone comes back. A private world is run by its host | Run on the server, always on |
+| Fairness | Rules let each player write only their own moves: book their own ride, answer offers to their own car, cancel their own ride. Only the engine writes cars and runs rides (checked by `pnpm test:rules`). A modified app holding the lease could still fake bot rides, which matters once money exists (G3) | Server-authoritative: no client can cheat |
 | Cost | Inside Firebase's free tier for small games | On the VPS |
 
 **Recommendation:** build v2 for games between friends (trust is fine), and make v3 the fair, server-run version.
@@ -237,8 +240,8 @@ The game uses the same core engine (`src/core/queue.ts`, `offers.ts`, `route.ts`
 | Phase | What | Result |
 |-------|------|--------|
 | G1 | Rooms: create, join by code, pick a role, host settings; the map with game cars | Friends in one shared game world |
-| G2 | Core loop: ride requests (players and bots), queue offers, auto-driving along routes, fares | A playable taxi day |
-| G3 | Economy: statements, payday, buying or leasing cars, loans, center fees and subscriptions | Money that matters |
+| G2 ✅ | Core loop: ride requests (players and bots), queue offers, auto-driving along routes, placeholder fares, the logbook; the always-running TaxiQ World with its saved people | A playable taxi day |
+| G3 | Economy: **start with a choice**: a citizen takes a **job** (salary) or a **KD-Bank loan** to lease a car; a driver can take a loan to buy one. Statements, payday, car payments, center fees, learning how money works | Money that matters |
 | G4 | Winning ("off the meter"), bankruptcy, scoreboard, save and resume, the "ready for the real thing" certificate | A complete game |
 | G5 | Events, deals between players, renting cars to others | Variety and strategy |
 | G6 | Port to v3: server-run clock and bots, fair play, more maps (Malé) | The fair, always-on version |
@@ -253,3 +256,5 @@ Answered: name (TaxiQ Game), fares (real), audience (both), bank (KD-Bank, Islam
 7. **Gold and silver price source:** is there a source you prefer (for example a Maldivian bank's or MMA's published rate, or an international feed)? Some international feeds need a paid key.
 8. **Kulhudhuffushi fare table:** who can give us the official fares?
 9. **Zakat rule:** on by default, optional, or off?
+10. **"1 minute = 1 day":** a day that passes in one real minute is great for money (salary, instalments, daily costs), but too fast to watch cars drive: a trip would take a fraction of a second. Options: **(a)** keep driving at 1 min = 6 game min and run the money calendar on its own "1 minute = 1 day" clock, scaling each day's earnings from the trips actually driven; **(b)** make the whole game 1 min = 1 day, where drivers only choose (accept, decline, where to wait) and each day's trips are summarised; **(c)** let each world's owner pick the speed. Recommended: (a).
+
