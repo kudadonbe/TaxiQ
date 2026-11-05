@@ -60,6 +60,14 @@ Needs a Firebase project from you, so this can't be done without it.
 - [ ] Sounds and vibration on the driver's phone when an offer arrives.
 - [ ] Optional: a Cloud Function (Blaze plan) to make offer order tamper-proof and move offers on without any screen open.
 
+### Map (requested 2026-11-05)
+- [x] Map engine switched to MapLibre: rotate, tilt, pinch zoom, compass and "my location" with heading, like Google Maps.
+- [x] Whole-world map, island and town names (MV Bodu), house names in Dhanbumaa, opaque plot map.
+- [ ] Trip route on the map: pickup to destination along the roads, with pins, distance and time (Uber-style). Needs the destination chosen from the house search.
+- [ ] Travel modes like Google Maps where they apply in the Maldives: taxi or car (one-way streets), walking (ignores one-way), and ferry lines between islands from OpenStreetMap. Bus only where there is data (Malé area).
+- [ ] House names and plots for other islands, kept per island (`src/data/<island>/...`), starting with the Malé area. Plots can be traced the same way as Kulhudhuffushi once a plot chart is available.
+- [ ] v3: a base map from Hussain's drone photos (see `plans/` when v3 resumes): orthophoto processing (e.g. OpenDroneMap), map tiles served from the VPS, and a MapLibre raster layer. Centimetre-level detail is realistic; 5 mm accuracy needs RTK or surveyed ground control points, and a drone permit from the Civil Aviation Authority.
+
 ## Backlog
 - [ ] **Driver app** that sends GPS while on duty, and shows "my location" (an idea from mapkf).
 - [ ] Review traced plots against the chart: about 4% of houses didn't land in a traced plot, and a few neighbouring plots may have merged where lines were faint.

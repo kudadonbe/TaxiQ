@@ -1,11 +1,17 @@
-import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
+import type { Feature, LineString } from 'geojson'
+import * as maplibregl from 'maplibre-gl'
+import type { Map as MlMap, Marker } from 'maplibre-gl'
+import 'maplibre-gl/dist/maplibre-gl.css'
+// MapLibre runs data work (plots, GeoJSON) in a web worker. Bundle it with Vite and point MapLibre
+// at it; otherwise it looks for a file next to its own module, which the build doesn't produce.
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
+maplibregl.setWorkerUrl(workerUrl)
 import { useEffect, useRef, useState } from 'react'
 import { useI18n } from '../i18n'
 import { loadPlaces, metresBetween, searchPlaces, type Place, type PlaceType } from '../places'
 import { MAP_CENTER, subscribePositions, type Positions } from '../positions'
 import type { Taxi } from '../types'
-import { createPlotLayer, loadPlots } from './plotLayer'
+import { loadPlots, plotPopup, plotsGeoJSON, type Plot } from './plotLayer'
 
 type Status = 'idle' | 'answered' | 'suspended'
 
@@ -21,8 +27,8 @@ interface Props {
 const typeIcon: Record<PlaceType, string> = { h: '🏠', r: '🛣️', l: '📍', p: '▫️' }
 
 // Pin for a searched place. Static markup, no user data.
-const PIN_SVG = `<svg viewBox="0 0 24 32" width="28" height="36" aria-hidden="true">
-  <path d="M12 1C6 1 1.5 5.4 1.5 11.2 1.5 19 12 31 12 31s10.5-12 10.5-19.8C22.5 5.4 18 1 12 1z" fill="#e11d48" stroke="#fff" stroke-width="2"/>
+const pinSvg = (fill: string) => `<svg viewBox="0 0 24 32" width="28" height="36" aria-hidden="true">
+  <path d="M12 1C6 1 1.5 5.4 1.5 11.2 1.5 19 12 31 12 31s10.5-12 10.5-19.8C22.5 5.4 18 1 12 1z" fill="${fill}" stroke="#fff" stroke-width="2"/>
   <circle cx="12" cy="11" r="4" fill="#fff"/>
 </svg>`
 
@@ -38,7 +44,7 @@ const labelClass: Record<Status, string> = {
   suspended: 'bg-rose-600 text-white border-rose-900',
 }
 
-// Top-down taxi, nose pointing up (north) so rotate(heading) aims it along the road.
+// Top-down taxi, nose pointing up so rotate() aims it along the road.
 // Static markup with no user data, so innerHTML is safe here.
 const CAR_SVG = `<svg viewBox="0 0 20 36" width="20" height="36" aria-hidden="true">
   <rect x="1.5" y="1.5" width="17" height="33" rx="6" fill="currentColor" stroke="#0f172a" stroke-width="1.5"/>
@@ -58,7 +64,7 @@ interface MarkerParts {
 // Marker = rotating car + upright number label. Text goes in via textContent, never HTML.
 function markerParts(): MarkerParts {
   const root = document.createElement('div')
-  root.className = 'relative size-10'
+  root.className = 'relative size-10 cursor-pointer'
   const car = document.createElement('div')
   car.className = 'absolute inset-0 grid place-items-center drop-shadow-md will-change-transform'
   car.innerHTML = CAR_SVG
@@ -68,15 +74,43 @@ function markerParts(): MarkerParts {
   return { root, car, label }
 }
 
-// Live map of taxis. Leaflet is driven imperatively so 60fps position updates don't re-render React.
+const ll = (p: [number, number]): [number, number] => [p[1], p[0]] // [lat, lng] -> MapLibre [lng, lat]
+
+// A text label marker that stays upright while the map rotates and tilts.
+function labelMarker(text: string, className: string, at: [number, number], m: MlMap): Marker {
+  const el = document.createElement('span')
+  el.className = className
+  el.textContent = text
+  return new maplibregl.Marker({ element: el, rotationAlignment: 'viewport', pitchAlignment: 'viewport' }).setLngLat(ll(at)).addTo(m)
+}
+
+const OSM_STYLE: maplibregl.StyleSpecification = {
+  version: 8,
+  sources: {
+    osm: {
+      type: 'raster',
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      maxzoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    },
+  },
+  layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+}
+
+// Live map of taxis, on MapLibre: rotate (two fingers / right-drag), tilt, pinch zoom, compass and
+// "my location" like Google Maps. Markers are driven imperatively so 60fps position updates don't
+// re-render React.
 export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Props) {
   const { lang, t, driverName } = useI18n()
   const box = useRef<HTMLDivElement>(null)
-  const map = useRef<L.Map | null>(null)
-  const markers = useRef(new Map<string, { marker: L.Marker; parts: MarkerParts }>())
+  const map = useRef<MlMap | null>(null)
+  const [ready, setReady] = useState(false)
+  const markers = useRef(new Map<string, { marker: Marker; parts: MarkerParts; onMap: boolean }>())
   const positions = useRef<Positions>(new Map())
-  const highlight = useRef<L.Layer | null>(null)
-  const pickupPin = useRef<L.Marker | null>(null)
+  const pins = useRef<Marker[]>([])
+  const pickupPin = useRef<Marker | null>(null)
+  const popup = useRef<maplibregl.Popup | null>(null)
   const pickRef = useRef(onPickTaxi)
   useEffect(() => {
     pickRef.current = onPickTaxi
@@ -84,9 +118,6 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
 
   const [places, setPlaces] = useState<Place[] | null>(null)
   const [showPlots, setShowPlots] = useState(true)
-  const [locating, setLocating] = useState(false)
-  const [locError, setLocError] = useState<string | null>(null)
-  const meLayer = useRef<L.LayerGroup | null>(null)
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<Place | null>(null)
   const [nearest, setNearest] = useState<{ taxi: Taxi; metres: number }[]>([])
@@ -95,39 +126,88 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
 
   // Create the map once.
   useEffect(() => {
-    const m = L.map(box.current!, { zoomControl: true, attributionControl: true, maxZoom: 22, minZoom: 2, worldCopyJump: true }).setView(MAP_CENTER, 16)
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    const m = new maplibregl.Map({
+      container: box.current!,
+      style: OSM_STYLE,
+      center: ll(MAP_CENTER),
+      zoom: 16,
+      minZoom: 1,
       maxZoom: 22,
-      maxNativeZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    }).addTo(m)
-    m.attributionControl.addAttribution(
-      'Place names: <a href="https://kulhudhuffushicity.gov.mv/map">Kulhudhuffushi City Council</a> map, via <a href="https://mapkf.vercel.app">mapkf</a> by emjey',
-    )
+      maxPitch: 60,
+      attributionControl: {
+        compact: true,
+        customAttribution:
+          'Place names: <a href="https://kulhudhuffushicity.gov.mv/map">Kulhudhuffushi City Council</a> map, via <a href="https://mapkf.vercel.app">mapkf</a> by emjey',
+      },
+    })
+    m.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true, showZoom: true }), 'top-right')
+    // The viewer's own location: a blue dot with heading, asked only when they press the button.
+    m.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: true }), 'top-right')
+    m.on('load', () => setReady(true))
     map.current = m
     const all = markers.current
     return () => {
       m.remove()
       map.current = null
       all.clear()
+      setReady(false)
     }
   }, [])
 
-  // Council plot chart (house land areas) as a switchable layer under the cars and labels.
+  // Council plot chart (house land areas): a fill + outline layer under the cars and labels.
+  const plotsRef = useRef<Plot[]>([])
   useEffect(() => {
     const m = map.current
-    if (!m || !showPlots) return
-    let layer: L.LayerGroup | null = null
+    if (!m || !ready) return
     let cancelled = false
     void loadPlots().then((plots) => {
-      if (cancelled) return
-      layer = createPlotLayer(plots, { lang, plotWord: t.plot }).addTo(m)
+      if (cancelled || m.getSource('plots')) return
+      plotsRef.current = plots
+      m.addSource('plots', { type: 'geojson', data: plotsGeoJSON(plots) })
+      m.addLayer({ id: 'plots-fill', type: 'fill', source: 'plots', paint: { 'fill-color': ['get', 'c'], 'fill-opacity': 1 } })
+      m.addLayer({
+        id: 'plots-line',
+        type: 'line',
+        source: 'plots',
+        paint: { 'line-color': '#1f2937', 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.3, 18, 1, 22, 2] },
+      })
     })
     return () => {
       cancelled = true
-      layer?.remove()
     }
-  }, [showPlots, lang, t.plot])
+  }, [ready])
+
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready || !m.getLayer('plots-fill')) return
+    const v = showPlots ? 'visible' : 'none'
+    m.setLayoutProperty('plots-fill', 'visibility', v)
+    m.setLayoutProperty('plots-line', 'visibility', v)
+  }, [showPlots, ready])
+
+  // Tap a plot: its houses and plot number.
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready) return
+    const onClick = (e: maplibregl.MapLayerMouseEvent) => {
+      const i = e.features?.[0]?.properties?.i
+      const plot = typeof i === 'number' ? plotsRef.current[i] : undefined
+      const el = plot && plotPopup(plot, lang, t.plot)
+      if (!el) return
+      popup.current?.remove()
+      popup.current = new maplibregl.Popup({ closeButton: true, maxWidth: '240px' }).setLngLat(e.lngLat).setDOMContent(el).addTo(m)
+    }
+    const enter = () => (m.getCanvas().style.cursor = 'pointer')
+    const leave = () => (m.getCanvas().style.cursor = '')
+    m.on('click', 'plots-fill', onClick)
+    m.on('mouseenter', 'plots-fill', enter)
+    m.on('mouseleave', 'plots-fill', leave)
+    return () => {
+      m.off('click', 'plots-fill', onClick)
+      m.off('mouseenter', 'plots-fill', enter)
+      m.off('mouseleave', 'plots-fill', leave)
+    }
+  }, [ready, lang, t.plot])
 
   // Island and town names across the Maldives (OpenStreetMap), on the islands themselves:
   // towns from zoom 8, islands from 11, islets from 13; hidden once house names take over (17+).
@@ -136,21 +216,18 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
     if (!m) return
     let cancelled = false
     let all: { e: string; d: string; r: number; p: [number, number] }[] = []
-    const layer = L.layerGroup().addTo(m)
+    let shown: Marker[] = []
     const render = () => {
-      layer.clearLayers()
+      shown.forEach((x) => x.remove())
+      shown = []
       const z = m.getZoom()
       if (z < 8 || z >= 17) return
       const maxRank = z >= 13 ? 3 : z >= 11 ? 2 : 1
-      const view = m.getBounds().pad(0.2)
-      let shown = 0
+      const view = m.getBounds()
       for (const it of all) {
-        if (it.r > maxRank || !view.contains(it.p)) continue
-        const el = document.createElement('span')
-        el.className = `map-label island-label island-rank-${it.r}`
-        el.textContent = lang === 'dv' ? it.d || it.e : it.e || it.d
-        layer.addLayer(L.marker(it.p, { icon: L.divIcon({ html: el, className: '', iconSize: [0, 0] }), interactive: false, keyboard: false, zIndexOffset: -2000 }))
-        if (++shown >= 250) break
+        if (it.r > maxRank || !view.contains(ll(it.p))) continue
+        shown.push(labelMarker(lang === 'dv' ? it.d || it.e : it.e || it.d, `map-label island-label island-rank-${it.r}`, it.p, m))
+        if (shown.length >= 250) break
       }
     }
     void import('../data/islands.json').then((mod) => {
@@ -162,34 +239,9 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
     return () => {
       cancelled = true
       m.off('moveend', render)
-      layer.remove()
+      shown.forEach((x) => x.remove())
     }
   }, [lang])
-
-  // The viewer's own location (asked only when they press the button; nothing is stored or sent).
-  const locate = () => {
-    const m = map.current
-    if (!m || !('geolocation' in navigator)) return setLocError(t.locationUnavailable)
-    setLocating(true)
-    setLocError(null)
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setLocating(false)
-        const at: L.LatLngExpression = [pos.coords.latitude, pos.coords.longitude]
-        meLayer.current?.remove()
-        meLayer.current = L.layerGroup([
-          L.circle(at, { radius: pos.coords.accuracy, color: '#2563eb', weight: 1, fillOpacity: 0.12, interactive: false }),
-          L.circleMarker(at, { radius: 8, color: '#fff', weight: 3, fillColor: '#2563eb', fillOpacity: 1, interactive: false }),
-        ]).addTo(m)
-        m.flyTo(at, Math.max(m.getZoom(), 17), { duration: 0.8 })
-      },
-      (err) => {
-        setLocating(false)
-        setLocError(err.code === err.PERMISSION_DENIED ? t.locationDenied : t.locationUnavailable)
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
-    )
-  }
 
   // House and landmark names drawn on the map, like the council chart. Only when zoomed in close
   // (zoom 18+), and only those in view, so the map stays fast with 3,000+ houses.
@@ -198,25 +250,21 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
     if (!m) return
     let cancelled = false
     let all: Place[] = []
-    const layer = L.layerGroup().addTo(m)
+    let shown: Marker[] = []
     const render = () => {
-      layer.clearLayers()
+      shown.forEach((x) => x.remove())
+      shown = []
       const zoom = m.getZoom()
       if (zoom < 18) return
       // Labels grow as you zoom in, so names stay readable inside the plots.
       m.getContainer().style.setProperty('--map-label-size', `${Math.round(10 * 1.45 ** (zoom - 18))}px`)
-      const view = m.getBounds().pad(0.1)
-      let shown = 0
+      const view = m.getBounds()
       for (const p of all) {
         if (p.t !== 'h' && p.t !== 'l') continue
         const at = p.p[0]!
-        if (!view.contains(at)) continue
-        const el = document.createElement('span')
-        el.className = `map-label ${p.t === 'l' ? 'map-label-landmark' : ''}`
-        el.textContent = lang === 'dv' && p.d ? p.d : p.e
-        const icon = L.divIcon({ html: el, className: '', iconSize: [0, 0] })
-        layer.addLayer(L.marker(at, { icon, interactive: false, keyboard: false, zIndexOffset: -1000 }))
-        if (++shown >= 400) break
+        if (!view.contains(ll(at))) continue
+        shown.push(labelMarker(lang === 'dv' && p.d ? p.d : p.e, `map-label ${p.t === 'l' ? 'map-label-landmark' : ''}`, at, m))
+        if (shown.length >= 400) break
       }
     }
     void loadPlaces().then((list) => {
@@ -229,7 +277,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
     return () => {
       cancelled = true
       m.off('moveend', render)
-      layer.remove()
+      shown.forEach((x) => x.remove())
     }
   }, [lang])
 
@@ -239,9 +287,9 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
     const m = map.current
     if (!m) return
     const live = new Set(taxis.map((x) => x.id))
-    for (const [id, { marker }] of markers.current) {
+    for (const [id, entry] of markers.current) {
       if (!live.has(id)) {
-        marker.remove()
+        entry.marker.remove()
         markers.current.delete(id)
       }
     }
@@ -250,35 +298,51 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
       let entry = markers.current.get(taxi.id)
       if (!entry) {
         const parts = markerParts()
-        const icon = L.divIcon({ html: parts.root, className: '', iconSize: [40, 40], iconAnchor: [20, 20] })
-        entry = { marker: L.marker(MAP_CENTER, { icon, keyboard: false }).addTo(m), parts }
+        // Viewport-aligned so the number stays upright; the car is turned by hand (heading - bearing).
+        const marker = new maplibregl.Marker({ element: parts.root, rotationAlignment: 'viewport', pitchAlignment: 'viewport' }).setLngLat(ll(MAP_CENTER))
+        entry = { marker, parts, onMap: false }
         markers.current.set(taxi.id, entry)
       }
       const { marker, parts } = entry
       parts.car.className = `absolute inset-0 grid place-items-center drop-shadow-md will-change-transform ${statusClass[status]}`
       parts.label.className = `absolute -top-4 left-1/2 -translate-x-1/2 rounded-full border px-1.5 text-[11px] leading-4 font-black tabular-nums shadow ${labelClass[status]}`
       parts.label.textContent = taxi.taxiNo
-      marker.setZIndexOffset(status === 'answered' ? 1000 : 0)
-      const tip = document.createElement('span')
-      tip.textContent = `${taxi.taxiNo} · ${driverName(taxi.driver)}`
-      marker.unbindTooltip().bindTooltip(tip, { direction: 'top', offset: [0, -22] })
-      // Touch screens have no hover: tap a car to show its driver.
-      marker.off('click').on('click', () => {
-        marker.toggleTooltip()
+      parts.root.style.zIndex = status === 'answered' ? '2' : '1'
+      // Tap a car: show its driver, and (public mode) pick it for hiring.
+      parts.root.onclick = (ev) => {
+        ev.stopPropagation()
+        const tip = document.createElement('span')
+        tip.textContent = `${taxi.taxiNo} · ${driverName(taxi.driver)}`
+        popup.current?.remove()
+        popup.current = new maplibregl.Popup({ closeButton: false, offset: 22 }).setLngLat(marker.getLngLat()).setDOMContent(tip).addTo(m)
         if (!taxi.suspended) pickRef.current?.(taxi.id)
-      })
+      }
     }
   }, [taxis, interested, driverName])
 
-  // Subscribe to positions (simulated for now) and move markers.
+  // Subscribe to positions and move markers. The car is turned by its heading minus the map's
+  // bearing, so it points the right way however the map is rotated.
   useEffect(() => {
     return subscribePositions(ids.split(',').filter(Boolean), (latest) => {
       positions.current = latest
-      for (const [id, p] of latest) {
-        const entry = markers.current.get(id)
-        if (!entry) continue
-        entry.marker.setLatLng([p.lat, p.lng])
-        entry.parts.car.style.transform = `rotate(${p.heading}deg)`
+      const m = map.current
+      if (!m) return
+      const bearing = m.getBearing()
+      for (const [id, entry] of markers.current) {
+        const p = latest.get(id)
+        if (!p) {
+          if (entry.onMap) {
+            entry.marker.remove()
+            entry.onMap = false
+          }
+          continue
+        }
+        entry.marker.setLngLat([p.lng, p.lat])
+        entry.parts.car.style.transform = `rotate(${p.heading - bearing}deg)`
+        if (!entry.onMap) {
+          entry.marker.addTo(m)
+          entry.onMap = true
+        }
       }
     })
   }, [ids])
@@ -286,19 +350,32 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
   // Show the selected place: a pin for a house/landmark, a line along a road.
   useEffect(() => {
     const m = map.current
-    highlight.current?.remove()
-    highlight.current = null
-    if (!m || !selected) return
-    if (selected.t === 'r' && selected.p.length > 1) {
-      const line = L.polyline(selected.p, { color: '#e11d48', weight: 7, opacity: 0.6, lineCap: 'round' }).addTo(m)
-      highlight.current = line
-      m.flyToBounds(line.getBounds().pad(0.4), { duration: 0.8, maxZoom: 18 })
-    } else {
-      const icon = L.divIcon({ html: PIN_SVG, className: '', iconSize: [28, 36], iconAnchor: [14, 34] })
-      highlight.current = L.marker(selected.p[0]!, { icon, keyboard: false, zIndexOffset: 2000 }).addTo(m)
-      m.flyTo(selected.p[0]!, 18, { duration: 0.8 })
+    pins.current.forEach((x) => x.remove())
+    pins.current = []
+    if (!m || !ready) return
+    const src = m.getSource('highlight') as maplibregl.GeoJSONSource | undefined
+    const line: Feature<LineString> = {
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'LineString', coordinates: selected && selected.t === 'r' && selected.p.length > 1 ? selected.p.map(ll) : [] },
     }
-  }, [selected])
+    if (src) src.setData(line)
+    else {
+      m.addSource('highlight', { type: 'geojson', data: line })
+      m.addLayer({ id: 'highlight', type: 'line', source: 'highlight', paint: { 'line-color': '#e11d48', 'line-width': 7, 'line-opacity': 0.6 }, layout: { 'line-cap': 'round' } })
+    }
+    if (!selected) return
+    if (selected.t === 'r' && selected.p.length > 1) {
+      const b = new maplibregl.LngLatBounds()
+      selected.p.forEach((pt) => b.extend(ll(pt)))
+      m.fitBounds(b, { padding: 60, maxZoom: 18, duration: 800 })
+    } else {
+      const el = document.createElement('div')
+      el.innerHTML = pinSvg('#e11d48')
+      pins.current.push(new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat(ll(selected.p[0]!)).addTo(m))
+      m.flyTo({ center: ll(selected.p[0]!), zoom: 18, duration: 800 })
+    }
+  }, [selected, ready])
 
   // The call's pickup gets its own pin, and is the nearest-taxi target when nothing is searched.
   useEffect(() => {
@@ -306,13 +383,16 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
     pickupPin.current?.remove()
     pickupPin.current = null
     if (!m || !pickupAt) return
-    const icon = L.divIcon({ html: PIN_SVG.replace('#e11d48', '#059669'), className: '', iconSize: [28, 36], iconAnchor: [14, 34] })
-    const tip = document.createElement('span')
-    tip.textContent = t.pickupPin
-    pickupPin.current = L.marker(pickupAt, { icon, keyboard: false, zIndexOffset: 1900 })
-      .bindTooltip(tip, { direction: 'top', offset: [0, -34], permanent: true })
-      .addTo(m)
-    m.flyTo(pickupAt, 18, { duration: 0.8 })
+    const el = document.createElement('div')
+    el.className = 'flex flex-col items-center'
+    const tag = document.createElement('span')
+    tag.className = 'mb-0.5 rounded bg-emerald-700 px-1.5 text-xs font-bold text-white shadow'
+    tag.textContent = t.pickupPin
+    const pin = document.createElement('div')
+    pin.innerHTML = pinSvg('#059669')
+    el.append(tag, pin)
+    pickupPin.current = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat(ll(pickupAt)).addTo(m)
+    m.flyTo({ center: ll(pickupAt), zoom: 18, duration: 800 })
   }, [pickupAt, t.pickupPin])
 
   const target = selected?.p ?? (pickupAt ? [pickupAt] : null)
@@ -352,7 +432,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
   }
   const panTo = (id: string) => {
     const pos = positions.current.get(id)
-    if (pos) map.current?.flyTo([pos.lat, pos.lng], 18, { duration: 0.6 })
+    if (pos) map.current?.flyTo({ center: [pos.lng, pos.lat], zoom: 18, duration: 600 })
   }
 
   return (
@@ -367,16 +447,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
         <span className="flex items-center gap-1.5">
           <i className="h-3.5 w-2 rounded-sm border border-slate-900 bg-rose-600" /> {t.mapSuspended}
         </span>
-        <button
-          type="button"
-          onClick={locate}
-          disabled={locating}
-          className="ms-auto flex min-h-8 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2 font-medium hover:bg-slate-50 disabled:opacity-50"
-        >
-          📍 {locating ? t.locating : t.myLocation}
-        </button>
-        {locError && <span className="font-semibold text-rose-700">{locError}</span>}
-        <label className="flex min-h-8 cursor-pointer items-center gap-1.5 font-medium">
+        <label className="ms-auto flex min-h-8 cursor-pointer items-center gap-1.5 font-medium">
           <input type="checkbox" checked={showPlots} onChange={(e) => setShowPlots(e.target.checked)} className="size-4 accent-emerald-600" />
           {t.plotMap}
         </label>
@@ -391,7 +462,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
         />
 
         {/* Place search, floating over the map. */}
-        <div className="absolute inset-x-2 top-2 z-[1100] sm:inset-x-auto sm:start-14 sm:w-80">
+        <div className="absolute inset-x-2 top-2 z-[5] sm:inset-x-auto sm:start-2 sm:w-80 [@media(max-width:639px)]:end-14">
           <div className="flex items-center rounded-xl border border-slate-300 bg-white shadow-lg">
             <input
               type="search"

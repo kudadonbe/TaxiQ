@@ -9,4 +9,6 @@ export default defineConfig({
   // Built into docs/ and committed: GitHub Pages serves the v2 branch's /docs folder.
   build: { outDir: 'docs' },
   plugins: [react(), tailwindcss()],
+  // MapLibre's worker is loaded as a module worker.
+  worker: { format: 'es' },
 })

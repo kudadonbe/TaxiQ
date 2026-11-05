@@ -1,8 +1,9 @@
-import L from 'leaflet'
+import type { FeatureCollection, Polygon } from 'geojson'
 
 // The Kulhudhuffushi City Council plot chart redrawn as vector polygons (src/data/plots.json, built
-// by scripts/build-plots.py from the chart on mapkf.vercel.app, used with permission). Vector
-// shapes stay sharp at any zoom, and each plot knows the houses on it.
+// by scripts/build-plots.py from the chart on mapkf.vercel.app, used with permission). Drawn by
+// MapLibre as a GeoJSON fill layer, so it stays sharp at any zoom and rotates with the map; each
+// plot knows the houses on it.
 
 export interface Plot {
   c: string // ward fill colour
@@ -17,49 +18,39 @@ export function loadPlots(): Promise<Plot[]> {
   return cache
 }
 
-interface Options {
-  lang: 'en' | 'dv'
-  plotWord: string
+// GeoJSON for MapLibre (lng/lat order, closed rings). `i` points back into the plots array.
+export function plotsGeoJSON(plots: Plot[]): FeatureCollection<Polygon, { c: string; i: number }> {
+  return {
+    type: 'FeatureCollection',
+    features: plots.map((plot, i) => {
+      const ring = plot.p.map(([lat, lng]) => [lng, lat])
+      ring.push(ring[0]!)
+      return { type: 'Feature', properties: { c: plot.c, i }, geometry: { type: 'Polygon', coordinates: [ring] } }
+    }),
+  }
 }
 
-// Canvas-rendered so 3,400 polygons pan and zoom smoothly. Tapping a plot shows its houses.
-export function createPlotLayer(plots: Plot[], { lang, plotWord }: Options): L.LayerGroup {
-  const renderer = L.canvas({ padding: 0.3 })
-  const group = L.layerGroup()
-  for (const plot of plots) {
-    const poly = L.polygon(plot.p, {
-      renderer,
-      color: '#1f2937',
-      weight: 0.8,
-      fillColor: plot.c,
-      fillOpacity: 1,
-      interactive: !!plot.h || !!plot.pl,
-    })
-    if (plot.h || plot.pl) {
-      // Built with DOM text nodes only: names come from data, never parsed as HTML.
-      poly.bindPopup(() => {
-        const el = document.createElement('div')
-        el.dir = lang === 'dv' ? 'rtl' : 'ltr'
-        for (const [en, dv] of plot.h ?? []) {
-          const line = document.createElement('div')
-          line.style.fontWeight = '700'
-          line.textContent = lang === 'dv' && dv ? dv : en
-          el.append(line)
-          const sub = document.createElement('div')
-          sub.style.cssText = 'font-size:11px;color:#64748b'
-          sub.textContent = lang === 'dv' ? en : dv
-          if (sub.textContent) el.append(sub)
-        }
-        if (plot.pl) {
-          const no = document.createElement('div')
-          no.style.cssText = 'margin-top:4px;font-size:12px;color:#b91c1c;font-weight:600'
-          no.textContent = `${plotWord} ${plot.pl}`
-          el.append(no)
-        }
-        return el
-      })
-    }
-    group.addLayer(poly)
+// Popup content for a tapped plot. Built with DOM text nodes only: names come from data, never
+// parsed as HTML.
+export function plotPopup(plot: Plot, lang: 'en' | 'dv', plotWord: string): HTMLElement | null {
+  if (!plot.h && !plot.pl) return null
+  const el = document.createElement('div')
+  el.dir = lang === 'dv' ? 'rtl' : 'ltr'
+  for (const [en, dv] of plot.h ?? []) {
+    const line = document.createElement('div')
+    line.style.fontWeight = '700'
+    line.textContent = lang === 'dv' && dv ? dv : en
+    el.append(line)
+    const sub = document.createElement('div')
+    sub.style.cssText = 'font-size:11px;color:#64748b'
+    sub.textContent = lang === 'dv' ? en : dv
+    if (sub.textContent) el.append(sub)
   }
-  return group
+  if (plot.pl) {
+    const no = document.createElement('div')
+    no.style.cssText = 'margin-top:4px;font-size:12px;color:#b91c1c;font-weight:600'
+    no.textContent = `${plotWord} ${plot.pl}`
+    el.append(no)
+  }
+  return el
 }
