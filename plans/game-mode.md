@@ -19,7 +19,7 @@ Decisions so far: **multiplayer from the start**, **build in v2 if possible, oth
 | G-D8 | **Backing is in the game only (option A):** KD-Bank's Dinar and Dirham are backed by gold and silver *in the game*, valued at live prices. No real coins are held, nothing can be redeemed, and no real money goes in or out. A real gold-backed product would be a separate, licensed project (MMA). |
 | G-D9 | Money is a **crypto-style ledger without a blockchain** (§5.4). |
 | G-D11 | **An always-running world.** **TaxiQ World** (Kulhudhuffushi) always exists, and one person can play it alone. Its people (bot drivers, centers with their owners, bot citizens) are made **once** when the world is created, saved, and never made again. Private worlds with join codes are also kept, not recreated. |
-| G-D12 | Clock for driving: **1 real minute = 6 game minutes**, so a trip takes about 30–60 s to watch. "1 real minute = 1 game day" for money is an open question (§14, question 10). |
+| G-D12 | **Two clocks (option a, decided 2026-11-05).** Driving runs at **1 real minute = 6 game minutes**, so a trip takes about 30–60 s to watch. Money runs on its own **money calendar: 1 real minute = 1 money day** (§5.5). |
 | G-D13 | **Two sides, like the app:** public-service taxis (centers and their queue) and **private hire** (players and companies offering their own cars at their own price). See `plans/product-direction.md`. |
 | G-D10 | **The main goal is practice for the real job:** drive, earn, keep a full record of it, and finish knowing you could make a living as a real driver. Every number (fares, fuel, car costs) is real, so the record is honest. "Off the meter" is the long-term goal for players who want to grow a business (§1.1). |
 
@@ -139,6 +139,18 @@ The money in a room is sized from what it has to finance. The **Standard** prese
 - A **money chart** (supply, lent, in wallets, charity pool, price level) lets players and teachers watch the economy.
 - The real prices of a taxi, a center licence and the fares replace the assumed figures. Then the presets are recalculated from the same formula.
 
+### 5.5 The money calendar: 1 real minute = 1 money day (G-D12)
+
+Every real minute is one **money day**, settled at payday:
+
+- **Costs of a whole day:** living costs, the day's car payment (Murabaha or Ijara instalment), the center fee and insurance, plus fuel for the km actually driven.
+- **Income:**
+  - A salary for citizens with a job.
+  - For drivers, the fares actually earned that minute, **scaled to a full working day**: fares × (hours worked per day ÷ game hours driven that minute). Hours worked per day is 10 by default, and the player can choose it.
+- **Statements** show money days, weeks (7 minutes) and months (30 minutes), so a 30-minute session is a month of the business.
+- The **logbook keeps the real, unscaled trips and fares**. The real-life check (§1.1) uses the actual earnings per hour, so it stays honest.
+- Days with the player offline count as days off: they pay that day's fixed costs (living, car payment), with no fuel and no fares. Leaving a loan unpaid while away is a real cost.
+
 ### 5.4 The KD-Bank ledger: crypto concepts, no blockchain (G-D9)
 
 | Concept | In TaxiQ Game |
@@ -256,5 +268,5 @@ Answered: name (TaxiQ Game), fares (real), audience (both), bank (KD-Bank, Islam
 7. **Gold and silver price source:** is there a source you prefer (for example a Maldivian bank's or MMA's published rate, or an international feed)? Some international feeds need a paid key.
 8. **Kulhudhuffushi fare table:** who can give us the official fares?
 9. **Zakat rule:** on by default, optional, or off?
-10. **"1 minute = 1 day":** a day that passes in one real minute is great for money (salary, instalments, daily costs), but too fast to watch cars drive: a trip would take a fraction of a second. Options: **(a)** keep driving at 1 min = 6 game min and run the money calendar on its own "1 minute = 1 day" clock, scaling each day's earnings from the trips actually driven; **(b)** make the whole game 1 min = 1 day, where drivers only choose (accept, decline, where to wait) and each day's trips are summarised; **(c)** let each world's owner pick the speed. Recommended: (a).
+10. ~~"1 minute = 1 day"~~: answered, **option (a)** (G-D12, §5.5). It was: a day that passes in one real minute is great for money (salary, instalments, daily costs), but too fast to watch cars drive: a trip would take a fraction of a second. Options: **(a)** keep driving at 1 min = 6 game min and run the money calendar on its own "1 minute = 1 day" clock, scaling each day's earnings from the trips actually driven; **(b)** make the whole game 1 min = 1 day, where drivers only choose (accept, decline, where to wait) and each day's trips are summarised; **(c)** let each world's owner pick the speed. Recommended: (a).
 
