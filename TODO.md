@@ -68,6 +68,10 @@ Needs a Firebase project from you, so this can't be done without it.
 - [ ] House names and plots for other islands, kept per island (`src/data/<island>/...`), starting with the Malé area. Plots can be traced the same way as Kulhudhuffushi once a plot chart is available.
 - [ ] v3: a base map from Hussain's drone photos (see `plans/` when v3 resumes): orthophoto processing (e.g. OpenDroneMap), map tiles served from the VPS, and a MapLibre raster layer. Centimetre-level detail is realistic; 5 mm accuracy needs RTK or surveyed ground control points, and a drone permit from the Civil Aviation Authority.
 
+### Game mode (idea, 2026-11-05)
+- [ ] Review the design: `plans/game-mode.md` (multiplayer business game on the real map, play money, roles citizen/driver/center owner, "off the meter" goal).
+- [ ] G1–G5 in v2 (Firestore rooms, host-run clock and bots); G6 port to v3 (server-run, fair).
+
 ## Backlog
 - [ ] **Driver app** that sends GPS while on duty, and shows "my location" (an idea from mapkf).
 - [ ] Review traced plots against the chart: about 4% of houses didn't land in a traced plot, and a few neighbouring plots may have merged where lines were faint.
