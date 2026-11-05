@@ -216,7 +216,7 @@ const strings = {
     gameLeave: 'Leave game',
     gameNext: 'Phase G1: rooms and the shared map. Next: ride requests and fares (G2), then money and KD-Bank (G3).',
     howToPlay: 'How to play',
-    howGoal: 'Goal: get "off the meter" — win when your passive income (cars you rent out, your center\'s earnings) is more than your monthly expenses. Driving pays the bills; owning things sets you free.',
+    howGoal: 'Goal: learn the job and see you can earn for real. Drive, take offers and charge real fares, and pay real costs. Every trip goes into your driver\'s logbook, and your earnings report shows what you take home. Long-term goal: get "off the meter" by owning cars or a center.',
     howSteps: {
       s1: 'Create a game (name, size, bots) or join one with a friend\'s 6-letter code.',
       s2: 'Share your code with friends with the Share button.',
@@ -436,7 +436,7 @@ const strings = {
     gameLeave: 'ގޭމުން ނުކުމޭ',
     gameNext: 'ފިޔަވަޅު G1: ރޫމްތަކާއި ހިއްސާވާ މެޕް. ދެން: ދަތުރުތަކާއި ފެއާ (G2)، ފަހުން ފައިސާ އަދި ކޭޑީ-ބޭންކް (G3).',
     howToPlay: 'ކުޅޭނެ ގޮތް',
-    howGoal: 'މަގުސަދު: "މީޓަރުން ސަލާމަތްވުން" — ތިބާގެ ޕެސިވް އާމްދަނީ (ކުއްޔަށް ދޭ ކާރުތަކާއި ސެންޓަރުގެ އާމްދަނީ) މަހުގެ ޚަރަދަށްވުރެ ގިނަވުމުން ތިބާ ކާމިޔާބު. ޑްރައިވްކުރުމުން ޚަރަދު ހަމަވާނެ؛ މުދާ ލިބުމުން ތިބާ މިނިވަންވާނެ.',
+    howGoal: 'މަގުސަދު: މަސައްކަތް ދަސްކޮށް، ހަގީގަތުގައިވެސް ލާރި ހޯދޭނެކަން ދެނެގަތުން. ޑްރައިވްކޮށް، ދަތުރުތައް ބަލައިގަނެ، ހަގީގީ ފެއާ ނަގާ، ހަގީގީ ޚަރަދުތައް ދައްކާ. ކޮންމެ ދަތުރެއް ތިބާގެ ޑްރައިވަރ ލޮގްބުކުގައި ލިޔެވޭނެ، އަދި އާމްދަނީގެ ރިޕޯޓުން ގެއަށް ގެންދެވޭ ފައިސާ ދައްކައިދޭނެ. ދިގު މުއްދަތުގެ މަގުސަދު: ކާރު ނުވަތަ ސެންޓަރެއް ލިބިގެން "މީޓަރުން ސަލާމަތްވުން".',
     howSteps: {
       s1: 'ގޭމެއް ހަދާ (ނަން، ބޮޑުމިން، ބޮޓުން) ނުވަތަ ރަހުމަތްތެރިއެއްގެ 6 އަކުރުގެ ކޯޑުން ވަދޭ.',
       s2: 'ހިއްސާކުރޭ ބަޓަނުން ތިބާގެ ކޯޑު ރަހުމަތްތެރިންނަށް ފޮނުވާ.',

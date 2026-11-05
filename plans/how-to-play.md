@@ -4,12 +4,18 @@ TaxiQ Game is a taxi business game on the real island map. You play with play mo
 taxi service is never touched. It's being built in phases, and this guide says what you can do today
 and what's coming. (Game rules for the builders are in [game-mode.md](game-mode.md).)
 
-## The goal: get "off the meter"
+## The goal: learn the job, earn, and know you can do it for real
 
-Everyone starts out living from their own work: a salary, or driving fares. You win when your
-**passive income** (money that comes in without you working, such as cars you rent to other drivers or
-your center's earnings) is **more than your monthly expenses**. Driving pays the bills; owning things
-sets you free.
+Play as a driver: go online, take ride offers, drive the real roads and charge **real fares**. You pay
+**real costs** too (fuel, your car, the center fee). Every trip and every cost goes into your
+**driver's logbook**, and your **earnings report** shows what you took home each day, week and month.
+
+When you finish, you'll know in real numbers what driving a taxi on this island earns, and what makes
+it earn more: waiting in the right places at the right times, keeping costs down, and good ratings.
+The figures are estimates from the game, not a promise, but they use real prices.
+
+**Want more?** The long-term goal is getting **"off the meter"**: owning cars or a center so your
+**passive income** is more than your monthly expenses.
 
 ## What you can do now (phase G1)
 
@@ -45,9 +51,9 @@ The person who created the game is the **host**. The host presses **Start game**
 
 | Phase | What you'll be able to do |
 |-------|---------------------------|
-| **G2: Rides** | Citizens (you or bots) **hire a game taxi** by picking a pickup and destination. Offers go down the center's queue exactly like real TaxiQ. Drivers **accept or decline**, and the car drives the route to the pickup and destination. The trip completes and the fare is paid at **real fares**. Drivers can **send their empty car to a waiting spot** (the harbour, the hospital). |
+| **G2: Rides and your logbook** | Every trip and fare is written into your **driver's logbook**. Citizens (you or bots) **hire a game taxi** by picking a pickup and destination. Offers go down the center's queue exactly like real TaxiQ. Drivers **accept or decline**, and the car drives the route to the pickup and destination. The trip completes and the fare is paid at **real fares**. Drivers can **send their empty car to a waiting spot** (the harbour, the hospital). |
 | **G3: Money and KD-Bank** | Your **statement**: income, expenses, assets, loans. **Payday** every game month. Money in **Dinar (gold) and Dirham (silver)** at live prices, or digital MVR. **KD-Bank**, Islamic finance with no interest: buy a car with **Murabaha**, lease to own with **Ijara**, co-own a center with **Musharaka**, or take an interest-free **Qard Hasan** in hard times. |
-| **G4: Winning** | The **off-the-meter bar**, winning and bankruptcy, a scoreboard, and saving and resuming games. |
+| **G4: Your results** | The **earnings report** (day, week, month, take-home, per hour), the **real-life check**, a "ready for the real thing" certificate, the off-the-meter bar, a scoreboard, and saving games. |
 | **G5: Life on the island** | Events (festival nights, rain, fuel prices, a flat tyre), deals between players (sell or rent a car, hire an operator), and choosing a route for each trip. |
 
 ## Fair play
