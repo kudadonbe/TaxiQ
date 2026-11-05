@@ -84,6 +84,9 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
 
   const [places, setPlaces] = useState<Place[] | null>(null)
   const [showPlots, setShowPlots] = useState(true)
+  const [locating, setLocating] = useState(false)
+  const [locError, setLocError] = useState<string | null>(null)
+  const meLayer = useRef<L.LayerGroup | null>(null)
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<Place | null>(null)
   const [nearest, setNearest] = useState<{ taxi: Taxi; metres: number }[]>([])
@@ -92,7 +95,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
 
   // Create the map once.
   useEffect(() => {
-    const m = L.map(box.current!, { zoomControl: true, attributionControl: true, maxZoom: 22 }).setView(MAP_CENTER, 16)
+    const m = L.map(box.current!, { zoomControl: true, attributionControl: true, maxZoom: 22, minZoom: 2, worldCopyJump: true }).setView(MAP_CENTER, 16)
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 22,
       maxNativeZoom: 19,
@@ -125,6 +128,68 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
       layer?.remove()
     }
   }, [showPlots, lang, t.plot])
+
+  // Island and town names across the Maldives (OpenStreetMap), on the islands themselves:
+  // towns from zoom 8, islands from 11, islets from 13; hidden once house names take over (17+).
+  useEffect(() => {
+    const m = map.current
+    if (!m) return
+    let cancelled = false
+    let all: { e: string; d: string; r: number; p: [number, number] }[] = []
+    const layer = L.layerGroup().addTo(m)
+    const render = () => {
+      layer.clearLayers()
+      const z = m.getZoom()
+      if (z < 8 || z >= 17) return
+      const maxRank = z >= 13 ? 3 : z >= 11 ? 2 : 1
+      const view = m.getBounds().pad(0.2)
+      let shown = 0
+      for (const it of all) {
+        if (it.r > maxRank || !view.contains(it.p)) continue
+        const el = document.createElement('span')
+        el.className = `map-label island-label island-rank-${it.r}`
+        el.textContent = lang === 'dv' ? it.d || it.e : it.e || it.d
+        layer.addLayer(L.marker(it.p, { icon: L.divIcon({ html: el, className: '', iconSize: [0, 0] }), interactive: false, keyboard: false, zIndexOffset: -2000 }))
+        if (++shown >= 250) break
+      }
+    }
+    void import('../data/islands.json').then((mod) => {
+      if (cancelled) return
+      all = mod.default as typeof all
+      render()
+    })
+    m.on('moveend', render)
+    return () => {
+      cancelled = true
+      m.off('moveend', render)
+      layer.remove()
+    }
+  }, [lang])
+
+  // The viewer's own location (asked only when they press the button; nothing is stored or sent).
+  const locate = () => {
+    const m = map.current
+    if (!m || !('geolocation' in navigator)) return setLocError(t.locationUnavailable)
+    setLocating(true)
+    setLocError(null)
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLocating(false)
+        const at: L.LatLngExpression = [pos.coords.latitude, pos.coords.longitude]
+        meLayer.current?.remove()
+        meLayer.current = L.layerGroup([
+          L.circle(at, { radius: pos.coords.accuracy, color: '#2563eb', weight: 1, fillOpacity: 0.12, interactive: false }),
+          L.circleMarker(at, { radius: 8, color: '#fff', weight: 3, fillColor: '#2563eb', fillOpacity: 1, interactive: false }),
+        ]).addTo(m)
+        m.flyTo(at, Math.max(m.getZoom(), 17), { duration: 0.8 })
+      },
+      (err) => {
+        setLocating(false)
+        setLocError(err.code === err.PERMISSION_DENIED ? t.locationDenied : t.locationUnavailable)
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
+    )
+  }
 
   // House and landmark names drawn on the map, like the council chart. Only when zoomed in close
   // (zoom 18+), and only those in view, so the map stays fast with 3,000+ houses.
@@ -302,7 +367,16 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
         <span className="flex items-center gap-1.5">
           <i className="h-3.5 w-2 rounded-sm border border-slate-900 bg-rose-600" /> {t.mapSuspended}
         </span>
-        <label className="ms-auto flex min-h-8 cursor-pointer items-center gap-1.5 font-medium">
+        <button
+          type="button"
+          onClick={locate}
+          disabled={locating}
+          className="ms-auto flex min-h-8 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2 font-medium hover:bg-slate-50 disabled:opacity-50"
+        >
+          📍 {locating ? t.locating : t.myLocation}
+        </button>
+        {locError && <span className="font-semibold text-rose-700">{locError}</span>}
+        <label className="flex min-h-8 cursor-pointer items-center gap-1.5 font-medium">
           <input type="checkbox" checked={showPlots} onChange={(e) => setShowPlots(e.target.checked)} className="size-4 accent-emerald-600" />
           {t.plotMap}
         </label>

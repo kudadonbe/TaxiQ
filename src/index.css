@@ -86,3 +86,20 @@ html .leaflet-container {
 .map-label-landmark {
   color: #9f1239;
 }
+
+/* Island and town names (OpenStreetMap), bigger than house names. */
+.island-label {
+  font-family: var(--font-heading); /* MV Bodu for Thaana, so island names stand out from house names */
+  color: #0c4a6e;
+  font-weight: 700;
+}
+.island-rank-1 {
+  font-size: 15px;
+}
+.island-rank-2 {
+  font-size: 13px;
+}
+.island-rank-3 {
+  font-size: 11px;
+  font-weight: 600;
+}

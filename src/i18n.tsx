@@ -161,6 +161,10 @@ const strings = {
     trExport: 'Export fixes',
     trCopied: 'Copied as English → Dhivehi pairs.',
     trProblem: { empty: 'Empty', too_long: 'Too long (300 max)', placeholders: 'Keep the same {1}, {2} placeholders' },
+    myLocation: 'My location',
+    locating: 'Finding you…',
+    locationDenied: 'Location permission is off.',
+    locationUnavailable: 'Location not available.',
     switchTo: 'ދިވެހި',
   },
   dv: {
@@ -317,6 +321,10 @@ const strings = {
     trExport: 'އެކްސްޕޯޓް',
     trCopied: 'އިނގިރޭސި → ދިވެހި ގޮތަށް ކޮޕީކުރެވިއްޖެ.',
     trProblem: { empty: 'ހުސް', too_long: 'ވަރަށް ދިގު (އެންމެ ގިނަވެގެން 300)', placeholders: 'އެއް {1}، {2} ބަހައްޓާ' },
+    myLocation: 'އަހަރެން ހުރި ތަން',
+    locating: 'ހޯދަނީ…',
+    locationDenied: 'ލޮކޭޝަން ހުއްދަ ނިއްވާލާފައި.',
+    locationUnavailable: 'ލޮކޭޝަން ނުލިބުނު.',
     switchTo: 'English',
   },
 } satisfies Record<Lang, Record<string, unknown>>
