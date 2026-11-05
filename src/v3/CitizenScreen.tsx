@@ -5,6 +5,7 @@ import type { Taxi } from '../types'
 import { isFreeText } from '../validate'
 import { OFFER_SECONDS } from '../core/offers'
 import { useAction, usePoll, type Center, type Me } from './api'
+import { apiPositionSource } from './livePositions'
 import { useV3Strings } from './strings'
 import { Badge, Btn, Card, ErrorLine, Field, Select } from './ui'
 import { statusTone } from './tone'
@@ -55,6 +56,7 @@ export function CitizenScreen({ me, onChanged }: { me: Me; onChanged: () => void
     [taxis.data],
   )
   const [chosen, setChosen] = useState<string | null>(null)
+  const source = useMemo(() => (current ? apiPositionSource(current) : undefined), [current])
   const chosenTaxi = taxis.data?.taxis.find((x) => x.membershipId === chosen && !x.suspended)
 
   return (
@@ -76,7 +78,7 @@ export function CitizenScreen({ me, onChanged }: { me: Me; onChanged: () => void
       </div>
       <div className="isolate">
         <Suspense fallback={<p className="text-sm text-slate-500">{s.loading}</p>}>
-          <MapView taxis={mapTaxis} interested={EMPTY} pickupAt={undefined} onPickTaxi={setChosen} />
+          <MapView taxis={mapTaxis} interested={EMPTY} pickupAt={undefined} onPickTaxi={setChosen} positionSource={source} />
         </Suspense>
       </div>
     </div>

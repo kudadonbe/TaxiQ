@@ -4,6 +4,7 @@ import type { Db } from './db'
 import { ApiError, unauthorized } from './errors'
 import type { VerifyToken } from './identity'
 import { centerRoutes } from './routes/centers'
+import { positionRoutes } from './routes/positions'
 import { queueRoutes } from './routes/queue'
 import { reportRoutes } from './routes/reports'
 import { rideRoutes } from './routes/rides'
@@ -21,7 +22,7 @@ export interface AppDeps {
 }
 
 // Routes anyone may call without signing in (the public map).
-const PUBLIC = [/^\/v1\/health$/, /^\/v1\/centers$/, /^\/v1\/centers\/[0-9a-f-]{36}\/taxis$/i]
+const PUBLIC = [/^\/v1\/health$/, /^\/v1\/centers$/, /^\/v1\/centers\/[0-9a-f-]{36}\/(taxis|positions)$/i]
 
 export function signedIn(req: FastifyRequest): Actor {
   if (!req.actor) throw unauthorized()
@@ -73,5 +74,6 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   app.register(async (a) => queueRoutes(a, ctx))
   app.register(async (a) => rideRoutes(a, ctx))
   app.register(async (a) => reportRoutes(a, ctx))
+  app.register(async (a) => positionRoutes(a, ctx))
   return app
 }

@@ -104,6 +104,8 @@ The name stays **TaxiQ** for now. The queue is still the heart of the engine. A 
 
 ### Phase 5 - Real GPS and driver app
 
+**Status (2026-11-05): built, waiting for the VPS.** Drivers go online and their phone sends GPS (an installable web app: `watchPosition`, wake lock, every 4 s). The API keeps only the latest position (no history), hides stale positions after 120 s, and clears the location on going offline. The citizen and center maps move real cars smoothly (`src/core/motion.ts`, with tests). Still open: an installable app manifest and service worker, a native app if background GPS turns out to be needed, matching cars to the road, and skipping offline drivers when making offers (a per-center setting).
+
 - Driver app (installable web app first; native later only if background GPS requires it).
 - Real positions replace `src/positions.ts` simulation, same `Position` shape.
 - Smooth movement, stale-position handling, location retention policy.

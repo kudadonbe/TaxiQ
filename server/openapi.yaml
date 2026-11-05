@@ -167,3 +167,27 @@ paths:
     get: { summary: Last 100 audit entries (owner, manager, partner), responses: { '200': { description: OK } } }
   /v1/platform/users/{uid}/block:
     post: { summary: Block an account platform-wide (system admin), responses: { '200': { description: OK } } }
+  /v1/me/online:
+    get: { summary: Am I online (driver), responses: { '200': { description: OK } } }
+    post:
+      summary: Go online or offline (driver). Going offline forgets the location.
+      requestBody: { content: { application/json: { schema: { type: object, properties: { online: { type: boolean } } } } } }
+      responses: { '200': { description: OK }, '403': { description: not_a_driver } }
+  /v1/me/position:
+    post:
+      summary: Send my GPS position (driver, online). Only the latest is kept; updates faster than every 2 s are ignored (202).
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lat, lng]
+              properties:
+                lat: { type: number }
+                lng: { type: number }
+                heading: { type: number, description: degrees from north }
+                speed: { type: number, description: m/s }
+                accuracy: { type: number, description: metres }
+      responses: { '200': { description: Stored }, '202': { description: too_soon }, '403': { description: not_online } }
+  /v1/centers/{id}/positions:
+    get: { summary: Online taxis with a fresh position (public; no personal data), security: [], responses: { '200': { description: OK } } }

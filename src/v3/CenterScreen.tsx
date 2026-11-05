@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
 import { CallPanel } from '../components/CallPanel'
 import { QueueRow } from '../components/QueueRow'
 import { useI18n } from '../i18n'
@@ -7,11 +7,14 @@ import type { CallInfo, Taxi } from '../types'
 import { useNow } from '../useRides'
 import { EMPTY_CALL, hasCallInfo, validateCall } from '../validate'
 import { useAction, usePoll, type Me, type QueueView } from './api'
+import { apiPositionSource } from './livePositions'
 import { useV3Strings } from './strings'
 import { Badge, Btn, Card, ErrorLine, Field, Select } from './ui'
 import { statusTone } from './tone'
 
-type Tab = 'queue' | 'members' | 'staff' | 'subscriptions' | 'reports'
+const MapView = lazy(() => import('../components/MapView'))
+
+type Tab = 'queue' | 'map' | 'members' | 'staff' | 'subscriptions' | 'reports'
 type StaffRole = Me['staff'][number]['role']
 
 // Center screens. Which tabs show depends on the person's roles in this center; the API checks
@@ -20,7 +23,7 @@ export function CenterScreen({ centerId, roles, dev }: { centerId: string; roles
   const s = useV3Strings()
   const has = (...r: StaffRole[]) => dev || r.some((x) => roles.includes(x))
   const tabs: Tab[] = [
-    ...(has('owner', 'manager', 'operator') ? (['queue'] as const) : []),
+    ...(has('owner', 'manager', 'operator') ? (['queue', 'map'] as const) : []),
     ...(has('owner', 'manager') ? (['members'] as const) : []),
     ...(has('owner') ? (['staff'] as const) : []),
     ...(has('owner', 'manager', 'partner') ? (['subscriptions', 'reports'] as const) : []),
@@ -39,11 +42,12 @@ export function CenterScreen({ centerId, roles, dev }: { centerId: string; roles
             aria-current={tab === x ? 'page' : undefined}
             className={`min-h-10 rounded-lg px-3 font-semibold ${tab === x ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-100'}`}
           >
-            {s.tabs[x]}
+            {x === 'map' ? s.mapTab : s.tabs[x]}
           </button>
         ))}
       </nav>
       {tab === 'queue' && <QueueTab centerId={centerId} />}
+      {tab === 'map' && <MapTab centerId={centerId} />}
       {tab === 'members' && <MembersTab centerId={centerId} />}
       {tab === 'staff' && <StaffTab centerId={centerId} />}
       {tab === 'subscriptions' && <SubscriptionsTab centerId={centerId} canWrite={has('owner', 'manager')} />}
@@ -59,6 +63,22 @@ const asTaxi = (x: QueueView['taxis'][number]): Taxi => ({
   driver: { id: x.membershipId, name: x.driverName, nameDv: x.driverNameDv, phone: '' },
   suspended: x.suspended ?? undefined,
 })
+
+// Live map of this center's online taxis (real GPS), coloured by queue status.
+function MapTab({ centerId }: { centerId: string }) {
+  const s = useV3Strings()
+  const queue = usePoll<QueueView>(`/v1/centers/${centerId}/queue`, 3000)
+  const taxis = useMemo(() => (queue.data?.taxis ?? []).map(asTaxi), [queue.data])
+  const interested = useMemo(() => new Set(queue.data?.interested ?? []), [queue.data])
+  const source = useMemo(() => apiPositionSource(centerId), [centerId])
+  return (
+    <div className="isolate">
+      <Suspense fallback={<p className="text-sm text-slate-500">{s.loading}</p>}>
+        <MapView taxis={taxis} interested={interested} pickupAt={undefined} positionSource={source} />
+      </Suspense>
+    </div>
+  )
+}
 
 interface DispatchRow {
   id: string

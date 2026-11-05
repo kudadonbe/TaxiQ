@@ -227,3 +227,36 @@ describe('subscriptions, reports and audit', () => {
     expect((await call(outsider, 'GET', '/v1/me')).status).toBe(403)
   })
 })
+
+describe('live GPS (Phase 5)', () => {
+  const pos = (lat: number, lng: number, heading = 90) => ({ lat, lng, heading, speed: 6, accuracy: 8 })
+
+  it('only drivers can go online, and must be online to send positions', async () => {
+    expect((await call(citizen, 'POST', '/v1/me/online', { online: true })).status).toBe(403)
+    expect((await call(drivers[1]!, 'POST', '/v1/me/position', pos(6.62, 73.07))).status).toBe(403)
+    expect((await call(drivers[1]!, 'POST', '/v1/me/online', { online: true })).body.online).toBe(true)
+    expect((await call(drivers[1]!, 'POST', '/v1/me/position', pos(6.62, 73.07))).body.stored).toBe(true)
+  })
+  it('rejects bad coordinates and ignores updates that come too fast', async () => {
+    expect((await call(drivers[1]!, 'POST', '/v1/me/position', { lat: 200, lng: 73 })).status).toBe(400)
+    expect((await call(drivers[1]!, 'POST', '/v1/me/position', pos(6.621, 73.071))).status).toBe(202)
+  })
+  it('the public map gets online taxis with fresh positions, and nothing personal', async () => {
+    const r = await call(null, 'GET', `/v1/centers/${centerA}/positions`)
+    expect(r.body.positions).toHaveLength(1)
+    expect(r.body.positions[0]).toMatchObject({ membershipId: members[1], taxiNo: '2', lat: 6.62, lng: 73.07, heading: 90 })
+    expect(JSON.stringify(r.body)).not.toMatch(/phone|email|driver_user_id/)
+  })
+  it('stale positions are hidden', async () => {
+    await db.query("UPDATE driver_positions SET at = now() - interval '5 minutes'")
+    expect((await call(null, 'GET', `/v1/centers/${centerA}/positions`)).body.positions).toHaveLength(0)
+    await db.query('UPDATE driver_positions SET at = now()')
+  })
+  it('going offline hides the taxi and forgets the location', async () => {
+    await call(drivers[1]!, 'POST', '/v1/me/online', { online: false })
+    expect((await call(null, 'GET', `/v1/centers/${centerA}/positions`)).body.positions).toHaveLength(0)
+    const row = await db.query("SELECT lat, lng FROM driver_positions WHERE user_id = 'd2'")
+    expect(row.rows[0]).toEqual({ lat: null, lng: null })
+    expect((await call(drivers[1]!, 'GET', '/v1/me/online')).body.online).toBe(false)
+  })
+})

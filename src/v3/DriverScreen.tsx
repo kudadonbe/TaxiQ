@@ -1,6 +1,7 @@
 import { OFFER_SECONDS } from '../core/offers'
 import { useNow } from '../useRides'
 import { useAction, usePoll, type Me } from './api'
+import { useGpsSharing } from './useGpsSharing'
 import { useV3Strings } from './strings'
 import { Btn, Card, ErrorLine } from './ui'
 
@@ -21,7 +22,11 @@ export function DriverScreen({ membership }: { membership: Me['memberships'][num
   const offers = usePoll<{ offers: Offer[] }>('/v1/me/offers', 2000)
   const act = useAction(offers.reload)
   const mine = (offers.data?.offers ?? []).filter((o) => o.centerId === membership.centerId)
-  const now = useNow(mine.length > 0)
+  const onlineState = usePoll<{ online: boolean }>('/v1/me/online', 0)
+  const toggle = useAction(onlineState.reload)
+  const online = onlineState.data?.online ?? false
+  const gps = useGpsSharing(online)
+  const now = useNow(mine.length > 0 || online)
 
   return (
     <div className="mx-auto max-w-xl space-y-4">
@@ -29,6 +34,24 @@ export function DriverScreen({ membership }: { membership: Me['memberships'][num
         <p className="text-4xl font-black tabular-nums">{membership.taxiNo}</p>
         <p className="mt-1 text-sm opacity-80">{membership.centerName}</p>
       </section>
+      <Card>
+        <div className="flex items-center gap-3">
+          <span className={`size-3 rounded-full ${online ? 'animate-pulse bg-emerald-500' : 'bg-slate-300'}`} aria-hidden />
+          <span className="flex-1 font-bold">{online ? s.online : s.offline}</span>
+          <Btn tone={online ? 'ghost' : 'primary'} className="min-h-12" disabled={toggle.busy} onClick={() => void toggle.run('POST', '/v1/me/online', { online: !online })}>
+            {online ? s.goOffline : s.goOnline}
+          </Btn>
+        </div>
+        {online && (
+          <p className="text-xs text-slate-600" dir="ltr">
+            {gps.accuracy !== null && s.gpsAccuracy(gps.accuracy)}
+            {gps.lastSent !== null && ` · ${s.lastSent(Math.max(0, Math.round((now - gps.lastSent) / 1000)))}`}
+          </p>
+        )}
+        {online && gps.error && <p className="text-sm font-semibold text-rose-700">{s.gpsErrors[gps.error] ?? s.error(gps.error)}</p>}
+        {online && <p className="text-xs text-slate-500">{s.keepOpen}</p>}
+        <ErrorLine code={toggle.error} />
+      </Card>
       <ErrorLine code={act.error ?? offers.error} />
       <Card title={s.offers}>
         {mine.length === 0 ? (

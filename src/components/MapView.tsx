@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useI18n } from '../i18n'
 import { loadPlaces, metresBetween, searchPlaces, type Place, type PlaceType } from '../places'
 import { MAP_CENTER, subscribePositions, type Positions } from '../positions'
+import type { PositionSource } from '../v3/livePositions'
 import type { Taxi } from '../types'
 import { createPlotLayer, loadPlots } from './plotLayer'
 
@@ -16,6 +17,8 @@ interface Props {
   pickupAt: [number, number] | undefined
   // Public mode: tapping a car picks that taxi for hiring.
   onPickTaxi?: (id: string) => void
+  // Where car positions come from: the simulation (default) or real GPS (v3). Keep it stable (useMemo).
+  positionSource?: PositionSource
 }
 
 const typeIcon: Record<PlaceType, string> = { h: '🏠', r: '🛣️', l: '📍', p: '▫️' }
@@ -69,7 +72,7 @@ function markerParts(): MarkerParts {
 }
 
 // Live map of taxis. Leaflet is driven imperatively so 60fps position updates don't re-render React.
-export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Props) {
+export default function MapView({ taxis, interested, pickupAt, onPickTaxi, positionSource = subscribePositions }: Props) {
   const { lang, t, driverName } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const map = useRef<L.Map | null>(null)
@@ -186,7 +189,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
       if (!entry) {
         const parts = markerParts()
         const icon = L.divIcon({ html: parts.root, className: '', iconSize: [40, 40], iconAnchor: [20, 20] })
-        entry = { marker: L.marker(MAP_CENTER, { icon, keyboard: false }).addTo(m), parts }
+        entry = { marker: L.marker(MAP_CENTER, { icon, keyboard: false }), parts } // added once it has a position
         markers.current.set(taxi.id, entry)
       }
       const { marker, parts } = entry
@@ -205,18 +208,24 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
     }
   }, [taxis, interested, driverName])
 
-  // Subscribe to positions (simulated for now) and move markers.
+  // Subscribe to positions (simulated, or real GPS) and move markers. A taxi without a position
+  // (offline or stale) is taken off the map.
   useEffect(() => {
-    return subscribePositions(ids.split(',').filter(Boolean), (latest) => {
+    return positionSource(ids.split(',').filter(Boolean), (latest) => {
       positions.current = latest
-      for (const [id, p] of latest) {
-        const entry = markers.current.get(id)
-        if (!entry) continue
+      const m = map.current
+      for (const [id, entry] of markers.current) {
+        const p = latest.get(id)
+        if (!p) {
+          if (m?.hasLayer(entry.marker)) entry.marker.remove()
+          continue
+        }
         entry.marker.setLatLng([p.lat, p.lng])
         entry.parts.car.style.transform = `rotate(${p.heading}deg)`
+        if (m && !m.hasLayer(entry.marker)) entry.marker.addTo(m)
       }
     })
-  }, [ids])
+  }, [ids, positionSource])
 
   // Show the selected place: a pin for a house/landmark, a line along a road.
   useEffect(() => {
@@ -404,7 +413,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi }: Pro
           )}
         </div>
       </div>
-      <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:text-sm">{t.mapPlaceholder}</p>
+      {positionSource === subscribePositions && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:text-sm">{t.mapPlaceholder}</p>}
     </section>
   )
 }

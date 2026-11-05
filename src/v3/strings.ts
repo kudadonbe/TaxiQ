@@ -54,6 +54,17 @@ const en = {
   submit: 'Submit',
   myCenters: 'My center registrations',
 
+  // GPS
+  online: 'Online',
+  offline: 'Offline',
+  goOnline: 'Go online',
+  goOffline: 'Go offline',
+  gpsAccuracy: (m: number) => `GPS ±${Math.round(m)} m`,
+  lastSent: (sec: number) => `sent ${sec} s ago`,
+  gpsErrors: { denied: 'Location permission is off. Allow it in the browser settings.', unavailable: 'No GPS signal yet.', unsupported: 'This browser has no GPS.' } as Record<string, string>,
+  keepOpen: 'Keep this screen open while driving: phones stop sending GPS from web pages in the background.',
+  mapTab: 'Map',
+
   // Driver
   offers: 'Ride offers',
   noOffers: 'No offers right now. Offers appear here when it is your turn.',
@@ -151,6 +162,16 @@ const dv: typeof en = {
   licenseNo: 'ލައިސަންސް ނަންބަރު',
   submit: 'ހުށަހަޅާ',
   myCenters: 'އަހަރެންގެ ސެންޓަރ ރަޖިސްޓްރޭޝަން',
+
+  online: 'އޮންލައިން',
+  offline: 'އޮފްލައިން',
+  goOnline: 'އޮންލައިން ވޭ',
+  goOffline: 'އޮފްލައިން ވޭ',
+  gpsAccuracy: (m) => `ޖީޕީއެސް ±${Math.round(m)} މީޓަރު`,
+  lastSent: (sec) => `${sec} ސިކުންތު ކުރިން ފޮނުވި`,
+  gpsErrors: { denied: 'ލޮކޭޝަން ހުއްދަ ނިއްވާލާފައި. ބްރައުޒަރުގެ ސެޓިންގްސްއިން ހުއްދަ ދީ.', unavailable: 'އަދި ޖީޕީއެސް ސިގްނަލެއް ނެތް.', unsupported: 'މި ބްރައުޒަރުގައި ޖީޕީއެސް ނެތް.' },
+  keepOpen: 'ޑްރައިވްކުރާއިރު މި ސްކްރީން ހުޅުވާލާ ބަހައްޓާ: ފޯނުތަކުން ފަހަތުގައި ހުންނަ ވެބް ޕޭޖުތަކުން ޖީޕީއެސް ނުފޮނުވާ.',
+  mapTab: 'މެޕް',
 
   offers: 'ދަތުރުތައް',
   noOffers: 'މިހާރު އެއްވެސް ދަތުރެއް ނެތް. ތިބާގެ ވާރު އައުމުން މިތާ ފެންނާނެ.',

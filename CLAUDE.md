@@ -43,6 +43,7 @@ pnpm deploy    # build + deploy docs/ to Firebase Hosting (needs the firebase CL
   - `api.ts`: `apiCall` attaches the Firebase ID token; `usePoll` refreshes every 2 s (there's no realtime channel yet, so polling until WebSocket); `useAction` runs a write and refreshes.
   - The **Act as** switcher in `V3App` offers only the roles that `GET /v1/me` reports (citizen, driver per membership, center per staff role, system admin). It changes the view only; the API checks every action.
   - Screens: `CitizenScreen` (hire, apply to drive, register a center), `DriverScreen` (offers), `CenterScreen` (tabs by role: Queue, Drivers, Staff, Subscriptions, Reports), `PlatformScreen` (approve centers). Strings are in `strings.ts`, English and Dhivehi with the same keys.
+  - **Real GPS (Phase 5):** in `DriverScreen`, **Go online** turns on `useGpsSharing` (`watchPosition`, sends every 4 s, keeps the screen awake). The server keeps only the latest position per driver (`server/migrations/002_positions.sql`, `routes/positions.ts`). `livePositions.ts` (`apiPositionSource`) polls `/v1/centers/:id/positions` and glides the cars using `src/core/motion.ts`. `MapView` takes a `positionSource` prop (default: the simulation), and it only shows taxis that have a position, so offline or stale taxis disappear.
   - Without `VITE_API_URL`, the v2 Firebase app runs unchanged.
   - Deploying v3 to Firebase Hosting needs the API origin added to `connect-src` in `firebase.json`, and the web origin in the server's `CORS_ORIGINS`.
 
