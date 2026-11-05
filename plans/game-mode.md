@@ -11,9 +11,11 @@ Decisions so far: **multiplayer from the start**, **build in v2 if possible, oth
 | G-D2 | **Real fares**: the real fare table (see §5.1). |
 | G-D3 | Audience: **both** learning (drivers, centers) and fun (public). |
 | G-D4 | A bank, **KD-Bank**, lends to players by the same rules for everyone, **the Islamic way (no interest)**. See §6.1. |
-| G-D5 | KD-Bank's capital: **7 billion** (in Dinar and Dirham; see open question 6). |
+| G-D5 | KD-Bank's capital is **sized per game room** from what it has to finance. The **Standard** preset is ≈ MVR 6 million (in Dinar and Dirham); see §5.3. The earlier "7 billion" is replaced: that much would make money meaningless in a room. |
 | G-D6 | The base currency is the **gold Dinar** and **silver Dirham**, each worth its real gold or silver weight and **moving with live gold and silver prices**. Players can also hold **digital MVR**, converted at the current rate. See §5.2. |
 | G-D7 | How much drivers control: **still to decide**. The options are in §8.1. |
+| G-D8 | **Backing is in the game only (option A):** KD-Bank's Dinar and Dirham are backed by gold and silver *in the game*, valued at live prices. No real coins are held, nothing can be redeemed, and no real money goes in or out. A real gold-backed product would be a separate, licensed project (MMA). |
+| G-D9 | Money is a **crypto-style ledger without a blockchain** (§5.4). |
 
 > This is an **original** TaxiQ game. It's a business and economy game in the same family as
 > property-trading and "get out of the rat race" games, but it uses none of their names, boards,
@@ -65,13 +67,13 @@ Each player has a simple statement on screen:
 
 The **"off the meter" bar** shows passive income against expenses. When it passes 100%, you win.
 
-Starting values (all host-adjustable):
+Starting values for the Standard preset (MVR, illustrative until real prices replace them; all host-adjustable):
 
 | | Citizen | Driver | Owner |
 |---|---|---|---|
-| Cash | 3,000 | 2,000 | 15,000 |
-| Monthly fixed costs | 2,500 | 3,500 | 8,000 |
-| Salary | 6,000 | none | none |
+| Cash | 15,000 | 30,000 | 150,000 |
+| Monthly fixed costs | 9,000 | 12,000 (plus car payments) | 40,000 |
+| Salary | 14,000 | none | none |
 
 Fares follow the real model: a base fare plus a per-km amount. The center takes a fee (for example 10%), and fuel is charged per km driven, including the empty km driving to the pickup.
 
@@ -89,6 +91,48 @@ Fares follow the real model: a base fare plus a per-km amount. The center takes 
 - **Digital MVR:** players can hold MVR too, converted to and from Dinar and Dirham at the current rate. The rate uses the gold and silver price in USD and the MVR/USD exchange rate.
 - **Price source:** a gold/silver price feed (to choose; see open question 7). If the feed is down, the last known price is used, and an admin can set the price by hand. Every rate is saved with its time, so a game's history can always be explained.
 - Statements show both: for example "12.5 Dirham (≈ MVR 480)".
+
+### 5.3 How much money: room presets (G-D5)
+
+The money in a room is sized from what it has to finance. The **Standard** preset is one Kulhudhuffushi game with up to 8 players plus bots, 2 centers and about 20 taxis:
+
+| What needs money | Count | Price each (MVR, assumed) | Total |
+|------------------|-------|---------------------------|-------|
+| Taxis | 20 | 300,000 | 6,000,000 |
+| Center licences | 2 | 500,000 | 1,000,000 |
+| Players' starting cash | 8 | ~25,000 average | 200,000 |
+| Working money in circulation (fares, fuel, wages) | | | ~300,000 |
+| **Assets and cash in play** | | | **≈ 7.5 million** |
+
+**KD-Bank capital = about 80% of that = ≈ MVR 6 million (Standard).** That's enough to finance most cars and the centers, but not everything at once, so loans stay meaningful and players compete for financing.
+
+| Preset | Players | Taxis | Centers | KD-Bank capital |
+|--------|---------|-------|---------|-----------------|
+| Small | 2–4 | 8 | 1 | ≈ MVR 2.5 million |
+| **Standard (default)** | up to 8 | 20 | 2 | **≈ MVR 6 million** |
+| Large / Malé | up to 8 + many bots | 60 | 4 | ≈ MVR 18 million |
+
+- Capital is held and shown as **Dinar and Dirham** at the live price when the room is created, and it then moves with gold and silver.
+- **Fixed supply ("sound money"):** KD-Bank never creates money. It lends only from its capital and from repayments.
+- **Money comes in** from outside the island: citizens' salaries, and events such as tourists and festivals. **Money goes out** through fuel, living costs and licence renewals. These are tuned to balance, so prices neither run away nor freeze.
+- A **money chart** (supply, lent, in wallets, charity pool, price level) lets players and teachers watch the economy.
+- The real prices of a taxi, a center licence and the fares replace the assumed figures. Then the presets are recalculated from the same formula.
+
+### 5.4 The KD-Bank ledger: crypto concepts, no blockchain (G-D9)
+
+| Concept | In TaxiQ Game |
+|---------|---------------|
+| **Wallets** | Every player, center, KD-Bank and the charity pool has a wallet holding Dinar, Dirham and digital MVR. |
+| **Append-only ledger** | Every payment is a permanent entry: from, to, amount, currency, reason, time. Entries are never edited or deleted. **Balances are computed from the ledger**, so money can't appear from nowhere. |
+| **Hash chain** | Each entry stores a hash of the previous one. Changing any old entry breaks the chain, so tampering is visible to every player's screen, which re-checks it. |
+| **Full backing (in the game)** | Every Dinar and Dirham in circulation stands for a gold or silver weight in KD-Bank's game vault. Total supply equals the vault, so nobody can print money. |
+| **Transparency** | Anyone in the room can see the total supply, the amount lent, the charity pool and every deal's schedule, like a blockchain explorer. |
+| **Contracts as code** | When a Murabaha or Ijara deal is signed, its schedule is fixed, and the payday step takes the instalments automatically. No hand edits. |
+
+Left out on purpose: a real blockchain or token (cost, fees and slowness, and it would look like real money), mining, coin trading and speculation (*maysir* and *gharar*), and anything that connects to real money.
+
+- **v2:** the ledger lives in Firestore. The rules allow adding entries only, never changing or deleting them, and each new entry must carry the previous entry's hash.
+- **v3:** the server writes the ledger in PostgreSQL inside each transaction, and the hash chain remains as public proof.
 
 ## 6. Assets and deals
 
@@ -182,11 +226,11 @@ The game uses the same core engine (`src/core/queue.ts`, `offers.ts`, `route.ts`
 
 ## 14. Open questions for Hussain
 
-Answered: name (TaxiQ Game), fares (real), audience (both), bank (KD-Bank, Islamic), currency (Dinar and Dirham).
+Answered: name (TaxiQ Game), fares (real), audience (both), bank (KD-Bank, Islamic), currency (Dinar and Dirham), backing (in the game), money size (Standard preset), ledger (crypto concepts, no blockchain).
 
 3. **Driver control:** A, B, C, D or a mix (§8.1)?
-5. **Real-money link:** confirm the game stays **play money only**, with no real deposits, prizes or purchases. The Dinar, Dirham and MVR in the game track real prices, but they aren't real money. Real money would bring financial-regulation and gambling questions.
-6. **"7 billion":** is that 7 billion **Dirham** (silver), 7 billion **Dinar** (gold), or 7 billion MVR worth? At today's prices these are very different sizes.
+5. ~~Real-money link~~: answered. Backing is **in the game only (A)**, play money (G-D8).
+6. ~~"7 billion"~~: answered. Capital is per room, and the Standard preset is ≈ MVR 6 million (G-D5).
 7. **Gold and silver price source:** is there a source you prefer (for example a Maldivian bank's or MMA's published rate, or an international feed)? Some international feeds need a paid key.
 8. **Kulhudhuffushi fare table:** who can give us the official fares?
 9. **Zakat rule:** on by default, optional, or off?
