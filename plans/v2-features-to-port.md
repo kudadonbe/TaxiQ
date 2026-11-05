@@ -79,6 +79,12 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
 - **v3:** add `users.last_seen`, updated by any authenticated API call (at most once a minute) or by `POST /v1/me/heartbeat`. Show online people in the System admin People tab, and in each center's Staff and Drivers tabs (online drivers matter most for offers).
 - [ ] Ported
 
+## 8. TaxiQ Game (G1 and later)
+
+- **v2:** G1, the commit after `2bc81b6` on `origin/v2`: `src/core/gameSim.ts` (tests), `src/game/*`, the Firestore `games`, `players` and `gameCodes` rules, and the How to play guide (`plans/how-to-play.md`).
+- **v3:** this is phase G6 of `plans/game-mode.md`: game tables in the API, with the clock, bots and ledger run on the server (fair play). Keep `gameSim.ts` as core.
+- [ ] Ported
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.

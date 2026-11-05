@@ -15,3 +15,4 @@ Notes live here because `docs/` is the build output and is emptied on every buil
 Ideas:
 
 - [Game mode](game-mode.md): a multiplayer taxi business game on the real map (draft, built in v2 first)
+- [How to play TaxiQ Game](how-to-play.md): the player guide (updated each phase)
