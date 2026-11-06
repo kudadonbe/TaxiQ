@@ -14,11 +14,15 @@ interface Props {
   onClearChoice: () => void
   // The trip being planned (both ends picked from the house search), for the route on the map.
   onTrip?: (trip: { from: [number, number]; to: [number, number] } | undefined) => void
+  // The pickup on its own (to pin it on the map before a destination is chosen).
+  onPickup?: (at: [number, number] | undefined) => void
+  // Pick a place by pinning it on the map: the map calls `apply` with the place.
+  onPinRequest?: (kind: 'pickup' | 'destination', apply: (at: [number, number], name: string) => void) => void
 }
 
 // Public: ask for a ride. Either a specific taxi (tapped on the map) or the queue, where the offer
 // goes to each taxi in turn. Needs Google sign-in (no staff role).
-export function HirePanel({ taxis, chosen, onClearChoice, onTrip }: Props) {
+export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPinRequest }: Props) {
   const { fb, uid, name, status, signIn } = useAuth()
   const { lang, t } = useI18n()
   const ride = useMyRide(fb, uid)
@@ -41,6 +45,31 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip }: Props) {
     const [from, to] = JSON.parse(tripKey) as [[number, number], [number, number]]
     onTrip({ from, to })
   }, [tripKey, onTrip])
+  const pickupKey = pickupAt ? pickupAt.join(',') : ''
+  useEffect(() => {
+    onPickup?.(pickupKey ? (pickupKey.split(',').map(Number) as [number, number]) : undefined)
+  }, [pickupKey, onPickup])
+  const pinButton = (kind: 'pickup' | 'destination') =>
+    onPinRequest && (
+      <button
+        type="button"
+        onClick={() =>
+          onPinRequest(kind, (at, placeName) => {
+            const text = (placeName || t.pinnedPlace).slice(0, 120)
+            if (kind === 'pickup') {
+              setPickup(text)
+              setPickupAt(at)
+            } else {
+              setDestination(text)
+              setDestinationAt(at)
+            }
+          })
+        }
+        className="-mt-1 inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50"
+      >
+        <MapPin className="size-4" aria-hidden="true" /> {t.pickOnMap}
+      </button>
+    )
 
   const byId = new Map(taxis.map((x) => [x.id, x]))
   const label = (id: string | null) => {
@@ -167,6 +196,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip }: Props) {
           setPickupAt(at)
         }}
       />
+      {pinButton('pickup')}
       <PlaceInput
         id="hire-destination"
         label={`${t.destination} (${t.optional})`}
@@ -178,6 +208,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip }: Props) {
           setDestinationAt(at)
         }}
       />
+      {pinButton('destination')}
       <label className="block">
         <span className="text-sm font-medium text-slate-700">{t.yourPhone}</span>
         <input

@@ -101,3 +101,51 @@ html .maplibregl-map {
   font-size: 11px;
   font-weight: 600;
 }
+
+/* Taxi menu on the map: see-through, like the other pop-ups over the map. */
+.taxi-menu .maplibregl-popup-content {
+  background: rgb(255 255 255 / 0.82);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgb(255 255 255 / 0.6);
+  border-radius: 0.875rem;
+  padding: 0.5rem;
+  box-shadow: 0 10px 25px rgb(15 23 42 / 0.25);
+  font-family: var(--font-sans);
+}
+.taxi-menu .maplibregl-popup-tip {
+  border-top-color: rgb(255 255 255 / 0.82);
+  border-bottom-color: rgb(255 255 255 / 0.82);
+}
+.taxi-menu-body {
+  display: grid;
+  gap: 0.375rem;
+  min-width: 11rem;
+}
+.taxi-menu-title {
+  font-weight: 800;
+  font-size: 0.875rem;
+  padding: 0 0.25rem;
+}
+.taxi-menu-note {
+  font-size: 0.75rem;
+  color: #be123c;
+  padding: 0 0.25rem;
+}
+.taxi-menu-button {
+  min-height: 2.5rem;
+  border-radius: 0.625rem;
+  font-weight: 700;
+  font-size: 0.875rem;
+  padding: 0 0.75rem;
+  text-align: start;
+}
+.taxi-menu-button.primary {
+  background: #059669;
+  color: white;
+}
+.taxi-menu-button.plain {
+  background: rgb(241 245 249 / 0.8);
+  color: #0f172a;
+}
+

@@ -40,6 +40,11 @@ interface Props {
   panelTitle?: string
   panelOpen?: boolean
   onPanelOpenChange?: (open: boolean) => void
+  // Pin a place on the map (hiring): a pin sits in the middle; the viewer moves the map under it and
+  // confirms. The nearest known place gives its name.
+  pinMode?: 'pickup' | 'destination' | null
+  onPin?: (at: [number, number], name: string) => void
+  onPinCancel?: () => void
 }
 
 // Pin for a searched place. Static markup, no user data.
@@ -123,7 +128,7 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
 // Live map of taxis, on MapLibre: rotate (two fingers / right-drag), tilt, pinch zoom, compass and
 // "my location" like Google Maps. Markers are driven imperatively so 60fps position updates don't
 // re-render React.
-export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange }: Props) {
+export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, pinMode = null, onPin, onPinCancel }: Props) {
   const { lang, t, driverName } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const map = useRef<MlMap | null>(null)
@@ -134,6 +139,11 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   const pickupPin = useRef<Marker | null>(null)
   const popup = useRef<maplibregl.Popup | null>(null)
   const pickRef = useRef(onPickTaxi)
+  const following = useRef<string | null>(null)
+  const labels = useRef({ hire: '', follow: '', suspended: '' })
+  useEffect(() => {
+    labels.current = { hire: t.menuHire, follow: t.menuFollow, suspended: t.menuSuspended }
+  }, [t])
   useEffect(() => {
     pickRef.current = onPickTaxi
   }, [onPickTaxi])
@@ -173,6 +183,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     // The viewer's own location: a blue dot with heading, asked only when they press the button.
     m.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: true }), 'top-right')
     m.on('load', () => setReady(true))
+    m.on('dragstart', () => (following.current = null))
     // Open where the viewer is: ask for their location once, then move the map and the demo taxis
     // there. If they say no, the map stays on Kulhudhuffushi.
     if (followRef.current && 'geolocation' in navigator) {
@@ -346,14 +357,50 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       parts.label.className = `absolute -top-4 left-1/2 -translate-x-1/2 rounded-full border px-1.5 text-[11px] leading-4 font-black tabular-nums shadow ${labelClass[status]}`
       parts.label.textContent = taxi.taxiNo
       parts.root.style.zIndex = status === 'answered' ? '2' : '1'
-      // Tap a car: show its driver, and (public mode) pick it for hiring.
+      // Tap a car: a small menu on the car (it moves with it): the taxi and driver, then Hire this
+      // taxi (when hiring is possible) and Follow. Built with DOM text only, never HTML strings.
       parts.root.onclick = (ev) => {
         ev.stopPropagation()
-        const tip = document.createElement('span')
-        tip.textContent = `${taxi.taxiNo} · ${driverName(taxi.driver)}`
         popup.current?.remove()
-        popup.current = new maplibregl.Popup({ closeButton: false, offset: 22 }).setLngLat(marker.getLngLat()).setDOMContent(tip).addTo(m)
-        if (!taxi.suspended) pickRef.current?.(taxi.id)
+        const menu = document.createElement('div')
+        menu.className = 'taxi-menu-body'
+        const title = document.createElement('p')
+        title.className = 'taxi-menu-title'
+        title.textContent = `${taxi.taxiNo} · ${driverName(taxi.driver)}`
+        menu.append(title)
+        const button = (text: string, kind: 'primary' | 'plain', onClick: () => void) => {
+          const b = document.createElement('button')
+          b.type = 'button'
+          b.className = `taxi-menu-button ${kind}`
+          b.textContent = text
+          b.onclick = (e) => {
+            e.stopPropagation()
+            onClick()
+          }
+          menu.append(b)
+        }
+        if (taxi.suspended) {
+          const note = document.createElement('p')
+          note.className = 'taxi-menu-note'
+          note.textContent = labels.current.suspended
+          menu.append(note)
+        } else if (pickRef.current) {
+          button(labels.current.hire, 'primary', () => {
+            popup.current?.remove()
+            pickRef.current?.(taxi.id)
+          })
+        }
+        button(labels.current.follow, 'plain', () => {
+          following.current = taxi.id
+          popup.current?.remove()
+        })
+        const p = new maplibregl.Popup({ closeButton: false, offset: 24, className: 'taxi-menu', maxWidth: '16rem' }).setDOMContent(menu)
+        marker.setPopup(p)
+        p.on('close', () => {
+          if (popup.current === p) popup.current = null
+        })
+        if (!p.isOpen()) marker.togglePopup()
+        popup.current = p
       }
     }
   }, [taxis, interested, driverName])
@@ -365,6 +412,9 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       positions.current = latest
       const m = map.current
       if (!m) return
+      // Following a taxi: keep it in the middle until the viewer moves the map.
+      const follow = following.current && latest.get(following.current)
+      if (follow) m.setCenter([follow.lng, follow.lat])
       const bearing = m.getBearing()
       for (const [id, entry] of markers.current) {
         const p = latest.get(id)
@@ -462,6 +512,34 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       m.off('idle', read)
     }
   }, [ready, wantRoads])
+
+  // Pin mode: follow the middle of the map, and name the nearest known place when it stops moving.
+  const [pin, setPin] = useState<{ at: [number, number]; name: string } | null>(null)
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready || !pinMode) return
+    let all: Place[] = []
+    const update = () => {
+      const c = m.getCenter()
+      const at: [number, number] = [c.lat, c.lng]
+      let best: { name: string; d: number } | null = null
+      for (const p of all) {
+        for (const pt of p.p) {
+          const d = metresBetween(at, pt)
+          if (d <= 80 && (!best || d < best.d)) best = { name: lang === 'dv' && p.d ? p.d : p.e, d }
+        }
+      }
+      setPin({ at, name: best?.name ?? '' })
+    }
+    void loadPlaces().then((p) => {
+      all = p
+      update()
+    })
+    m.on('moveend', update)
+    return () => {
+      m.off('moveend', update)
+    }
+  }, [ready, pinMode, lang])
 
   // When the viewer's location arrives, fly there (the demo taxis restart on the roads there).
   const areaKey = followsViewer && area.located ? area.center.join(',') : ''
@@ -615,20 +693,48 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
           </div>
         )}
 
+        {/* Pin mode: a pin in the middle of the map, and a bar to confirm the place. */}
+        {pinMode && (
+          <>
+            <div className="pointer-events-none absolute start-1/2 top-1/2 z-[8] -translate-x-1/2 -translate-y-full rtl:translate-x-1/2" aria-hidden="true">
+              <MapPin className={`size-10 drop-shadow-lg ${pinMode === 'pickup' ? 'fill-emerald-500 text-emerald-900' : 'fill-rose-500 text-rose-900'}`} strokeWidth={1.5} />
+            </div>
+            <div className="absolute inset-x-2 bottom-4 z-[8] space-y-2 rounded-2xl border border-white/60 bg-white/80 p-3 shadow-2xl backdrop-blur-md sm:inset-x-auto sm:start-1/2 sm:w-96 sm:-translate-x-1/2 sm:rtl:translate-x-1/2" role="dialog" aria-label={pinMode === 'pickup' ? t.pinSetPickup : t.pinSetDestination}>
+              <p className="text-xs text-slate-600">{t.pinHint}</p>
+              <p className="truncate font-bold">{pin ? pin.name || t.pinnedPlace : '…'}</p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={!pin}
+                  onClick={() => pin && onPin?.(pin.at, pin.name)}
+                  className={`min-h-11 flex-1 rounded-xl font-bold text-white disabled:opacity-40 ${pinMode === 'pickup' ? 'bg-emerald-600' : 'bg-rose-600'}`}
+                >
+                  {pinMode === 'pickup' ? t.pinSetPickup : t.pinSetDestination}
+                </button>
+                <button type="button" onClick={onPinCancel} className="min-h-11 rounded-xl border border-slate-300 bg-white/70 px-4 font-semibold">
+                  {t.cancel}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
         {/* A panel over the map (hiring): side panel on wide screens, a pull-up sheet on phones. */}
         {withPanel && (
-          <div className="absolute inset-x-0 bottom-0 z-[6] flex max-h-[70%] flex-col rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:inset-x-auto sm:start-2 sm:top-16 sm:bottom-2 sm:max-h-none sm:w-96 sm:rounded-2xl">
+          <div
+            className={`absolute inset-x-0 bottom-0 z-[6] flex max-h-[70%] flex-col rounded-t-2xl border border-white/60 bg-white/85 shadow-2xl backdrop-blur-md sm:inset-x-auto sm:start-2 sm:top-16 sm:max-h-[calc(100%-5rem)] sm:w-96 sm:rounded-2xl ${panelOpen ? 'sm:bottom-2' : ''} ${pinMode ? 'hidden' : ''}`}
+          >
             <button
               type="button"
               onClick={() => onPanelOpenChange?.(!panelOpen)}
               aria-expanded={panelOpen}
-              className="flex min-h-11 w-full shrink-0 items-center gap-2 px-4 text-start sm:pointer-events-none"
+              className="flex min-h-11 w-full shrink-0 items-center gap-2 px-4 text-start"
             >
               <span className="absolute inset-x-0 top-1.5 mx-auto h-1 w-10 rounded-full bg-slate-300 sm:hidden" aria-hidden="true" />
               <span className="flex-1 pt-1 font-bold">{panelTitle}</span>
-              <span className="text-slate-400 sm:hidden">{panelOpen ? <ChevronDown className="size-5" aria-hidden="true" /> : <ChevronUp className="size-5" aria-hidden="true" />}</span>
+              <span className="text-slate-500">{panelOpen ? <ChevronDown className="size-5" aria-hidden="true" /> : <ChevronUp className="size-5" aria-hidden="true" />}</span>
             </button>
-            <div className={`min-h-0 flex-1 overflow-y-auto px-2 pb-2 ${panelOpen ? '' : 'hidden sm:block'}`}>{panel}</div>
+            <div className={`min-h-0 flex-1 overflow-y-auto px-2 pb-2 ${panelOpen ? '' : 'hidden'}`}>{panel}</div>
           </div>
         )}
 

@@ -1,6 +1,6 @@
 import { ArrowUpDown, Eye, Gamepad2, MapPin, Pencil } from 'lucide-react'
 import { ic } from './components/iconStyles'
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from './auth'
 import { AdminPanel } from './components/AdminPanel'
 import { CallPanel } from './components/CallPanel'
@@ -85,7 +85,10 @@ export default function App() {
   const mapTaxis = useMemo(() => publicTaxis.map(asMapTaxi), [publicTaxis])
   const [chosen, setChosen] = useState<string | null>(null)
   const [reordering, setReordering] = useState(false)
-  const [hireOpen, setHireOpen] = useState(true)
+  const [hireOpen, setHireOpen] = useState(false)
+  const [hirePickup, setHirePickup] = useState<[number, number] | undefined>()
+  const [pinMode, setPinMode] = useState<'pickup' | 'destination' | null>(null)
+  const pinApply = useRef<((at: [number, number], name: string) => void) | null>(null)
   const [hireTrip, setHireTrip] = useState<{ from: [number, number]; to: [number, number] } | undefined>()
 
   const canAdmin = mode === 'demo' || role === 'admin' || role === 'dev'
@@ -306,7 +309,7 @@ export default function App() {
               fullscreen
               taxis={mapTaxis}
               interested={EMPTY}
-              pickupAt={undefined}
+              pickupAt={hireTrip ? undefined : hirePickup}
               onPickTaxi={(id) => {
                 setChosen(id)
                 setHireOpen(true)
@@ -315,7 +318,29 @@ export default function App() {
               panelTitle={t.hire}
               panelOpen={hireOpen}
               onPanelOpenChange={setHireOpen}
-              panel={<HirePanel taxis={publicTaxis} chosen={chosen} onClearChoice={() => setChosen(null)} onTrip={setHireTrip} />}
+              pinMode={pinMode}
+              onPin={(at, placeName) => {
+                pinApply.current?.(at, placeName)
+                setPinMode(null)
+                setHireOpen(true)
+              }}
+              onPinCancel={() => {
+                setPinMode(null)
+                setHireOpen(true)
+              }}
+              panel={
+                <HirePanel
+                  taxis={publicTaxis}
+                  chosen={chosen}
+                  onClearChoice={() => setChosen(null)}
+                  onTrip={setHireTrip}
+                  onPickup={setHirePickup}
+                  onPinRequest={(kind, apply) => {
+                    pinApply.current = apply
+                    setPinMode(kind)
+                  }}
+                />
+              }
             />
           </Suspense>
         </main>
