@@ -1,4 +1,4 @@
-import { CarTaxiFront, Footprints, MapPin, X } from 'lucide-react'
+import { CarTaxiFront, ChevronDown, ChevronUp, Footprints, MapPin, X } from 'lucide-react'
 import { PlaceTypeIcon } from './icons'
 import { ic } from './iconStyles'
 import type { Feature, LineString } from 'geojson'
@@ -9,7 +9,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 // at it; otherwise it looks for a file next to its own module, which the build doesn't produce.
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 maplibregl.setWorkerUrl(workerUrl)
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useI18n } from '../i18n'
 import { loadPlaces, metresBetween, searchPlaces, type Place } from '../places'
 import { route as findRoute, type TravelMode } from '../core/route'
@@ -32,8 +32,15 @@ interface Props {
   trip?: { from: [number, number]; to: [number, number] }
   // Where car positions come from: the demo simulation (default) or the game world. Keep it stable.
   positionSource?: (ids: readonly string[], onUpdate: (p: Positions) => void) => () => void
+  // Full screen: the map fills its parent and everything else floats over it as layers.
+  fullscreen?: boolean
+  // A panel floating over the full-screen map (e.g. hiring): a side panel on wide screens, a sheet
+  // that pulls up from the bottom on phones.
+  panel?: ReactNode
+  panelTitle?: string
+  panelOpen?: boolean
+  onPanelOpenChange?: (open: boolean) => void
 }
-
 
 // Pin for a searched place. Static markup, no user data.
 const pinSvg = (fill: string) => `<svg viewBox="0 0 24 32" width="28" height="36" aria-hidden="true">
@@ -116,7 +123,7 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
 // Live map of taxis, on MapLibre: rotate (two fingers / right-drag), tilt, pinch zoom, compass and
 // "my location" like Google Maps. Markers are driven imperatively so 60fps position updates don't
 // re-render React.
-export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions }: Props) {
+export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange }: Props) {
   const { lang, t, driverName } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const map = useRef<MlMap | null>(null)
@@ -564,9 +571,10 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     if (pos) map.current?.flyTo({ center: [pos.lng, pos.lat], zoom: 18, duration: 600 })
   }
 
-  return (
-    <section className="space-y-2 sm:space-y-3">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-1 text-xs sm:text-sm">
+  const note = followsViewer ? (area.kind === 'here' ? t.mapDemoHere : area.kind === 'loading' ? t.mapDemoLoading : area.kind === 'none' ? t.mapDemoNone : t.mapPlaceholder) : null
+  const withPanel = fullscreen && !!panel
+  const legend = (
+      <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 text-xs ${fullscreen ? '' : 'px-1 sm:text-sm'}`}>
         <span className="flex items-center gap-1.5">
           <i className="h-3.5 w-2 rounded-sm border border-slate-900 bg-yellow-300" /> {t.mapIdle}
         </span>
@@ -581,18 +589,52 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
           {t.plotMap}
         </label>
       </div>
-      <div className="relative">
+  )
+
+  return (
+    <section className={fullscreen ? 'relative h-full w-full' : 'space-y-2 sm:space-y-3'}>
+      {!fullscreen && legend}
+      <div className={fullscreen ? 'absolute inset-0' : 'relative'}>
         <div
           ref={box}
           dir="ltr"
-          className="h-[calc(100dvh-11rem)] min-h-80 overflow-hidden rounded-xl border border-slate-200 bg-slate-200"
+          className={fullscreen ? 'absolute inset-0 bg-slate-200' : 'h-[calc(100dvh-11rem)] min-h-80 overflow-hidden rounded-xl border border-slate-200 bg-slate-200'}
           role="region"
           aria-label={t.map}
         />
 
+        {/* Full screen: the key and the demo note float as a small card. */}
+        {fullscreen && (
+          <div
+            className={`absolute start-2 end-14 top-16 z-[4] space-y-1 rounded-xl border border-slate-200 bg-white/90 px-3 py-2 shadow backdrop-blur sm:end-auto sm:w-96 ${withPanel ? 'sm:top-auto sm:bottom-8 sm:start-[25rem] sm:w-auto sm:max-w-sm' : ''}`}
+          >
+            {legend}
+            {note && <p className="line-clamp-2 text-[11px] leading-snug text-amber-800">{note}</p>}
+          </div>
+        )}
+
+        {/* A panel over the map (hiring): side panel on wide screens, a pull-up sheet on phones. */}
+        {withPanel && (
+          <div className="absolute inset-x-0 bottom-0 z-[6] flex max-h-[70%] flex-col rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:inset-x-auto sm:start-2 sm:top-16 sm:bottom-2 sm:max-h-none sm:w-96 sm:rounded-2xl">
+            <button
+              type="button"
+              onClick={() => onPanelOpenChange?.(!panelOpen)}
+              aria-expanded={panelOpen}
+              className="flex min-h-11 w-full shrink-0 items-center gap-2 px-4 text-start sm:pointer-events-none"
+            >
+              <span className="absolute inset-x-0 top-1.5 mx-auto h-1 w-10 rounded-full bg-slate-300 sm:hidden" aria-hidden="true" />
+              <span className="flex-1 pt-1 font-bold">{panelTitle}</span>
+              <span className="text-slate-400 sm:hidden">{panelOpen ? <ChevronDown className="size-5" aria-hidden="true" /> : <ChevronUp className="size-5" aria-hidden="true" />}</span>
+            </button>
+            <div className={`min-h-0 flex-1 overflow-y-auto px-2 pb-2 ${panelOpen ? '' : 'hidden sm:block'}`}>{panel}</div>
+          </div>
+        )}
+
         {/* The trip: distance, time and travel mode, floating at the bottom like a ride app. */}
         {tripInfo && (
-          <div className="absolute inset-x-2 bottom-8 z-[5] flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-xl backdrop-blur sm:inset-x-auto sm:start-2 sm:w-80">
+          <div
+            className={`absolute z-[5] flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-xl backdrop-blur ${withPanel ? 'inset-x-2 top-36 sm:top-auto sm:bottom-8 sm:inset-x-auto sm:end-14 sm:w-80' : 'inset-x-2 bottom-8 sm:inset-x-auto sm:start-2 sm:w-80'}`}
+          >
             <div className="min-w-0 flex-1" dir="ltr">
               <p className="text-lg font-black tabular-nums">
                 {Math.max(1, Math.round(tripInfo.seconds / 60))} {t.minutes}
@@ -619,7 +661,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         )}
 
         {/* Place search, floating over the map. */}
-        <div className="absolute inset-x-2 top-2 z-[5] sm:inset-x-auto sm:start-2 sm:w-80 [@media(max-width:639px)]:end-14">
+        <div className={`absolute inset-x-2 top-2 z-[7] sm:inset-x-auto sm:start-2 ${fullscreen ? 'sm:w-96' : 'sm:w-80'} [@media(max-width:639px)]:end-14`}>
           <div className="flex items-center rounded-xl border border-slate-300 bg-white shadow-lg">
             <input
               type="search"
@@ -706,7 +748,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
           )}
         </div>
       </div>
-      {followsViewer && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:text-sm">{area.kind === 'here' ? t.mapDemoHere : area.kind === 'loading' ? t.mapDemoLoading : area.kind === 'none' ? t.mapDemoNone : t.mapPlaceholder}</p>}
+      {!fullscreen && note && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:text-sm">{note}</p>}
     </section>
   )
 }

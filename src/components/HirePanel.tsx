@@ -75,8 +75,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip }: Props) {
 
   if (status !== 'signedIn') {
     return (
-      <section className="rounded-xl border border-slate-200 bg-white p-4">
-        <h2 className="font-bold">{t.hire}</h2>
+      <section className="space-y-3 p-2">
         <p className="mt-1 text-sm text-slate-600">{t.hireSignIn}</p>
         <button
           type="button"
@@ -96,8 +95,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip }: Props) {
     const offered = label(ride.offerTo)
     const taker = label(ride.acceptedBy)
     return (
-      <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4" aria-live="polite">
-        <h2 className="font-bold">{t.hire}</h2>
+      <section className="space-y-3 p-2" aria-live="polite">
         <p className="text-sm text-slate-600">
           <MapPin className={`${ic} text-emerald-600`} aria-hidden="true" /> <bdi>{ride.pickup}</bdi>
           {ride.destination && (
@@ -155,8 +153,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip }: Props) {
 
   // The request form.
   return (
-    <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
-      <h2 className="font-bold">{t.hire}</h2>
+    <section className="space-y-3 p-2">
       <p className="text-xs text-slate-500">{t.hireTapHint}</p>
       {ride?.status === 'cancelled' && <p className="text-sm text-slate-500">{t.rideCancelled}</p>}
       <PlaceInput

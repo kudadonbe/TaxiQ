@@ -22,7 +22,10 @@ const strings = {
     reset: 'Reset queue',
     rowLabel: (no: string, name: string, pos: number, answered: boolean) =>
       `Taxi ${no}, ${name}, position ${pos}${answered ? ', answered' : ''}`,
-    admin: 'Admin',
+    admin: 'Management',
+    mgmtUsers: 'Users',
+    mgmtTaxis: 'Taxis',
+    mgmtUsersNeedLive: 'User management needs the live site, signed in as an admin.',
     nav: 'Sections',
     map: 'Map',
     mapIdle: 'Waiting',
@@ -375,7 +378,10 @@ const strings = {
     reset: 'ކިއު ރީސެޓްކުރޭ',
     rowLabel: (no: string, name: string, pos: number, answered: boolean) =>
       `ޓެކްސީ ${no}، ${name}، ކިއުގެ ${pos} ވަނަ${answered ? '، ޖަވާބުދިން' : ''}`,
-    admin: 'އެޑްމިން',
+    admin: 'މެނޭޖްމަންޓް',
+    mgmtUsers: 'ޔޫޒަރުން',
+    mgmtTaxis: 'ޓެކްސީތައް',
+    mgmtUsersNeedLive: 'ޔޫޒަރުން މެނޭޖްކުރެވޭނީ ލައިވް ސައިޓުގައި، އެޑްމިނެއްގެ ގޮތުގައި ސައިން އިން ކޮށްގެން.',
     nav: 'ބައިތައް',
     map: 'މެޕް',
     mapIdle: 'މަޑުކުރަނީ',

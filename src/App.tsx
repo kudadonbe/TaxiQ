@@ -11,6 +11,7 @@ import { QueueRow } from './components/QueueRow'
 import { RequestsPanel } from './components/RequestsPanel'
 import { QueueChangesLog, ReorderPanel } from './components/ReorderPanel'
 import { TranslationEditor } from './components/TranslationEditor'
+import { ManagementView } from './components/ManagementView'
 import { PeoplePanel } from './components/PeoplePanel'
 import { useI18n } from './i18n'
 import { asMapTaxi } from './rides'
@@ -84,6 +85,7 @@ export default function App() {
   const mapTaxis = useMemo(() => publicTaxis.map(asMapTaxi), [publicTaxis])
   const [chosen, setChosen] = useState<string | null>(null)
   const [reordering, setReordering] = useState(false)
+  const [hireOpen, setHireOpen] = useState(true)
   const [hireTrip, setHireTrip] = useState<{ from: [number, number]; to: [number, number] } | undefined>()
 
   const canAdmin = mode === 'demo' || role === 'admin' || role === 'dev'
@@ -109,6 +111,8 @@ export default function App() {
   const [viewState, setView] = useState<View>('queue')
   const view: View = tabs.includes(viewState) ? viewState : (tabs[0] ?? 'map')
   const { lang, t, toggleLang, driverName, setDvFixes } = useI18n()
+  // The map views fill the screen under the header; everything else floats over the map.
+  const fullMap = view === 'map' || (view !== 'game' && (mode === 'public' || view === 'hire'))
   const [editingTranslations, setEditingTranslations] = useState(false)
   const canTranslate = !DEMO_HOST && (role === 'admin' || role === 'dev')
 
@@ -125,7 +129,7 @@ export default function App() {
   const operatorScreens = mode === 'demo' || mode === 'staff' || mode === 'dev'
 
   return (
-    <div className="min-h-dvh bg-slate-100 text-slate-900">
+    <div className={`bg-slate-100 text-slate-900 ${fullMap ? 'flex h-dvh flex-col overflow-hidden' : 'min-h-dvh'}`}>
       {editingTranslations && canTranslate && <TranslationEditor onClose={() => setEditingTranslations(false)} />}
       <header className="sticky top-0 z-[1200] border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-4 py-2 sm:py-3">
@@ -296,12 +300,23 @@ export default function App() {
           </Suspense>
         </main>
       ) : mode === 'public' || view === 'hire' ? (
-        <main className="isolate mx-auto grid max-w-5xl gap-4 px-2 py-3 sm:px-4 sm:py-6 lg:grid-cols-[22rem_1fr]">
-          <div className="lg:self-start">
-            <HirePanel taxis={publicTaxis} chosen={chosen} onClearChoice={() => setChosen(null)} onTrip={setHireTrip} />
-          </div>
-          <Suspense fallback={<p className="text-sm text-slate-500">{t.loading}</p>}>
-            <MapView taxis={mapTaxis} interested={EMPTY} pickupAt={undefined} onPickTaxi={setChosen} trip={hireTrip} />
+        <main className="relative isolate min-h-0 flex-1">
+          <Suspense fallback={<p className="p-4 text-sm text-slate-500">{t.loading}</p>}>
+            <MapView
+              fullscreen
+              taxis={mapTaxis}
+              interested={EMPTY}
+              pickupAt={undefined}
+              onPickTaxi={(id) => {
+                setChosen(id)
+                setHireOpen(true)
+              }}
+              trip={hireTrip}
+              panelTitle={t.hire}
+              panelOpen={hireOpen}
+              onPanelOpenChange={setHireOpen}
+              panel={<HirePanel taxis={publicTaxis} chosen={chosen} onClearChoice={() => setChosen(null)} onTrip={setHireTrip} />}
+            />
           </Suspense>
         </main>
       ) : view === 'driver' ? (
@@ -310,18 +325,18 @@ export default function App() {
         </main>
       ) : view === 'admin' ? (
         <main className="mx-auto max-w-5xl px-4 py-4 sm:py-6">
-          <div className="space-y-6">
-            {live && canAdmin && <PeoplePanel taxis={queue} />}
-            <AdminPanel taxis={queue} onRegister={q.register} onRemove={q.remove} onSuspend={q.suspend} onLift={q.lift} />
-          </div>
+          <ManagementView
+            users={live && canAdmin ? <PeoplePanel taxis={queue} /> : <p className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">{t.mgmtUsersNeedLive}</p>}
+            taxis={<AdminPanel taxis={queue} onRegister={q.register} onRemove={q.remove} onSuspend={q.suspend} onLift={q.lift} />}
+          />
         </main>
       ) : view === 'map' ? (
-        <main className="isolate mx-auto max-w-5xl px-2 py-2 sm:px-4 sm:py-6">
-          <Suspense fallback={<p className="text-sm text-slate-500">{t.loading}</p>}>
+        <main className="relative isolate min-h-0 flex-1">
+          <Suspense fallback={<p className="p-4 text-sm text-slate-500">{t.loading}</p>}>
             {mode === 'driver' ? (
-              <MapView taxis={mapTaxis} interested={EMPTY} pickupAt={undefined} />
+              <MapView fullscreen taxis={mapTaxis} interested={EMPTY} pickupAt={undefined} />
             ) : (
-              <MapView taxis={queue} interested={interested} pickupAt={call.pickupAt} trip={call.pickupAt && call.destinationAt ? { from: call.pickupAt, to: call.destinationAt } : undefined} />
+              <MapView fullscreen taxis={queue} interested={interested} pickupAt={call.pickupAt} trip={call.pickupAt && call.destinationAt ? { from: call.pickupAt, to: call.destinationAt } : undefined} />
             )}
           </Suspense>
         </main>
