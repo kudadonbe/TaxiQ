@@ -143,6 +143,20 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
 - **v3:** use the same flow for any vehicle type, and name pinned places with the server's address data.
 - [ ] Ported
 
+## 16. Watching a ride, follow/unfollow, Malé houses, demo rides
+
+- **v2:** `540e456`:
+  - The accepted taxi drives the trip on the map, with a ride card and Show my taxi; `destinationAt` is saved on requests.
+  - Follow and Unfollow.
+  - `places-male.json` from Malé City Council and HDC (`scripts/import-male.py`), with `loadPlacesAround`.
+  - You're near … with Hire from here.
+  - Demo rides for developers and the demo site.
+- **v3:**
+  - Real driver GPS replaces the simulated drive.
+  - Load place data per area on the server (Malé City Council, HDC, MLSA OneMap), refreshed regularly, with postcodes from Maldives Post matched by name and road.
+  - Demo rides become a per-center "test mode".
+- [ ] Ported
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
