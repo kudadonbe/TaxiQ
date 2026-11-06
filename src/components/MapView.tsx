@@ -598,7 +598,9 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         <div
           ref={box}
           dir="ltr"
-          className={fullscreen ? 'absolute inset-0 bg-slate-200' : 'h-[calc(100dvh-11rem)] min-h-80 overflow-hidden rounded-xl border border-slate-200 bg-slate-200'}
+          // MapLibre's own CSS makes this element position: relative (unlayered CSS beats Tailwind's
+          // utilities), so size it with h-full/w-full, never absolute + inset.
+          className={fullscreen ? 'h-full w-full bg-slate-200' : 'h-[calc(100dvh-11rem)] min-h-80 overflow-hidden rounded-xl border border-slate-200 bg-slate-200'}
           role="region"
           aria-label={t.map}
         />
