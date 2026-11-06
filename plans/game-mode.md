@@ -148,6 +148,7 @@ Every real minute is one **money day**, settled at payday:
   - A salary for citizens with a job.
   - For drivers, the fares actually earned that minute, **scaled to a full working day**: fares × (hours worked per day ÷ game hours driven that minute). Hours worked per day is 10 by default, and the player can choose it.
 - **Statements** show money days, weeks (7 minutes) and months (30 minutes), so a 30-minute session is a month of the business.
+- **As built (G3):** a driver's money day is the **average of their last 10 money days** (fares, km) × 100 (10 working hours ÷ 0.1 game hours a money day), so one lucky ride doesn't swing a day. Rent for the center's car is charged on working days only. Ride demand was raised to about 2.5 rides per car per game hour to match real taxi work.
 - The **logbook keeps the real, unscaled trips and fares**. The real-life check (§1.1) uses the actual earnings per hour, so it stays honest.
 - Days with the player offline count as days off: they pay that day's fixed costs (living, car payment), with no fuel and no fares. Leaving a loan unpaid while away is a real cost.
 
@@ -186,7 +187,7 @@ KD-Bank is the only bank in the game. It applies the **same rules to every playe
 | **Qard Hasan** (goodwill loan) | A small interest-free loan, repaid at the same amount, for emergencies (a repair, rent). Limited per player. | Hard times |
 
 - **Late payments:** no interest and no compounding penalties. A fixed late charge can be **given to charity** (a game charity pool), which is the common Islamic-banking practice. Repeated missed payments lead to the asset being sold to repay what's owed.
-- **Capital: 7 billion.** The bank lends only from its capital and what is repaid. If it is fully lent out, new financing waits, so money in the game is limited and realistic.
+- **Capital: per world (§5.3), ≈ MVR 6 million in the Standard preset.** The bank lends only from its capital and what is repaid. If it is fully lent out, new financing waits, so money in the game is limited and realistic.
 - **Zakat (optional rule):** a yearly 2.5% on savings above the *nisab* (85 g of gold, or 595 g of silver), paid to the game charity pool. This teaches the real rule.
 - Chance-heavy features (betting, lottery-like rewards) are left out to stay clear of *maysir*. Events are life events (§7), not gambling.
 
@@ -253,7 +254,7 @@ The game uses the same core engine (`src/core/queue.ts`, `offers.ts`, `route.ts`
 |-------|------|--------|
 | G1 | Rooms: create, join by code, pick a role, host settings; the map with game cars | Friends in one shared game world |
 | G2 ✅ | Core loop: ride requests (players and bots), queue offers, auto-driving along routes, placeholder fares, the logbook; the always-running TaxiQ World with its saved people | A playable taxi day |
-| G3 | Economy: **start with a choice**: a citizen takes a **job** (salary) or a **KD-Bank loan** to lease a car; a driver can take a loan to buy one. Statements, payday, car payments, center fees, learning how money works | Money that matters |
+| G3 ✅ | Economy: **start with a choice**: a citizen takes a **job** (salary) or a **KD-Bank loan** to lease a car; a driver can take a loan to buy one. Statements, payday, car payments, center fees, learning how money works | Money that matters |
 | G4 | Winning ("off the meter"), bankruptcy, scoreboard, save and resume, the "ready for the real thing" certificate | A complete game |
 | G5 | Events, deals between players, renting cars to others | Variety and strategy |
 | G6 | Port to v3: server-run clock and bots, fair play, more maps (Malé) | The fair, always-on version |

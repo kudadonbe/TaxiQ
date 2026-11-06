@@ -118,6 +118,16 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
 - **v3:** keep it for the rider and staff maps: each center's own area by default, the viewer's location when shared. With real driver GPS, the demo taxis go away. Load road graphs on the server (cached per area) instead of each browser calling Overpass.
 - [ ] Ported
 
+## 13. TaxiQ Game G3: money and KD-Bank
+
+- **v2:** the G3 commit on `origin/v2`:
+  - `src/core/money.ts` and `src/core/moneyEngine.ts` (pure, with tests).
+  - `src/game/moneyData.ts`: the hash-chained ledger and applications.
+  - `src/game/WalletPanel.tsx`.
+  - The money rules.
+- **v3:** the server runs the money step and writes the ledger in PostgreSQL inside each transaction (one source of truth), keeping the hash chain as public proof. Keep `money.ts` and `moneyEngine.ts` as core.
+- [ ] Ported
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
