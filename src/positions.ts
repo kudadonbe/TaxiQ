@@ -5,7 +5,7 @@
 // the TaxiQ server, authenticated with eFaas) that calls `onUpdate` with the same shape.
 // The map only depends on this interface.
 
-import type { RoadGraph } from './core/route'
+import { metres as metresBetween, nearestNode, type RoadGraph } from './core/route'
 import { getArea, subscribeArea } from './roadArea'
 
 export { MAP_CENTER, ROAD_GRAPH } from './homeRoads'
@@ -111,6 +111,52 @@ function step(s: Sim, dt: number): Position {
   return { lat: p[0] + (q[0] - p[0]) * f, lng: p[1] + (q[1] - p[1]) * f, heading: s.heading }
 }
 
+// A demo taxi on a job: it drives this route (to the pickup, then the destination) at TRIP_SPEED
+// from when the job started, then waits at the end. The rest keep driving at random.
+export const TRIP_SPEED = 8 // m/s, about 29 km/h
+interface Run {
+  path: [number, number][]
+  cum: number[]
+  start: number // performance.now() when it set off
+  pickupAt: number // metres along the path where the pickup is
+}
+const runs = new Map<string, Run>()
+
+export function driveTrip(id: string, path: [number, number][], pickupAt: number) {
+  const cum = [0]
+  for (let i = 1; i < path.length; i++) cum.push(cum[i - 1]! + metresBetween(path[i - 1]!, path[i]!))
+  runs.set(id, { path, cum, start: performance.now(), pickupAt })
+}
+export function endTrip(id: string) {
+  runs.delete(id)
+}
+
+// How far along its job a taxi is: metres done, the pickup point, the whole length, and the rest of
+// the route from where it is now.
+export function tripProgress(id: string) {
+  const r = runs.get(id)
+  if (!r) return null
+  const total = r.cum[r.cum.length - 1]!
+  const done = Math.min(total, ((performance.now() - r.start) / 1000) * TRIP_SPEED)
+  let i = 0
+  while (i < r.cum.length - 1 && r.cum[i + 1]! <= done) i++
+  return { done, total, pickupAt: r.pickupAt, rest: r.path.slice(i + 1) }
+}
+
+function along(r: Run, now: number, last: Position | undefined): Position {
+  const total = r.cum[r.cum.length - 1]!
+  const d = Math.min(total, ((now - r.start) / 1000) * TRIP_SPEED)
+  let i = 0
+  while (i < r.cum.length - 2 && r.cum[i + 1]! < d) i++
+  const p = r.path[i]!
+  const q = r.path[Math.min(i + 1, r.path.length - 1)]!
+  const seg = r.cum[i + 1] !== undefined ? r.cum[i + 1]! - r.cum[i]! : 0
+  const f = seg ? Math.min(1, (d - r.cum[i]!) / seg) : 0
+  const k = Math.cos((p[0] * Math.PI) / 180)
+  const heading = seg ? ((Math.atan2((q[1] - p[1]) * k, q[0] - p[0]) * 180) / Math.PI + 360) % 360 : (last?.heading ?? 0)
+  return { lat: p[0] + (q[0] - p[0]) * f, lng: p[1] + (q[1] - p[1]) * f, heading }
+}
+
 // Demo taxis drive on the roads of the current area (src/roadArea.ts): Kulhudhuffushi, or the
 // roads around the viewer. When the area changes they start again there.
 export function subscribePositions(ids: readonly string[], onUpdate: (p: Positions) => void): () => void {
@@ -120,13 +166,43 @@ export function subscribePositions(ids: readonly string[], onUpdate: (p: Positio
   const stopArea = subscribeArea(() => {
     sims = make()
   })
-  let last = performance.now()
+  let last = new Map<string, Position>()
+  const onJob = new Set<string>()
+  let lastTime = performance.now()
   let frame = 0
   const tick = (now: number) => {
     // Clamp so a backgrounded tab doesn't make taxis jump on return.
-    const dt = Math.min(0.1, (now - last) / 1000)
-    last = now
-    onUpdate(new Map(sims.map((s) => [s.id, step(s, dt)])))
+    const dt = Math.min(0.1, (now - lastTime) / 1000)
+    lastTime = now
+    const out = new Map<string, Position>()
+    for (let k = 0; k < sims.length; k++) {
+      const s = sims[k]!
+      const run = runs.get(s.id)
+      if (run) {
+        out.set(s.id, along(run, now, last.get(s.id)))
+        onJob.add(s.id)
+        continue
+      }
+      if (onJob.has(s.id)) {
+        // Job over: carry on driving at random from where the taxi stopped.
+        onJob.delete(s.id)
+        const g = getArea().graph
+        const at = last.get(s.id)
+        if (g.nodes.length && at) {
+          const fresh = create(g, s.id)
+          const n = nearestNode(g, [at.lat, at.lng])
+          const opts = g.next[n] ?? []
+          fresh.from = n
+          fresh.to = opts.length ? opts[0]! : n
+          fresh.along = 0
+          fresh.length = metres(g, fresh.from, fresh.to)
+          sims[k] = fresh
+        }
+      }
+      out.set(s.id, step(sims[k]!, dt))
+    }
+    last = out
+    onUpdate(out)
     frame = requestAnimationFrame(tick)
   }
   frame = requestAnimationFrame(tick)

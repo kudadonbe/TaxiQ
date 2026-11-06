@@ -22,6 +22,7 @@ export interface RideRequest {
   pickup: string
   pickupAt?: [number, number]
   destination: string
+  destinationAt?: [number, number]
   phone: string
   note: string
   status: RideStatus
@@ -54,6 +55,7 @@ export function parseRequest(data: Record<string, unknown> | undefined): RideReq
     mode: data.mode,
     pickup: s(data.pickup),
     pickupAt: Array.isArray(at) && at.length === 2 && at.every((n) => typeof n === 'number') ? [at[0], at[1]] : undefined,
+    destinationAt: Array.isArray(data.destinationAt) && data.destinationAt.length === 2 && data.destinationAt.every((n: unknown) => typeof n === 'number') ? [data.destinationAt[0], data.destinationAt[1]] : undefined,
     destination: s(data.destination),
     phone: s(data.phone, 7),
     note: s(data.note),
@@ -100,6 +102,7 @@ export interface NewRide {
   pickup: string
   pickupAt?: [number, number]
   destination: string
+  destinationAt?: [number, number]
   phone: string
   note: string
   taxiId?: string // a specific taxi; otherwise the queue
@@ -126,6 +129,7 @@ export async function requestRide(fb: Fb, uid: string, ride: NewRide) {
     createdAt: fb.serverTimestamp(),
   }
   if (ride.pickupAt) data.pickupAt = ride.pickupAt
+  if (ride.destinationAt) data.destinationAt = ride.destinationAt
   await fb.setDoc(fb.doc(fb.db, 'requests', uid), data)
 }
 
@@ -171,6 +175,7 @@ export async function acceptRide(fb: Fb, uid: string, taxiId: string, email: str
     })
     const call: Record<string, unknown> = { pickup: r.pickup, destination: r.destination, phone: r.phone, note: r.note }
     if (r.pickupAt) call.pickupAt = r.pickupAt
+    if (r.destinationAt) call.destinationAt = r.destinationAt
     tx.set(dispatchRef, {
       taxi: { id: taxiId, taxiNo: taxi.taxiNo ?? '', taxiReg: taxi.taxiReg ?? '', driver: taxi.driver ?? {} },
       at: Date.now(),

@@ -151,7 +151,7 @@ service cloud.firestore {
         return resource.data;
       }
       function validShape() {
-        return next().keys().hasOnly(['uid', 'name', 'mode', 'pickup', 'pickupAt', 'destination', 'phone', 'note',
+        return next().keys().hasOnly(['uid', 'name', 'mode', 'pickup', 'pickupAt', 'destination', 'destinationAt', 'phone', 'note',
             'status', 'offerTo', 'offerAt', 'skipped', 'acceptedBy', 'createdAt'])
           && next().uid == uid
           && str(next().name, 80)
@@ -161,6 +161,7 @@ service cloud.firestore {
           && next().phone is string && next().phone.matches('^[0-9]{7}$')
           && str(next().note, 120)
           && (!('pickupAt' in next()) || (next().pickupAt is list && next().pickupAt.size() == 2))
+          && (!('destinationAt' in next()) || (next().destinationAt is list && next().destinationAt.size() == 2))
           && next().status in ['offering', 'accepted', 'expired', 'cancelled']
           && (next().offerTo == null || str(next().offerTo, 40))
           && next().offerAt is timestamp

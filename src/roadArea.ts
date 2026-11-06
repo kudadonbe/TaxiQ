@@ -7,6 +7,7 @@ import { useSyncExternalStore } from 'react'
 import { buildGraph, coarse, overpassQuery } from './core/osmRoads'
 import { metres, type RoadGraph } from './core/route'
 import { MAP_CENTER, ROAD_GRAPH } from './homeRoads'
+import { setViewerSpot } from './viewerSpot'
 
 // The main OpenStreetMap Overpass server, then a public mirror. Each gets 12 seconds.
 export const OVERPASS_URLS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter']
@@ -31,6 +32,7 @@ let area: Area = { graph: ROAD_GRAPH, center: MAP_CENTER, kind: 'home', located:
 const listeners = new Set<() => void>()
 const set = (a: Area) => {
   area = a
+  setViewerSpot(a.center)
   listeners.forEach((f) => f())
 }
 

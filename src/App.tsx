@@ -6,7 +6,7 @@ import { AdminPanel } from './components/AdminPanel'
 import { CallPanel } from './components/CallPanel'
 import { DispatchLog } from './components/DispatchLog'
 import { DriverView } from './components/DriverView'
-import { HirePanel } from './components/HirePanel'
+import { HirePanel, type DemoRide } from './components/HirePanel'
 import { QueueRow } from './components/QueueRow'
 import { RequestsPanel } from './components/RequestsPanel'
 import { QueueChangesLog, ReorderPanel } from './components/ReorderPanel'
@@ -18,7 +18,7 @@ import { asMapTaxi } from './rides'
 import { parseOverrides } from './translations'
 import { useLiveQueue } from './useLiveQueue'
 import { useLocalQueue } from './useQueue'
-import { usePublicTaxis } from './useRides'
+import { useMyRide, usePublicTaxis } from './useRides'
 import { validateCall } from './validate'
 
 // Leaflet is only loaded when a map is shown.
@@ -83,9 +83,32 @@ export default function App() {
   const q = live ? remote : local
   const publicTaxis = usePublicTaxis(auth.fb, mode === 'public' || mode === 'driver' || mode === 'dev')
   const mapTaxis = useMemo(() => publicTaxis.map(asMapTaxi), [publicTaxis])
+  // The demo site has no live service: hiring there (demo rides only) uses the local demo taxis.
+  const hireTaxis = useMemo(
+    () => (DEMO_HOST ? q.queue.map((x) => ({ id: x.id, taxiNo: x.taxiNo, name: x.driver.name, nameDv: x.driver.nameDv, suspended: !!x.suspended })) : publicTaxis),
+    [q.queue, publicTaxis],
+  )
+  const hireMapTaxis = DEMO_HOST ? q.queue : mapTaxis
   const [chosen, setChosen] = useState<string | null>(null)
   const [reordering, setReordering] = useState(false)
+  // The hire form only shows when the viewer chose Hire on a taxi, or has a ride in progress (then
+  // as a small bar they can open). Closing it hides it until they hire again.
+  const [hireShown, setHireShown] = useState(false)
+  const [hireFrom, setHireFrom] = useState<{ at: [number, number]; name: string; n: number } | null>(null)
   const [hireOpen, setHireOpen] = useState(false)
+  const myRide = useMyRide(auth.fb, auth.uid ?? null)
+  const [closedRide, setClosedRide] = useState<number | null>(null)
+  const acceptedTrip = myRide?.status === 'accepted' && myRide.pickupAt && myRide.destinationAt && myRide.createdAt !== closedRide ? { from: myRide.pickupAt, to: myRide.destinationAt } : undefined
+  // Demo rides (developers, and the demo site): no real taxi, nothing saved. The taxi accepts by
+  // itself after a moment, then drives the trip on the map.
+  const demoAllowed = DEMO_HOST || (signedIn && auth.role === 'dev')
+  const [demoRide, setDemoRide] = useState<DemoRide | null>(null)
+  useEffect(() => {
+    if (demoRide?.status !== 'offering') return
+    const timer = setTimeout(() => setDemoRide((r) => (r ? { ...r, status: 'accepted' } : r)), 3000)
+    return () => clearTimeout(timer)
+  }, [demoRide?.status])
+  const rideInProgress = !!myRide && myRide.createdAt !== closedRide && (myRide.status === 'offering' || myRide.status === 'accepted')
   const [hirePickup, setHirePickup] = useState<[number, number] | undefined>()
   const [pinMode, setPinMode] = useState<'pickup' | 'destination' | null>(null)
   const pinApply = useRef<((at: [number, number], name: string) => void) | null>(null)
@@ -109,7 +132,7 @@ export default function App() {
             ? []
             : ['hire', ...game]
           : canAdmin
-            ? ['queue', 'map', 'admin', ...game]
+            ? ['queue', 'map', ...(DEMO_HOST ? (['hire'] as View[]) : []), 'admin', ...game]
             : ['queue', 'map', ...game]
   const [viewState, setView] = useState<View>('queue')
   const view: View = tabs.includes(viewState) ? viewState : (tabs[0] ?? 'map')
@@ -307,17 +330,37 @@ export default function App() {
           <Suspense fallback={<p className="p-4 text-sm text-slate-500">{t.loading}</p>}>
             <MapView
               fullscreen
-              taxis={mapTaxis}
+              taxis={hireMapTaxis}
               interested={EMPTY}
               pickupAt={hireTrip ? undefined : hirePickup}
               onPickTaxi={(id) => {
                 setChosen(id)
+                setHireShown(true)
                 setHireOpen(true)
               }}
-              trip={hireTrip}
+              trip={demoRide?.status === 'accepted' ? { from: demoRide.pickupAt, to: demoRide.destinationAt } : (acceptedTrip ?? hireTrip)}
+              activeTrip={
+                demoRide?.status === 'accepted'
+                  ? { taxiId: demoRide.taxiId, pickup: demoRide.pickupAt, destination: demoRide.destinationAt }
+                  : myRide?.status === 'accepted' && myRide.acceptedBy && myRide.pickupAt && myRide.createdAt !== closedRide
+                  ? { taxiId: myRide.acceptedBy, pickup: myRide.pickupAt, destination: myRide.destinationAt ?? myRide.pickupAt }
+                  : undefined
+              }
               panelTitle={t.hire}
               panelOpen={hireOpen}
               onPanelOpenChange={setHireOpen}
+              onPanelClose={() => {
+                setHireShown(false)
+                setHireOpen(false)
+                setChosen(null)
+                if (myRide) setClosedRide(myRide.createdAt)
+              }}
+              onHireFrom={(at, placeName) => {
+                setHireFrom({ at, name: placeName, n: Date.now() })
+                setChosen(null)
+                setHireShown(true)
+                setHireOpen(true)
+              }}
               pinMode={pinMode}
               onPin={(at, placeName) => {
                 pinApply.current?.(at, placeName)
@@ -329,8 +372,22 @@ export default function App() {
                 setHireOpen(true)
               }}
               panel={
+                (hireShown || rideInProgress || pinMode || demoRide) && (
                 <HirePanel
-                  taxis={publicTaxis}
+                  key={hireFrom?.n ?? 0}
+                  initialPickup={hireFrom ?? undefined}
+                  taxis={hireTaxis}
+                  demoAllowed={demoAllowed}
+                  demoRide={demoRide}
+                  onDemoRide={(r) => {
+                    const free = hireTaxis.filter((x) => !x.suspended)
+                    const taxiId = r.taxiId ?? free[Math.floor(Math.random() * free.length)]?.id
+                    if (taxiId) setDemoRide({ ...r, taxiId, status: 'offering' })
+                  }}
+                  onEndDemo={() => {
+                    setDemoRide(null)
+                    setChosen(null)
+                  }}
                   chosen={chosen}
                   onClearChoice={() => setChosen(null)}
                   onTrip={setHireTrip}
@@ -340,6 +397,7 @@ export default function App() {
                     setPinMode(kind)
                   }}
                 />
+                )
               }
             />
           </Suspense>

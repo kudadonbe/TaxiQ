@@ -32,4 +32,5 @@ Live at **https://kd-taxiq.web.app** (Firebase Hosting, `pnpm deploy`) and https
 ## Credits
 
 - House, road and place names, and the plot chart layer: the official **Kulhudhuffushi City Map** by the Secretariat of the Kulhudhuffushi City Council (chart by Adam Mohamed and Hussain Ali), via [mapkf.vercel.app](https://mapkf.vercel.app) by emjey. Used with permission.
+- Malé house, place and road names: **Malé City Council** (public Malé lots data). Hulhumalé buildings and lots: **Housing Development Corporation (HDC)**, [gis.hdc.mv](https://gis.hdc.mv/). Used with permission; rebuilt with `scripts/import-male.py`.
 - Map tiles and road network: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (ODbL).

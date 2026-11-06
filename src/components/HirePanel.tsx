@@ -7,6 +7,7 @@ import { cancelRide, OFFER_SECONDS, requestRide, type PublicTaxi } from '../ride
 import { useMyRide, useNow } from '../useRides'
 import { isFreeText } from '../validate'
 import { PlaceInput } from './PlaceInput'
+import { TripLine as TripLineInline } from './icons'
 
 interface Props {
   taxis: PublicTaxi[]
@@ -18,17 +19,34 @@ interface Props {
   onPickup?: (at: [number, number] | undefined) => void
   // Pick a place by pinning it on the map: the map calls `apply` with the place.
   onPinRequest?: (kind: 'pickup' | 'destination', apply: (at: [number, number], name: string) => void) => void
+  // Start with this pickup (Hire from here: the viewer's location).
+  initialPickup?: { at: [number, number]; name: string }
+  // Demo rides (developers and the demo site only): a taxi accepts by itself and drives the trip.
+  // Nothing is saved and no real taxi comes.
+  demoAllowed?: boolean
+  demoRide?: DemoRide | null
+  onDemoRide?: (r: Omit<DemoRide, 'taxiId' | 'status'> & { taxiId?: string }) => void
+  onEndDemo?: () => void
+}
+
+export interface DemoRide {
+  taxiId: string
+  pickup: string
+  pickupAt: [number, number]
+  destination: string
+  destinationAt: [number, number]
+  status: 'offering' | 'accepted'
 }
 
 // Public: ask for a ride. Either a specific taxi (tapped on the map) or the queue, where the offer
 // goes to each taxi in turn. Needs Google sign-in (no staff role).
-export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPinRequest }: Props) {
+export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPinRequest, initialPickup, demoAllowed = false, demoRide = null, onDemoRide, onEndDemo }: Props) {
   const { fb, uid, name, status, signIn } = useAuth()
   const { lang, t } = useI18n()
   const ride = useMyRide(fb, uid)
   const now = useNow(ride?.status === 'offering')
-  const [pickup, setPickup] = useState('')
-  const [pickupAt, setPickupAt] = useState<[number, number] | undefined>()
+  const [pickup, setPickup] = useState(() => (initialPickup ? (initialPickup.name || t.pinnedPlace).slice(0, 120) : ''))
+  const [pickupAt, setPickupAt] = useState<[number, number] | undefined>(() => initialPickup?.at)
   const [destination, setDestination] = useState('')
   const [destinationAt, setDestinationAt] = useState<[number, number] | undefined>()
   const [phone, setPhone] = useState('')
@@ -84,7 +102,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
     if (!fb || !uid || busy) return
     setBusy(true)
     setError(null)
-    requestRide(fb, uid, { name: name ?? '', pickup, pickupAt, destination, phone, note, taxiId })
+    requestRide(fb, uid, { name: name ?? '', pickup, pickupAt, destination, destinationAt, phone, note, taxiId })
       .catch((e: { code?: string }) => setError(e.code ?? 'error'))
       .finally(() => setBusy(false))
   }
@@ -97,14 +115,45 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
     setNote(ride.note)
     if (!fb || !uid) return
     setBusy(true)
-    requestRide(fb, uid, { name: name ?? '', pickup: ride.pickup, pickupAt: ride.pickupAt, destination: ride.destination, phone: ride.phone, note: ride.note, taxiId })
+    requestRide(fb, uid, { name: name ?? '', pickup: ride.pickup, pickupAt: ride.pickupAt, destination: ride.destination, destinationAt: ride.destinationAt, phone: ride.phone, note: ride.note, taxiId })
       .catch((e: { code?: string }) => setError(e.code ?? 'error'))
       .finally(() => setBusy(false))
   }
 
-  if (status !== 'signedIn') {
+  const [demoState, setDemo] = useState(() => demoAllowed && status !== 'signedIn')
+  const demo = demoAllowed && demoState
+  const demoValid = !!pickupAt && pickup.trim().length > 0 && isFreeText(pickup.trim()) && isFreeText(destination.trim())
+  const demoSwitch = demoAllowed && (
+    <label className="flex items-start gap-2 rounded-lg border border-fuchsia-300 bg-fuchsia-50/80 p-2 text-sm">
+      <input type="checkbox" checked={demo} onChange={(e) => setDemo(e.target.checked)} className="mt-0.5 size-4 accent-fuchsia-600" />
+      <span>
+        <span className="me-1 rounded bg-fuchsia-600 px-1.5 text-xs font-black text-white">DEMO</span>
+        {t.demoRideToggle}
+      </span>
+    </label>
+  )
+
+  // A demo ride in progress.
+  if (demoRide) {
+    const x = label(demoRide.taxiId)
+    return (
+      <section className="space-y-3 p-2" aria-live="polite">
+        <p className="text-sm">
+          <span className="me-1 rounded bg-fuchsia-600 px-1.5 text-xs font-black text-white">DEMO</span>
+          <TripLineInline from={demoRide.pickup} to={demoRide.destination} />
+        </p>
+        <p className="rounded-lg bg-emerald-50/80 p-3 font-semibold text-emerald-900">{demoRide.status === 'offering' ? t.demoAsking(x.no) : t.demoAccepted(x.no, x.name)}</p>
+        <button type="button" onClick={onEndDemo} className="min-h-11 w-full rounded-xl border border-slate-300 bg-white/70 font-semibold">
+          {t.demoEnd}
+        </button>
+      </section>
+    )
+  }
+
+  if (status !== 'signedIn' && !demo) {
     return (
       <section className="space-y-3 p-2">
+        {demoSwitch}
         <p className="mt-1 text-sm text-slate-600">{t.hireSignIn}</p>
         <button
           type="button"
@@ -119,7 +168,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
   }
 
   // An active request: show its progress.
-  if (ride && ride.createdAt !== dismissed && (ride.status === 'offering' || ride.status === 'accepted' || ride.status === 'expired')) {
+  if (!demo && ride && ride.createdAt !== dismissed && (ride.status === 'offering' || ride.status === 'accepted' || ride.status === 'expired')) {
     const left = Math.max(0, Math.ceil((ride.offerAt + OFFER_SECONDS * 1000 - now) / 1000))
     const offered = label(ride.offerTo)
     const taker = label(ride.acceptedBy)
@@ -183,6 +232,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
   // The request form.
   return (
     <section className="space-y-3 p-2">
+      {demoSwitch}
       <p className="text-xs text-slate-500">{t.hireTapHint}</p>
       {ride?.status === 'cancelled' && <p className="text-sm text-slate-500">{t.rideCancelled}</p>}
       <PlaceInput
@@ -246,6 +296,22 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
       )}
 
       {error && <p className="text-sm font-semibold text-rose-700">{t.requestFailed(error)}</p>}
+      {demo ? (
+        <>
+          {!pickupAt && <p className="text-xs text-fuchsia-800">{t.demoNeedsPin}</p>}
+          <button
+            type="button"
+            disabled={!demoValid}
+            onClick={() =>
+              pickupAt &&
+              onDemoRide?.({ pickup: pickup.trim(), pickupAt, destination: destination.trim(), destinationAt: destinationAt ?? pickupAt, taxiId: chosenTaxi && !chosenTaxi.suspended ? chosenTaxi.id : undefined })
+            }
+            className="min-h-12 w-full rounded-xl bg-fuchsia-600 px-4 font-bold text-white hover:bg-fuchsia-500 disabled:opacity-40"
+          >
+            {t.demoStart}
+          </button>
+        </>
+      ) : (
       <button
         type="button"
         disabled={!valid || busy}
@@ -254,6 +320,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
       >
         {chosenTaxi && !chosenTaxi.suspended ? t.hireThis(chosenTaxi.taxiNo) : t.hireAny}
       </button>
+      )}
     </section>
   )
 }

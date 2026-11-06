@@ -1,4 +1,4 @@
-import { CarTaxiFront, ChevronDown, ChevronUp, Footprints, MapPin, X } from 'lucide-react'
+import { CarTaxiFront, ChevronDown, ChevronUp, Footprints, LocateFixed, MapPin, X } from 'lucide-react'
 import { PlaceTypeIcon } from './icons'
 import { ic } from './iconStyles'
 import type { Feature, LineString } from 'geojson'
@@ -11,11 +11,11 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 maplibregl.setWorkerUrl(workerUrl)
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useI18n } from '../i18n'
-import { loadPlaces, metresBetween, searchPlaces, type Place } from '../places'
+import { loadPlaces, loadPlacesAround, metresBetween, nearestPlace, regionAt, searchPlaces, type Place } from '../places'
 import { route as findRoute, type TravelMode } from '../core/route'
-import { MAP_CENTER, ROAD_GRAPH, subscribePositions, type Positions } from '../positions'
+import { driveTrip, endTrip, MAP_CENTER, ROAD_GRAPH, subscribePositions, TRIP_SPEED, tripProgress, type Positions } from '../positions'
 import { graphFromLines } from '../core/osmRoads'
-import { moveToLocation, offerRoads, useArea } from '../roadArea'
+import { getArea, moveToLocation, offerRoads, useArea } from '../roadArea'
 import type { Taxi } from '../types'
 import { loadPlots, plotPopup, plotsGeoJSON, type Plot } from './plotLayer'
 
@@ -40,11 +40,18 @@ interface Props {
   panelTitle?: string
   panelOpen?: boolean
   onPanelOpenChange?: (open: boolean) => void
+  // Close the panel completely (X). Without it the panel can only be folded.
+  onPanelClose?: () => void
   // Pin a place on the map (hiring): a pin sits in the middle; the viewer moves the map under it and
   // confirms. The nearest known place gives its name.
   pinMode?: 'pickup' | 'destination' | null
   onPin?: (at: [number, number], name: string) => void
   onPinCancel?: () => void
+  // A ride in progress (accepted): that taxi drives to the pickup, then the destination. The viewer
+  // can move the map freely; Show my taxi brings it back into view.
+  activeTrip?: { taxiId: string; pickup: [number, number]; destination: [number, number] }
+  // Hire from where the viewer is (their location, named by the nearest house).
+  onHireFrom?: (at: [number, number], name: string) => void
 }
 
 // Pin for a searched place. Static markup, no user data.
@@ -128,7 +135,7 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
 // Live map of taxis, on MapLibre: rotate (two fingers / right-drag), tilt, pinch zoom, compass and
 // "my location" like Google Maps. Markers are driven imperatively so 60fps position updates don't
 // re-render React.
-export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, pinMode = null, onPin, onPinCancel }: Props) {
+export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, activeTrip, onHireFrom }: Props) {
   const { lang, t, driverName } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const map = useRef<MlMap | null>(null)
@@ -139,10 +146,21 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   const pickupPin = useRef<Marker | null>(null)
   const popup = useRef<maplibregl.Popup | null>(null)
   const pickRef = useRef(onPickTaxi)
+  // The taxi being followed (kept in the middle of the map). The ref is read every frame; the state
+  // shows Following ... Stop.
   const following = useRef<string | null>(null)
-  const labels = useRef({ hire: '', follow: '', suspended: '' })
+  const [followId, setFollowId] = useState<string | null>(null)
+  const follow = (id: string | null) => {
+    following.current = id
+    setFollowId(id)
+  }
+  const followRefFn = useRef(follow)
   useEffect(() => {
-    labels.current = { hire: t.menuHire, follow: t.menuFollow, suspended: t.menuSuspended }
+    followRefFn.current = follow
+  })
+  const labels = useRef({ hire: '', follow: '', unfollow: '', suspended: '' })
+  useEffect(() => {
+    labels.current = { hire: t.menuHire, follow: t.menuFollow, unfollow: t.menuUnfollow, suspended: t.menuSuspended }
   }, [t])
   useEffect(() => {
     pickRef.current = onPickTaxi
@@ -162,6 +180,10 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   const area = useArea()
   const graph = followsViewer ? area.graph : ROAD_GRAPH
   const followRef = useRef(followsViewer) // fixed for the life of this map
+  // Places for search, labels and pin names: the viewer's area (e.g. Malé) on the real app's map;
+  // the game map stays on Kulhudhuffushi.
+  const placesKey = followsViewer ? (regionAt(area.center)?.id ?? 'home') : 'home'
+  const placesHere = () => (followRef.current ? loadPlacesAround(getArea().center) : loadPlaces())
 
   // Create the map once.
   useEffect(() => {
@@ -176,14 +198,14 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       attributionControl: {
         compact: true,
         customAttribution:
-          'Place names: <a href="https://kulhudhuffushicity.gov.mv/map">Kulhudhuffushi City Council</a> map, via <a href="https://mapkf.vercel.app">mapkf</a> by emjey',
+          'Place names: <a href="https://kulhudhuffushicity.gov.mv/map">Kulhudhuffushi City Council</a> map, via <a href="https://mapkf.vercel.app">mapkf</a> by emjey; Malé: Malé City Council; Hulhumalé: <a href="https://gis.hdc.mv/">HDC</a>',
       },
     })
     m.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true, showZoom: true }), 'top-right')
     // The viewer's own location: a blue dot with heading, asked only when they press the button.
     m.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: true }), 'top-right')
     m.on('load', () => setReady(true))
-    m.on('dragstart', () => (following.current = null))
+    m.on('dragstart', () => followRefFn.current(null))
     // Open where the viewer is: ask for their location once, then move the map and the demo taxis
     // there. If they say no, the map stays on Kulhudhuffushi.
     if (followRef.current && 'geolocation' in navigator) {
@@ -316,7 +338,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         if (shown.length >= 400) break
       }
     }
-    void loadPlaces().then((list) => {
+    void placesHere().then((list) => {
       if (cancelled) return
       all = list
       setPlaces(list)
@@ -328,7 +350,9 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       m.off('moveend', render)
       shown.forEach((x) => x.remove())
     }
-  }, [lang])
+    // placesHere depends on the area: re-run when it moves.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [lang, placesKey])
 
   // Keep one marker per registered taxi, styled by its queue status.
   const ids = taxis.map((x) => x.id).join(',')
@@ -390,8 +414,9 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
             pickRef.current?.(taxi.id)
           })
         }
-        button(labels.current.follow, 'plain', () => {
-          following.current = taxi.id
+        const isFollowed = following.current === taxi.id
+        button(isFollowed ? labels.current.unfollow : labels.current.follow, 'plain', () => {
+          followRefFn.current(isFollowed ? null : taxi.id)
           popup.current?.remove()
         })
         const p = new maplibregl.Popup({ closeButton: false, offset: 24, className: 'taxi-menu', maxWidth: '16rem' }).setDOMContent(menu)
@@ -522,16 +547,10 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     const update = () => {
       const c = m.getCenter()
       const at: [number, number] = [c.lat, c.lng]
-      let best: { name: string; d: number } | null = null
-      for (const p of all) {
-        for (const pt of p.p) {
-          const d = metresBetween(at, pt)
-          if (d <= 80 && (!best || d < best.d)) best = { name: lang === 'dv' && p.d ? p.d : p.e, d }
-        }
-      }
-      setPin({ at, name: best?.name ?? '' })
+      const best = nearestPlace(all, at)
+      setPin({ at, name: best ? (lang === 'dv' && best.d ? best.d : best.e) : '' })
     }
-    void loadPlaces().then((p) => {
+    void placesHere().then((p) => {
       all = p
       update()
     })
@@ -540,6 +559,76 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       m.off('moveend', update)
     }
   }, [ready, pinMode, lang])
+
+  // The ride in progress: route the taxi from where it is to the pickup, then to the destination,
+  // and set it driving. Fit the map to it once; after that the viewer moves the map as they like.
+  const activeKey = activeTrip && followsViewer ? JSON.stringify(activeTrip) : ''
+  const [ride, setRide] = useState<{ phase: 'coming' | 'riding' | 'arrived'; minutes: number } | null>(null)
+  useEffect(() => {
+    if (!activeKey || !ready) return
+    const { taxiId, pickup, destination } = JSON.parse(activeKey) as NonNullable<Props['activeTrip']>
+    let started = false
+    const leg = (a: [number, number], b: [number, number]) => findRoute(graph, a, b, 'taxi')?.path ?? [a, b]
+    const start = () => {
+      const at = positions.current.get(taxiId)
+      if (!at || started) return
+      started = true
+      const toPickup = leg([at.lat, at.lng], pickup)
+      const ride = leg(pickup, destination)
+      let pickupAt = 0
+      for (let i = 1; i < toPickup.length; i++) pickupAt += metresBetween(toPickup[i - 1]!, toPickup[i]!)
+      driveTrip(taxiId, [...toPickup, ...ride.slice(1)], pickupAt)
+      showTaxi(taxiId)
+    }
+    const timer = setInterval(() => {
+      start()
+      const p = tripProgress(taxiId)
+      if (!p) return
+      const phase = p.done < p.pickupAt ? 'coming' : p.done < p.total ? 'riding' : 'arrived'
+      const left = phase === 'coming' ? p.pickupAt - p.done : p.total - p.done
+      setRide({ phase, minutes: Math.max(1, Math.ceil(left / TRIP_SPEED / 60)) })
+    }, 1000)
+    return () => {
+      clearInterval(timer)
+      endTrip(taxiId)
+      setRide(null)
+    }
+    // graph and showTaxi are read when the ride starts; a new area doesn't restart the ride.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKey, ready])
+  // Show my taxi: fit the taxi and the rest of its trip on screen, and follow it until the map is dragged.
+  function showTaxi(taxiId: string) {
+    const m = map.current
+    const at = positions.current.get(taxiId)
+    if (!m || !at) return
+    const pts: [number, number][] = [[at.lat, at.lng], ...(tripProgress(taxiId)?.rest ?? [])]
+    const lats = pts.map((p) => p[0])
+    const lngs = pts.map((p) => p[1])
+    m.fitBounds(
+      [
+        [Math.min(...lngs), Math.min(...lats)],
+        [Math.max(...lngs), Math.max(...lats)],
+      ],
+      { padding: { top: 140, bottom: 160, left: 40, right: 60 }, maxZoom: 17, duration: 700 },
+    )
+    follow(taxiId)
+  }
+
+  // Where the viewer is: the nearest house or place to their location (when they shared it).
+  const [near, setNear] = useState<{ at: [number, number]; name: string } | null>(null)
+  const nearKey = followsViewer && area.located ? area.center.join(',') : ''
+  useEffect(() => {
+    if (!nearKey) return
+    let live = true
+    const at = nearKey.split(',').map(Number) as [number, number]
+    void loadPlacesAround(at).then((list) => {
+      const p = nearestPlace(list, at, 120)
+      if (live) setNear({ at, name: p ? (lang === 'dv' && p.d ? p.d : p.e) : '' })
+    })
+    return () => {
+      live = false
+    }
+  }, [nearKey, lang])
 
   // When the viewer's location arrives, fly there (the demo taxis restart on the roads there).
   const areaKey = followsViewer && area.located ? area.center.join(',') : ''
@@ -688,6 +777,28 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
           <div
             className={`absolute start-2 end-14 top-16 z-[4] space-y-1 rounded-xl border border-slate-200 bg-white/90 px-3 py-2 shadow backdrop-blur sm:end-auto sm:w-96 ${withPanel ? 'sm:top-auto sm:bottom-8 sm:start-[25rem] sm:w-auto sm:max-w-sm' : ''}`}
           >
+            {followId && (
+              <div className="flex items-center gap-2 text-sm" role="status">
+                <LocateFixed className="size-4 shrink-0 text-sky-600" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate font-semibold">{t.followingTaxi(taxis.find((x) => x.id === followId)?.taxiNo ?? '')}</span>
+                <button type="button" onClick={() => follow(null)} className="shrink-0 rounded-lg bg-slate-900 px-2 py-1 text-xs font-bold text-white">
+                  {t.stopFollowing}
+                </button>
+              </div>
+            )}
+            {near && (
+              <div className="flex items-center gap-2 text-sm">
+                <MapPin className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate">
+                  {near.name ? t.youAreNear(near.name) : t.youAreHere}
+                </span>
+                {onHireFrom && !activeTrip && (
+                  <button type="button" onClick={() => onHireFrom(near.at, near.name)} className="shrink-0 rounded-lg bg-emerald-600 px-2 py-1 text-xs font-bold text-white">
+                    {t.hireFromHere}
+                  </button>
+                )}
+              </div>
+            )}
             {legend}
             {note && <p className="line-clamp-2 text-[11px] leading-snug text-amber-800">{note}</p>}
           </div>
@@ -722,24 +833,48 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         {/* A panel over the map (hiring): side panel on wide screens, a pull-up sheet on phones. */}
         {withPanel && (
           <div
-            className={`absolute inset-x-0 bottom-0 z-[6] flex max-h-[70%] flex-col rounded-t-2xl border border-white/60 bg-white/85 shadow-2xl backdrop-blur-md sm:inset-x-auto sm:start-2 sm:top-16 sm:max-h-[calc(100%-5rem)] sm:w-96 sm:rounded-2xl ${panelOpen ? 'sm:bottom-2' : ''} ${pinMode ? 'hidden' : ''}`}
+            className={`absolute inset-x-0 bottom-0 z-[6] map-glass flex max-h-[70%] flex-col rounded-t-2xl border border-white/50 bg-white/55 shadow-2xl backdrop-blur-[3px] backdrop-saturate-150 sm:inset-x-auto sm:start-2 sm:top-16 sm:max-h-[calc(100%-5rem)] sm:w-96 sm:rounded-2xl ${panelOpen ? 'sm:bottom-2' : ''} ${pinMode ? 'hidden' : ''}`}
           >
-            <button
-              type="button"
-              onClick={() => onPanelOpenChange?.(!panelOpen)}
-              aria-expanded={panelOpen}
-              className="flex min-h-11 w-full shrink-0 items-center gap-2 px-4 text-start"
-            >
-              <span className="absolute inset-x-0 top-1.5 mx-auto h-1 w-10 rounded-full bg-slate-300 sm:hidden" aria-hidden="true" />
-              <span className="flex-1 pt-1 font-bold">{panelTitle}</span>
-              <span className="text-slate-500">{panelOpen ? <ChevronDown className="size-5" aria-hidden="true" /> : <ChevronUp className="size-5" aria-hidden="true" />}</span>
-            </button>
+            <div className="relative flex shrink-0 items-center">
+              <button
+                type="button"
+                onClick={() => onPanelOpenChange?.(!panelOpen)}
+                aria-expanded={panelOpen}
+                className="flex min-h-11 flex-1 items-center gap-2 ps-4 text-start"
+              >
+                <span className="absolute inset-x-0 top-1.5 mx-auto h-1 w-10 rounded-full bg-slate-300 sm:hidden" aria-hidden="true" />
+                <span className="flex-1 pt-1 font-bold">{panelTitle}</span>
+                <span className="text-slate-500">{panelOpen ? <ChevronDown className="size-5" aria-hidden="true" /> : <ChevronUp className="size-5" aria-hidden="true" />}</span>
+              </button>
+              {onPanelClose && (
+                <button type="button" onClick={onPanelClose} aria-label={t.close} title={t.close} className="grid min-h-11 min-w-11 place-items-center text-slate-500 hover:text-slate-900">
+                  <X className="size-5" aria-hidden="true" />
+                </button>
+              )}
+            </div>
             <div className={`min-h-0 flex-1 overflow-y-auto px-2 pb-2 ${panelOpen ? '' : 'hidden'}`}>{panel}</div>
           </div>
         )}
 
+        {/* The ride in progress: where the taxi is in the trip, and Show my taxi. */}
+        {ride && activeTrip && (
+          <div
+            className={`absolute z-[5] flex items-center gap-3 rounded-2xl border border-white/50 bg-white/65 p-3 shadow-xl backdrop-blur-[3px] ${withPanel ? 'inset-x-2 top-36 sm:top-auto sm:bottom-8 sm:inset-x-auto sm:end-14 sm:w-80' : 'inset-x-2 bottom-8 sm:inset-x-auto sm:start-2 sm:w-80'}`}
+            role="status"
+          >
+            <CarTaxiFront className="size-6 shrink-0 text-emerald-700" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <p className="font-black">{ride.phase === 'coming' ? t.rideComing : ride.phase === 'riding' ? t.rideRiding : t.rideArrived}</p>
+              {ride.phase !== 'arrived' && <p className="text-sm text-slate-600 tabular-nums">{ride.minutes} {t.minutes}</p>}
+            </div>
+            <button type="button" onClick={() => showTaxi(activeTrip.taxiId)} className="inline-flex min-h-10 items-center gap-1 rounded-xl bg-slate-900 px-3 text-sm font-bold text-white">
+              <LocateFixed className="size-4" aria-hidden="true" /> {t.showMyTaxi}
+            </button>
+          </div>
+        )}
+
         {/* The trip: distance, time and travel mode, floating at the bottom like a ride app. */}
-        {tripInfo && (
+        {tripInfo && !ride && (
           <div
             className={`absolute z-[5] flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-xl backdrop-blur ${withPanel ? 'inset-x-2 top-36 sm:top-auto sm:bottom-8 sm:inset-x-auto sm:end-14 sm:w-80' : 'inset-x-2 bottom-8 sm:inset-x-auto sm:start-2 sm:w-80'}`}
           >
@@ -774,7 +909,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
             <input
               type="search"
               value={query}
-              onFocus={() => void loadPlaces().then(setPlaces)}
+              onFocus={() => void placesHere().then(setPlaces)}
               onChange={(e) => {
                 setQuery(e.target.value)
                 setSelected(null)

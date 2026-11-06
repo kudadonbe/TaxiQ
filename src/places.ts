@@ -1,4 +1,5 @@
-// Kulhudhuffushi house / road / landmark names for map search. Data: src/data/places.json, built by
+// House / road / landmark names for map search: Kulhudhuffushi, plus other areas (REGIONS).
+// Kulhudhuffushi Data: src/data/places.json, built by
 // scripts/import-places.py from the Kulhudhuffushi City Council map (via mapkf.vercel.app, with
 // permission). Loaded on demand so the map opens without it.
 
@@ -18,6 +19,38 @@ let cache: Promise<Place[]> | null = null
 export function loadPlaces(): Promise<Place[]> {
   cache ??= import('./data/places.json').then((m) => m.default as Place[])
   return cache
+}
+
+// Other areas with house data, loaded only when the map is there.
+// Malé area: Malé City Council (Malé lots) and HDC (Hulhumalé lots and buildings), used with
+// permission; built by scripts/import-male.py.
+const REGIONS: { id: string; box: [number, number, number, number]; load: () => Promise<Place[]> }[] = [
+  { id: 'male', box: [4.12, 73.4, 4.27, 73.57], load: () => import('./data/places-male.json').then((m) => m.default as Place[]) },
+]
+const regionCache = new Map<string, Promise<Place[]>>()
+export const regionAt = (at: readonly [number, number] | undefined) =>
+  at ? REGIONS.find((r) => at[0] >= r.box[0] && at[0] <= r.box[2] && at[1] >= r.box[1] && at[1] <= r.box[3]) : undefined
+
+// Places for search and naming around a point: Kulhudhuffushi's, plus that area's when we have them.
+export function loadPlacesAround(at: readonly [number, number] | undefined): Promise<Place[]> {
+  const r = regionAt(at)
+  if (!r) return loadPlaces()
+  let p = regionCache.get(r.id)
+  if (!p) regionCache.set(r.id, (p = r.load()))
+  return Promise.all([p, loadPlaces()]).then(([a, b]) => [...a, ...b])
+}
+
+// The nearest named place within `max` metres (houses and landmarks first).
+export function nearestPlace(places: Place[], at: [number, number], max = 80): Place | null {
+  let best: { p: Place; d: number } | null = null
+  for (const p of places) {
+    if (p.t === 'r' || (p.t === 'p' && !p.e)) continue
+    for (const pt of p.p) {
+      const d = metresBetween(at, pt)
+      if (d <= max && (!best || d < best.d)) best = { p, d }
+    }
+  }
+  return best?.p ?? null
 }
 
 const fold = (s: string) => s.toLowerCase().replace(/[^a-z0-9ހ-޿]/g, '')

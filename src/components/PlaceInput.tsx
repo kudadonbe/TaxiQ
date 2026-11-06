@@ -1,7 +1,8 @@
 import { PlaceTypeIcon } from './icons'
 import { useState } from 'react'
 import { useI18n } from '../i18n'
-import { loadPlaces, searchPlaces, type Place } from '../places'
+import { loadPlacesAround, searchPlaces, type Place } from '../places'
+import { getViewerSpot } from '../viewerSpot'
 
 interface Props {
   id: string
@@ -33,7 +34,7 @@ export function PlaceInput({ id, label, hint, value, error, onChange }: Props) {
         value={value}
         onFocus={() => {
           setOpen(true)
-          void loadPlaces().then(setPlaces)
+          void loadPlacesAround(getViewerSpot()).then(setPlaces)
         }}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         onChange={(e) => {

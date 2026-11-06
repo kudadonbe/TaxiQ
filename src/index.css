@@ -104,9 +104,9 @@ html .maplibregl-map {
 
 /* Taxi menu on the map: see-through, like the other pop-ups over the map. */
 .taxi-menu .maplibregl-popup-content {
-  background: rgb(255 255 255 / 0.82);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: rgb(255 255 255 / 0.62);
+  backdrop-filter: blur(3px) saturate(1.5);
+  -webkit-backdrop-filter: blur(3px) saturate(1.5);
   border: 1px solid rgb(255 255 255 / 0.6);
   border-radius: 0.875rem;
   padding: 0.5rem;
@@ -114,8 +114,8 @@ html .maplibregl-map {
   font-family: var(--font-sans);
 }
 .taxi-menu .maplibregl-popup-tip {
-  border-top-color: rgb(255 255 255 / 0.82);
-  border-bottom-color: rgb(255 255 255 / 0.82);
+  border-top-color: rgb(255 255 255 / 0.62);
+  border-bottom-color: rgb(255 255 255 / 0.62);
 }
 .taxi-menu-body {
   display: grid;
@@ -147,5 +147,18 @@ html .maplibregl-map {
 .taxi-menu-button.plain {
   background: rgb(241 245 249 / 0.8);
   color: #0f172a;
+}
+
+/* See-through panels over the map: the map shows behind; fields stay a little more solid so text is
+   easy to read, and labels get a soft white glow. */
+.map-glass input,
+.map-glass textarea,
+.map-glass select {
+  background-color: rgb(255 255 255 / 0.78);
+}
+.map-glass label,
+.map-glass p,
+.map-glass h3 {
+  text-shadow: 0 0 6px rgb(255 255 255 / 0.9);
 }
 
