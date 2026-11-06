@@ -134,6 +134,15 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
 - **v3:** use the same layout for rider, driver and staff maps, and a Management area per center (users and roles, vehicles, settings).
 - [ ] Ported
 
+## 15. Taxi menu on the map and pin picking
+
+- **v2:** `80b836e`:
+  - Tapping a car opens a see-through menu on the car, with Hire this taxi and Follow.
+  - The hire form is a collapsible see-through panel.
+  - **Pick on map** puts a pin in the middle of the map, names the nearest known place, and offers Set here or Cancel.
+- **v3:** use the same flow for any vehicle type, and name pinned places with the server's address data.
+- [ ] Ported
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
