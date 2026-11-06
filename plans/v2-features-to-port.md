@@ -128,6 +128,12 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
 - **v3:** the server runs the money step and writes the ledger in PostgreSQL inside each transaction (one source of truth), keeping the hash chain as public proof. Keep `money.ts` and `moneyEngine.ts` as core.
 - [ ] Ported
 
+## 14. Full-screen map with floating layers; Management tab
+
+- **v2:** the map views fill the screen under the header. Search, key, demo note, the trip card and a side panel or pull-up sheet (hiring) float over the map (`MapView fullscreen`, `panel`). The Admin tab became **Management**, with Users and Taxis sections (`ManagementView`).
+- **v3:** use the same layout for rider, driver and staff maps, and a Management area per center (users and roles, vehicles, settings).
+- [ ] Ported
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
