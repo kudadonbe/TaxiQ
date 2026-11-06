@@ -59,12 +59,25 @@ The person who created the game is the **host**. The host presses **Start game**
 - Fares are **placeholders** until the real Kulhudhuffushi fare table is in: MVR 20 + 5 per km, at least 25, and 10 more at night.
 - Use the map like the real app: pinch or scroll to zoom, two fingers (or right-drag) to rotate, and tap a plot to see its houses.
 
+### 7. Your money (G3)
+- **Wallet:** your cash in MVR, with what it's worth in gold **Dinar** and silver **Dirham**, and your money day. **1 real minute = 1 money day.**
+- **Each money day** you pay living costs (MVR 300), and you get:
+  - a **salary** if you took a job (citizens: MVR 14,000 a month);
+  - as a driver, your **fares for a working day**, based on your last 10 money days of driving, minus the center's 10% fee, fuel, and the center's car rent if you don't have your own car.
+- **KD-Bank, with no interest:**
+  - **Murabaha:** the bank buys a car (MVR 250,000) and sells it to you at a fixed price. 10% deposit, then a daily payment. The total never grows.
+  - **Ijara:** the bank leases you its car with no deposit. After the last payment it's yours.
+  - **Qard Hasan:** up to MVR 5,000 for hard times. You pay back exactly what you borrowed.
+- **Missed a payment?** A fixed MVR 50 goes to charity, never more. After 7 missed in a row the bank takes the car back.
+- **Open ledger:** every payment is recorded and linked by a hash, and your screen checks that none has been changed.
+- All prices are **placeholders** until the real Kulhudhuffushi figures are in.
+
 ## Coming next
 
 | Phase | What you'll be able to do |
 |-------|---------------------------|
 | ✅ **G2: Rides and your logbook (done)** | Every trip and fare is written into your **driver's logbook**. Citizens (you or bots) **hire a game taxi** by picking a pickup and destination. Offers go down the center's queue exactly like real TaxiQ. Drivers **accept or decline**, and the car drives the route to the pickup and destination. The trip completes and the fare is paid at **real fares**. Drivers can **send their empty car to a waiting spot** (the harbour, the hospital). |
-| **G3: Money and KD-Bank** | Money runs on its own calendar: **1 real minute = 1 money day**, while cars keep driving at today's speed. **Start with a choice:** a citizen takes a **job** for a salary or a **KD-Bank loan** for a car, and a driver can take a loan to buy one. Your **statement**: income, expenses, assets, loans. **Payday** every game month. Money in **Dinar (gold) and Dirham (silver)** at live prices, or digital MVR. **KD-Bank**, Islamic finance with no interest: buy a car with **Murabaha**, lease to own with **Ijara**, co-own a center with **Musharaka**, or take an interest-free **Qard Hasan** in hard times. |
+| ✅ **G3: Money and KD-Bank (done)** | Money runs on its own calendar: **1 real minute = 1 money day**, while cars keep driving at today's speed. **Start with a choice:** a citizen takes a **job** for a salary or a **KD-Bank loan** for a car, and a driver can take a loan to buy one. Your **statement**: income, expenses, assets, loans. **Payday** every game month. Money in **Dinar (gold) and Dirham (silver)** at live prices, or digital MVR. **KD-Bank**, Islamic finance with no interest: buy a car with **Murabaha**, lease to own with **Ijara**, co-own a center with **Musharaka**, or take an interest-free **Qard Hasan** in hard times. |
 | **G4: Your results** | The **earnings report** (day, week, month, take-home, per hour), the **real-life check**, a "ready for the real thing" certificate, the off-the-meter bar, a scoreboard, and saving games. |
 | **G5: Life on the island** | Events (festival nights, rain, fuel prices, a flat tyre), deals between players (sell or rent a car, hire an operator), and choosing a route for each trip. |
 

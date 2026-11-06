@@ -93,6 +93,7 @@ function parseTrip(id: string, d: Record<string, unknown>): TripDoc | null {
     declined: Array.isArray(d.declined) ? d.declined.filter((n): n is number => typeof n === 'number') : [],
     carNo: num(d.carNo),
     driverName: typeof d.driverName === 'string' ? d.driverName.slice(0, 80) : null,
+    driverUid: typeof d.driverUid === 'string' ? d.driverUid.slice(0, 128) : null,
     t0: num(d.t0),
     dPick: num(d.dPick),
     dTotal: num(d.dTotal),

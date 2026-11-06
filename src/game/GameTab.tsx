@@ -7,6 +7,9 @@ import { useI18n } from '../i18n'
 import type { Taxi } from '../types'
 import { beat, BEAT_MS, createGame, enterWorld, hostControl, joinByCode, leaveGame, setRole, simNow, GAME_ROLES, useGameRoom, useGameWorld, useMyGames, useRoster, WORLD_ID, type GameRole } from './gameData'
 import { PlayPanel } from './PlayPanel'
+import { WalletPanel } from './WalletPanel'
+import { useGameMoney } from './moneyData'
+import { moneyDayOf } from '../core/money'
 import { useGameEngine } from './useGameEngine'
 import { gamePositionSource } from './gamePositions'
 
@@ -207,7 +210,8 @@ function Room({ gameId, onLeave }: { gameId: string; onLeave: () => void }) {
   const me = players.find((p) => p.uid === uid)
   const isWorld = gameId === WORLD_ID
   const isHost = !!game && game.hostUid === uid
-  const engine = useGameEngine(fb, uid, game, players, carDocs, trips, roster, isWorld ? !!me : isHost)
+  const money = useGameMoney(fb, gameId)
+  const engine = useGameEngine(fb, uid, game, players, carDocs, trips, roster, isWorld ? !!me : isHost, money)
 
   // Heartbeat while this screen is open, so the world knows this player is here.
   const here = !!me
@@ -370,6 +374,9 @@ function Room({ gameId, onLeave }: { gameId: string; onLeave: () => void }) {
           {actionError && <p className="text-sm font-semibold text-rose-700">{t.saveError(actionError)}</p>}
         </section>
 
+        {me && game.status !== 'lobby' && game.status !== 'ended' && (
+          <WalletPanel fb={fb!} gameId={game.id} me={me} players={players} day={moneyDayOf(simT)} state={money.state} wallet={money.wallets.get(me.uid)} apps={money.apps} ledger={money.ledger} onError={setActionError} />
+        )}
         {me && game.status !== 'lobby' && game.status !== 'ended' && (
           <PlayPanel fb={fb!} game={game} me={me} players={players} t={simT} nowMs={now} cars={carDocs} trips={trips} roster={roster} myCar={myCar} onError={setActionError} />
         )}

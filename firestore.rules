@@ -337,12 +337,56 @@ service cloud.firestore {
         allow delete: if false;
       }
 
+      // Money (G3): only the engine writes the money head, wallets and ledger. Everyone in the world
+      // can read them (an open economy). Ledger entries are append-only: never changed or deleted.
+      match /money/{docId} {
+        allow read: if signedIn();
+        allow create, update: if signedIn() && isEngine(gameId) && docId == 'state'
+          && request.resource.data.keys().hasOnly(['bank', 'island', 'charity', 'outsideIn', 'outsideOut', 'seq', 'lastHash'])
+          && request.resource.data.seq is int
+          && (resource == null || request.resource.data.seq >= resource.data.seq);
+        allow delete: if false;
+      }
+      match /wallets/{uid} {
+        allow read: if signedIn();
+        allow create, update: if signedIn() && isEngine(gameId)
+          && request.resource.data.keys().hasOnly(['cash', 'job', 'car', 'deals', 'day', 'lastDay'])
+          && request.resource.data.cash is number
+          && request.resource.data.car in ['none', 'rent', 'own', 'bank'];
+        allow delete: if false;
+      }
+      match /ledger/{seq} {
+        allow read: if signedIn();
+        allow create: if signedIn() && isEngine(gameId)
+          && request.resource.data.keys().hasOnly(['seq', 'day', 'from', 'to', 'amount', 'reason', 'prev', 'hash', 'createdAt'])
+          && request.resource.data.amount is number && request.resource.data.amount > 0
+          && request.resource.data.hash is string && request.resource.data.prev is string
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
+      // A player asks for a job, to quit, or a KD-Bank deal; the engine decides.
+      match /applications/{appId} {
+        allow read: if signedIn();
+        allow create: if signedIn() && inGame(gameId)
+          && request.resource.data.keys().hasOnly(['uid', 'kind', 'days', 'amount', 'status', 'reason', 'createdAt'])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.kind in ['job', 'quit', 'murabaha', 'ijara', 'qard']
+          && request.resource.data.days is int && request.resource.data.amount is number
+          && request.resource.data.status == 'new' && request.resource.data.reason == ''
+          && request.resource.data.createdAt == request.time;
+        allow update: if signedIn() && isEngine(gameId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reason'])
+          && resource.data.status == 'new'
+          && request.resource.data.status in ['approved', 'declined'];
+        allow delete: if false;
+      }
+
       // Rides. A player books their own; the engine books bot rides and runs every ride. The driver
       // the ride is offered to only answers it; the rider may cancel while it is still searching.
       match /trips/{tripId} {
         allow read: if signedIn();
         allow create: if signedIn()
-          && request.resource.data.keys().hasOnly(['riderUid', 'riderName', 'bot', 'pLat', 'pLng', 'pName', 'dLat', 'dLng', 'dName', 'status', 'createdT', 'offerCar', 'offerT', 'response', 'declined', 'carNo', 'driverName', 't0', 'dPick', 'dTotal', 'km', 'fare', 'doneT', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['riderUid', 'riderName', 'bot', 'pLat', 'pLng', 'pName', 'dLat', 'dLng', 'dName', 'status', 'createdT', 'offerCar', 'offerT', 'response', 'declined', 'carNo', 'driverName', 'driverUid', 't0', 'dPick', 'dTotal', 'km', 'fare', 'doneT', 'createdAt'])
           && request.resource.data.status == 'searching'
           && request.resource.data.offerCar == null && request.resource.data.carNo == null && request.resource.data.fare == null
           && request.resource.data.pLat is number && request.resource.data.pLng is number

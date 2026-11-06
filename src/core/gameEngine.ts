@@ -38,6 +38,7 @@ export interface TripDoc {
   declined: number[]
   carNo: number | null
   driverName: string | null
+  driverUid: string | null // a player driver (null for a bot)
   t0: number | null
   dPick: number | null
   dTotal: number | null
@@ -91,12 +92,13 @@ export const tripEnd = (trip: Pick<TripDoc, 't0' | 'dTotal'>) => (trip.t0 ?? 0) 
 export const tripPickupAt = (trip: Pick<TripDoc, 't0' | 'dPick'>) => (trip.t0 ?? 0) + (trip.dPick ?? 0) / TRIP_SPEED
 
 // More rides at rush hours, few at night. Rides per car per game hour.
+// Tuned to about 2.5 rides per car per game hour over a day, like real taxi work (G3).
 export function demand(hh: number) {
-  if (hh >= 7 && hh < 9) return 1.6
-  if (hh >= 12 && hh < 14) return 1.2
-  if (hh >= 17 && hh < 22) return 1.5
-  if (hh >= 22 || hh < 6) return 0.3
-  return 0.9
+  if (hh >= 7 && hh < 9) return 4
+  if (hh >= 12 && hh < 14) return 3
+  if (hh >= 17 && hh < 22) return 3.8
+  if (hh >= 22 || hh < 6) return 0.8
+  return 2.2
 }
 
 const flat = (pts: readonly (readonly [number, number])[]) => pts.flatMap((p) => [p[0], p[1]])
@@ -168,6 +170,7 @@ export function engineStep(input: StepInput): Write[] {
       status: 'assigned',
       carNo: n,
       driverName: d ? d.name : (input.botDriverName?.(n) ?? null),
+      driverUid: d ? d.uid : null,
       offerCar: null,
       response: null,
       t0: t,
@@ -261,6 +264,7 @@ export function newTrip(x: { riderUid: string; riderName: string; bot: boolean; 
     declined: [],
     carNo: null,
     driverName: null,
+    driverUid: null,
     t0: null,
     dPick: null,
     dTotal: null,

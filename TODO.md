@@ -73,7 +73,9 @@ Needs a Firebase project from you, so this can't be done without it.
 - [x] G1: rooms with join codes, roles, host start/pause/resume/end, game clock, shared map of game cars; How to play (in the app and `plans/how-to-play.md`).
 - [x] G2: rides, queue offers, fares (placeholders), logbook; always-running TaxiQ World with saved people; rules tests.
 - [ ] Real Kulhudhuffushi fare table (replace placeholders in `src/core/fares.ts`).
-- [ ] G3: money and KD-Bank, starting with a job or a loan; money calendar 1 real minute = 1 money day (decided, option a; game-mode §5.5). G4: winning. G5: events and deals. G6: port to v3.
+- [x] G3: money and KD-Bank: wallets, job, Murabaha, Ijara, Qard Hasan, money calendar (1 real minute = 1 money day), open hash-chained ledger. Placeholder prices.
+- [ ] Real prices for G3 (car, rent, fuel, living, salary) and a gold/silver price source.
+- [ ] G4: off-the-meter bar, bankruptcy, scoreboard, centers for owners (Musharaka), operator pay. G4: winning. G5: events and deals. G6: port to v3.
 
 ## Backlog
 - [ ] **Driver app** that sends GPS while on duty, and shows "my location" (an idea from mapkf).

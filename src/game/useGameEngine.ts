@@ -4,7 +4,10 @@ import { engineStep, type CarDoc, type SpawnPoint, type TripDoc } from '../core/
 import { clockAt, PRESETS } from '../core/gameSim'
 import { loadPlaces } from '../places'
 import { ROAD_GRAPH } from '../positions'
+import { moneyDayOf } from '../core/money'
+import { moneyStep, type Application, type Wallet } from '../core/moneyEngine'
 import { commitWrites, holdLease, simNow, type Game, type GamePlayer } from './gameData'
+import { commitMoney, type MoneyHead } from './moneyData'
 
 type Fb = typeof import('../firebase')
 
@@ -29,10 +32,11 @@ export function useGameEngine(
   trips: TripDoc[],
   roster: Roster | null,
   canRun: boolean,
+  money: { state: MoneyHead | null; loaded: boolean; wallets: ReadonlyMap<string, Wallet>; apps: Application[] },
 ) {
-  const latest = useRef({ game, players, cars, trips, roster })
+  const latest = useRef({ game, players, cars, trips, roster, money })
   useEffect(() => {
-    latest.current = { game, players, cars, trips, roster }
+    latest.current = { game, players, cars, trips, roster, money }
   })
   const [engine, setEngine] = useState(false)
   const running = !!fb && !!uid && !!game && canRun && game.status === 'running'
@@ -46,8 +50,9 @@ export function useGameEngine(
     let busy = false
     let last = -1
     let stopped = false
+    let moneyBusy = false
     const timer = setInterval(() => {
-      const { game: g, players: ps, cars: cs, trips: ts, roster: r } = latest.current
+      const { game: g, players: ps, cars: cs, trips: ts, roster: r, money: mo } = latest.current
       if (busy || !g || g.status !== 'running') return
       if (Date.now() - leaseAt > 10_000) {
         leaseAt = Date.now()
@@ -63,6 +68,18 @@ export function useGameEngine(
       }
       if (!mine) return
       const t = simNow(g)
+      // Money (G3): settle money days, new players and applications, in a save of its own.
+      const day = moneyDayOf(t)
+      if (!moneyBusy && mo.loaded) {
+        const due = !mo.state || mo.apps.some((a) => a.status === 'new') || ps.some((p) => !mo.wallets.get(p.uid) || mo.wallets.get(p.uid)!.day < day)
+        if (due) {
+          const out = moneyStep({ day, capital: PRESETS[g.preset].bankCapitalMvr, players: ps.map((p) => ({ uid: p.uid, role: p.role })), wallets: mo.wallets, state: mo.state, apps: mo.apps, trips: ts, maxEntries: 380 })
+          moneyBusy = true
+          commitMoney(fb, gameId, mo.state, out)
+            .catch((e: unknown) => console.warn('[TaxiQ Game] money write failed', (e as { code?: string }).code))
+            .finally(() => (moneyBusy = false))
+        }
+      }
       const dt = last < 0 ? 1 : Math.min(10, Math.max(0, t - last))
       last = t
       const now = Date.now()
