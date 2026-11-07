@@ -1449,11 +1449,12 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
           aria-label={t.map}
         />
 
-        {/* Full screen: one column at the top-left, under the search: a row of small buttons (Map key,
+        {/* Full screen: one column at the top-left (always the physical left, in Dhivehi too, because
+            the map's own buttons are always on the right), under the search: a row of small buttons (Map key,
             Show me, Hire) and status chips, then at most ONE open panel, each with its own close.
             It never covers the map controls on the right or the status card at the bottom. */}
         {fullscreen && !pinMode && (
-          <div className="pointer-events-none absolute inset-x-2 top-16 bottom-28 z-[6] flex flex-col gap-2 sm:inset-x-auto sm:start-2 sm:w-96 [@media(max-width:639px)]:end-14">
+          <div className="pointer-events-none absolute left-2 right-14 top-16 bottom-28 z-[6] flex flex-col gap-2 sm:right-auto sm:w-96">
             <div className="pointer-events-auto flex flex-wrap items-center gap-1.5">
               <ToolButton active={active === 'key'} onClick={() => toggle('key')} label={t.mapKey}>
                 <Info className="size-4" aria-hidden="true" />
@@ -1563,7 +1564,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         {/* A booked private vehicle: where it is, on its real position, and Show my vehicle. */}
         {privateCard && (
           <div
-            className={`absolute z-[5] flex items-center gap-3 rounded-2xl border border-white/60 bg-white/70 p-3 shadow-xl backdrop-blur-[3px] inset-x-2 bottom-8 sm:inset-x-auto sm:start-2 sm:w-96 [@media(max-width:639px)]:end-12`}
+            className={`absolute z-[5] flex items-center gap-3 rounded-2xl border border-white/60 bg-white/70 p-3 shadow-xl backdrop-blur-[3px] left-2 right-12 bottom-8 sm:right-auto sm:w-96`}
             role="status"
           >
             <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-slate-900 text-yellow-300">
@@ -1579,7 +1580,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         {/* The ride in progress: where the taxi is in the trip, and Show my taxi. */}
         {ride && activeTrip && (
           <div
-            className={`absolute z-[5] flex items-center gap-3 rounded-2xl border border-white/60 bg-white/70 p-3 shadow-xl backdrop-blur-[3px] inset-x-2 bottom-8 sm:inset-x-auto sm:start-2 sm:w-96 [@media(max-width:639px)]:end-12`}
+            className={`absolute z-[5] flex items-center gap-3 rounded-2xl border border-white/60 bg-white/70 p-3 shadow-xl backdrop-blur-[3px] left-2 right-12 bottom-8 sm:right-auto sm:w-96`}
             role="status"
           >
             <CarTaxiFront className="size-6 shrink-0 text-emerald-700" aria-hidden="true" />
@@ -1596,7 +1597,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         {/* The trip: distance, time and travel mode, floating at the bottom like a ride app. */}
         {tripInfo && !ride && (
           <div
-            className={`absolute z-[5] flex items-center gap-3 rounded-2xl border border-white/60 bg-white/70 p-3 shadow-xl backdrop-blur-[3px] inset-x-2 bottom-8 sm:inset-x-auto sm:start-2 sm:w-96 [@media(max-width:639px)]:end-12`}
+            className={`absolute z-[5] flex items-center gap-3 rounded-2xl border border-white/60 bg-white/70 p-3 shadow-xl backdrop-blur-[3px] left-2 right-12 bottom-8 sm:right-auto sm:w-96`}
           >
             <div className="min-w-0 flex-1" dir="ltr">
               <p className="text-lg font-black tabular-nums">
@@ -1624,7 +1625,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         )}
 
         {/* Place search, floating over the map. */}
-        <div className={`absolute inset-x-2 top-2 z-[7] sm:inset-x-auto sm:start-2 ${fullscreen ? 'sm:w-96' : 'sm:w-80'} [@media(max-width:639px)]:end-14`}>
+        <div className={`absolute left-2 right-14 top-2 z-[7] sm:right-auto ${fullscreen ? 'sm:w-96' : 'sm:w-80'}`}>
           <div className="flex items-center rounded-xl border border-slate-300 bg-white shadow-lg">
             <input
               type="search"

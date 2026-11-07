@@ -322,3 +322,8 @@ html .maplibregl-map {
   }
 }
 
+
+/* Your own vehicle shows above your blue GPS dot (they are at the same place). */
+.vehicle-marker.mine {
+  z-index: 3;
+}
