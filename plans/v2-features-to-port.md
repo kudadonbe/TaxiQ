@@ -169,6 +169,14 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
   - private-hire booking (part 2) and payments.
 - [ ] Ported
 
+## 18. Booking a private vehicle; mobile menu icons
+
+- **v2:** `aed3da5`:
+  - `src/privateRides.ts` (offering, accepted or declined, onboard, done), with `PrivateHirePanel`, `IncomingRides` (the owner's banner) and the booked vehicle on the map.
+  - Tab icons with small labels on phones.
+- **v3:** bookings become one table for every provider (center or private) on the server, with payments, ratings and a history. Push notifications to the owner's phone replace the in-app banner.
+- [ ] Ported
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
