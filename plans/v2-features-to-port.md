@@ -209,6 +209,20 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
   - Keep the movement rules (snap, route, keep left, align, glide) as shared core so every client draws vehicles the same way.
 - [ ] Ported
 
+## 22. Vehicle movement rules (steps 1-4); lost-signal reappear; map overlays
+
+- **v2:** `b9855d2`, `1e81ed1`:
+  - `src/core/drive.ts`: speed limits by place and road (road graphs carry per-road `limit`), acceleration and braking by type, corner speeds, indicators, bike lean.
+  - `src/core/gpsFilter.ts`: hold-then-confirm for odd readings; `shouldReappear` fades a vehicle out and in at its new place after lost signal or a big jump.
+  - `src/core/routeLine.ts`: buses on their own route line built from their stops, forward only, coasting to the next stop; private vehicles coast along the road ahead (`roadAhead`).
+  - Demo-taxi traffic in `src/positions.ts` (`traffic()`: gap, overtaking, giving way), pulling over, parking aisles (`snapParked`), pickup pauses, brake lights, night headlights.
+  - Full-screen map overlays: one column, tool buttons, status chips, one open panel at a time, clear of the map controls.
+  - Rules doc: `plans/vehicle-movement-rules.md`.
+- **v3:**
+  - Run the GPS filter and route matching on the server too, so every client gets the same cleaned positions; keep the drive rules as shared core.
+  - Give the game cars a deterministic version of the drive rules.
+- [ ] Ported
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
