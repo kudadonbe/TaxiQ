@@ -17,6 +17,10 @@ import { driveTrip, endTrip, MAP_CENTER, ROAD_GRAPH, subscribePositions, TRIP_SP
 import { graphFromLines } from '../core/osmRoads'
 import { getArea, moveToLocation, offerRoads, useArea } from '../roadArea'
 import type { Taxi } from '../types'
+import type { Person } from '../usePresence'
+import type { PublicVehicle } from '../vehicles'
+import { MOVING_ICONS, VEHICLE_ICONS } from './iconStyles'
+import { createRoot, type Root } from 'react-dom/client'
 import { loadPlots, plotPopup, plotsGeoJSON, type Plot } from './plotLayer'
 
 type Status = 'idle' | 'answered' | 'suspended'
@@ -52,6 +56,11 @@ interface Props {
   activeTrip?: { taxiId: string; pickup: [number, number]; destination: [number, number] }
   // Hire from where the viewer is (their location, named by the nearest house).
   onHireFrom?: (at: [number, number], name: string) => void
+  // People who chose to show themselves on the map (and the viewer's own Show me control).
+  people?: Person[]
+  // Approved private vehicles whose owner has them available.
+  vehicles?: PublicVehicle[]
+  shareControl?: ReactNode
 }
 
 // Pin for a searched place. Static markup, no user data.
@@ -135,7 +144,7 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
 // Live map of taxis, on MapLibre: rotate (two fingers / right-drag), tilt, pinch zoom, compass and
 // "my location" like Google Maps. Markers are driven imperatively so 60fps position updates don't
 // re-render React.
-export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, activeTrip, onHireFrom }: Props) {
+export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, activeTrip, onHireFrom, people = [], vehicles = [], shareControl }: Props) {
   const { lang, t, driverName } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const map = useRef<MlMap | null>(null)
@@ -630,6 +639,118 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     }
   }, [nearKey, lang])
 
+  // People sharing their position: a round icon for how they move; staff also see the name.
+  // Built with DOM text; the icon is rendered by React into the marker.
+  const peopleMarkers = useRef(new Map<string, { marker: Marker; root: Root; label: HTMLSpanElement; mode: string }>())
+  const peopleKey = JSON.stringify(people)
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready) return
+    const list = JSON.parse(peopleKey) as Person[]
+    const seen = new Set<string>()
+    for (const p of list) {
+      seen.add(p.id)
+      let entry = peopleMarkers.current.get(p.id)
+      if (!entry) {
+        const el = document.createElement('div')
+        el.className = 'person-marker'
+        const icon = document.createElement('span')
+        icon.className = 'person-marker-icon'
+        const label = document.createElement('span')
+        label.className = 'person-marker-label'
+        el.append(icon, label)
+        const root = createRoot(icon)
+        entry = { marker: new maplibregl.Marker({ element: el }).setLngLat(ll(p.at)).addTo(m), root, label, mode: '' }
+        peopleMarkers.current.set(p.id, entry)
+      }
+      entry.marker.setLngLat(ll(p.at))
+      entry.label.textContent = p.name ?? ''
+      entry.label.style.display = p.name ? '' : 'none'
+      if (entry.mode !== p.mode) {
+        entry.mode = p.mode
+        const Icon = MOVING_ICONS[p.mode]
+        entry.root.render(<Icon className="size-4" aria-hidden="true" />)
+      }
+    }
+    for (const [id, entry] of peopleMarkers.current) {
+      if (seen.has(id)) continue
+      entry.marker.remove()
+      const root = entry.root
+      setTimeout(() => root.unmount())
+      peopleMarkers.current.delete(id)
+    }
+  }, [peopleKey, ready])
+
+  // Private vehicles for hire: a dark rounded marker with the vehicle-type icon and its price. Tap
+  // for its type, owner's first name and price. Built with DOM text.
+  const vehicleMarkers = useRef(new Map<string, { marker: Marker; root: Root; price: HTMLSpanElement; type: string }>())
+  const vehiclesKey = JSON.stringify(vehicles)
+  const vLabels = useRef({ type: (x: string) => x, price: (b: number, k: number) => `${b} ${k}`, soon: '' })
+  useEffect(() => {
+    vLabels.current = { type: (x) => t.vehTypes[x as keyof typeof t.vehTypes] ?? x, price: t.vehPrice, soon: t.vehHireSoon }
+  }, [t])
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready) return
+    const list = JSON.parse(vehiclesKey) as PublicVehicle[]
+    const seen = new Set<string>()
+    for (const v of list) {
+      seen.add(v.id)
+      let entry = vehicleMarkers.current.get(v.id)
+      if (!entry) {
+        const el = document.createElement('button')
+        el.type = 'button'
+        el.className = 'vehicle-marker'
+        const icon = document.createElement('span')
+        icon.className = 'vehicle-marker-icon'
+        const price = document.createElement('span')
+        price.className = 'vehicle-marker-price'
+        el.append(icon, price)
+        const root = createRoot(icon)
+        const marker = new maplibregl.Marker({ element: el }).setLngLat(ll(v.at)).addTo(m)
+        entry = { marker, root, price, type: '' }
+        vehicleMarkers.current.set(v.id, entry)
+      }
+      const e = entry
+      e.marker.setLngLat(ll(v.at))
+      e.price.textContent = vLabels.current.price(v.priceBase, v.pricePerKm)
+      if (e.type !== v.type) {
+        e.type = v.type
+        const Icon = VEHICLE_ICONS[v.type]
+        e.root.render(<Icon className="size-4" aria-hidden="true" />)
+      }
+      e.marker.getElement().onclick = (ev) => {
+        ev.stopPropagation()
+        popup.current?.remove()
+        const box = document.createElement('div')
+        box.className = 'taxi-menu-body'
+        const title = document.createElement('p')
+        title.className = 'taxi-menu-title'
+        title.textContent = `${vLabels.current.type(v.type)}${v.firstName ? ` · ${v.firstName}` : ''}`
+        const price = document.createElement('p')
+        price.className = 'taxi-menu-note'
+        price.style.color = '#065f46'
+        price.textContent = `${v.colour ? `${v.colour} · ` : ''}${vLabels.current.price(v.priceBase, v.pricePerKm)}`
+        const soon = document.createElement('p')
+        soon.className = 'taxi-menu-note'
+        soon.style.color = '#475569'
+        soon.textContent = vLabels.current.soon
+        box.append(title, price, soon)
+        const p = new maplibregl.Popup({ closeButton: false, offset: 20, className: 'taxi-menu', maxWidth: '16rem' }).setDOMContent(box)
+        e.marker.setPopup(p)
+        if (!p.isOpen()) e.marker.togglePopup()
+        popup.current = p
+      }
+    }
+    for (const [id, entry] of vehicleMarkers.current) {
+      if (seen.has(id)) continue
+      entry.marker.remove()
+      const root = entry.root
+      setTimeout(() => root.unmount())
+      vehicleMarkers.current.delete(id)
+    }
+  }, [vehiclesKey, ready])
+
   // When the viewer's location arrives, fly there (the demo taxis restart on the roads there).
   const areaKey = followsViewer && area.located ? area.center.join(',') : ''
   useEffect(() => {
@@ -799,6 +920,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
                 )}
               </div>
             )}
+            {shareControl}
             {legend}
             {note && <p className="line-clamp-2 text-[11px] leading-snug text-amber-800">{note}</p>}
           </div>

@@ -83,5 +83,41 @@ await expect('a player cannot apply in someone else\'s name', 'b', [write('games
 await expect('a player cannot approve their own application', 'b', [write('games/world/applications/p1', { status: 'approved' }, { merge: true })], false)
 await expect('the engine approves it', 'a', [write('games/world/applications/p1', { status: 'approved', reason: '' }, { merge: true })], true)
 await expect('the money head never goes backwards', 'a', [write('games/world/money/state', { bank: 1, island: 1, charity: 0, outsideIn: 2, outsideOut: 0, seq: 0, lastHash: 'x' })], false)
+// Showing yourself on the map
+const soon = () => new Date(Date.now() + 30 * 60_000)
+const pres = (o = {}) => ({ name: 'B', at: [4.17, 73.5], mode: 'walk', modeAuto: true, visibility: 'public', updatedAt: NOW, expiresAt: soon(), ...o })
+const pub = (o = {}) => ({ at: [4.17, 73.5], mode: 'walk', modeAuto: true, updatedAt: NOW, expiresAt: soon(), ...o })
+await expect('a person shares their own position (staff copy and public copy)', 'b', [write('presence/b', pres()), write('presencePublic/b', pub())], true)
+await expect('nobody can share a position for someone else', 'c', [write('presence/b', pres())], false)
+await expect('the public copy cannot carry a name', 'b', [write('presencePublic/b', { ...pub(), name: 'B' })], false)
+await expect('sharing cannot be set to last more than an hour', 'b', [write('presence/b', pres({ expiresAt: new Date(Date.now() + 3 * 3600_000) }))], false)
+await expect('only the listed ways of moving', 'b', [write('presence/b', pres({ mode: 'flying' }))], false)
+async function canRead(name, uid, path, ok) {
+  const r = await fetch(`${BASE}/${path}`, { headers: { Authorization: `Bearer ${tok(uid)}` } })
+  const pass = r.ok === ok
+  if (!pass) fails++
+  console.log(`${pass ? 'PASS' : 'FAIL'}  ${ok ? 'allowed' : 'denied '}  ${name}`)
+}
+await canRead('a signed-in member of the public cannot read the copy with the name', 'c', 'presence/b', false)
+await canRead('a signed-in member of the public can read the nameless public copy', 'c', 'presencePublic/b', true)
+await canRead('the person reads their own copy', 'b', 'presence/b', true)
+// Private vehicles for hire
+const seed = await fetch(`${BASE}:commit`, { method: 'POST', headers: { Authorization: 'Bearer owner', 'Content-Type': 'application/json' }, body: JSON.stringify({ writes: [write('roles/op@test.example', { role: 'operator' })] }) })
+if (!seed.ok) { fails++; console.log('FAIL  could not set up a test operator') }
+const veh = (o = {}) => ({ ownerUid: 'b', ownerName: 'B', kind: 'private', type: 'motorbike', reg: 'P1234', colour: 'red', seats: 1, priceBase: 25, pricePerKm: 5, phone: '7771234', note: '', status: 'pending', reason: '', decidedBy: null, decidedAt: null, createdAt: NOW, updatedAt: NOW, ...o })
+await expect('a citizen applies to offer their motorbike for hire', 'b', [write('vehicles/v1', veh())], true)
+await expect('nobody can apply already approved', 'b', [write('vehicles/v2', veh({ status: 'approved' }))], false)
+await expect('nobody can apply in someone else\'s name', 'c', [write('vehicles/v3', veh())], false)
+await expect('the owner cannot approve their own vehicle', 'b', [write('vehicles/v1', { status: 'approved', decidedBy: 'b@test.example', decidedAt: NOW, updatedAt: NOW }, { merge: true })], false)
+await expect('a vehicle not approved cannot go on the map', 'b', [write('publicVehicles/v1', { type: 'motorbike', colour: 'red', seats: 1, firstName: 'B', priceBase: 25, pricePerKm: 5, at: [4.17, 73.5], heading: 0, updatedAt: NOW })], false)
+await expect('an operator approves it', 'op', [write('vehicles/v1', { status: 'approved', reason: '', decidedBy: 'op@test.example', decidedAt: NOW, updatedAt: NOW }, { merge: true })], true)
+await expect('the approval is logged', 'op', [write('vehicleLog/l1', { vehicleId: 'v1', ownerUid: 'b', action: 'approved', by: 'op@test.example', reason: '', at: NOW })], true)
+await expect('nobody can change the log', 'op', [write('vehicleLog/l1', { vehicleId: 'v1', ownerUid: 'b', action: 'rejected', by: 'op@test.example', reason: 'x', at: NOW })], false)
+await expect('once approved, the owner shows it on the map', 'b', [write('publicVehicles/v1', { type: 'motorbike', colour: 'red', seats: 1, firstName: 'B', priceBase: 25, pricePerKm: 5, at: [4.17, 73.5], heading: 0, updatedAt: NOW })], true)
+await expect('the map copy cannot carry a phone number', 'b', [write('publicVehicles/v1', { type: 'motorbike', colour: 'red', seats: 1, firstName: 'B', priceBase: 25, pricePerKm: 5, at: [4.17, 73.5], heading: 0, updatedAt: NOW, phone: '7771234' })], false)
+await expect('the owner changes their price once approved', 'b', [write('vehicles/v1', { priceBase: 30, updatedAt: NOW }, { merge: true })], true)
+await expect('but not the registration once approved', 'b', [write('vehicles/v1', { reg: 'P9999', updatedAt: NOW }, { merge: true })], false)
+await expect('rejecting needs a reason', 'op', [write('vehicles/v1', { status: 'rejected', reason: '', decidedBy: 'op@test.example', decidedAt: NOW, updatedAt: NOW }, { merge: true })], false)
+await canRead('another citizen cannot read the vehicle record (phone number)', 'c', 'vehicles/v1', false)
 console.log(fails ? `\n${fails} FAILED` : '\nAll rules checks passed')
 process.exit(fails ? 1 : 0)

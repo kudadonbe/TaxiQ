@@ -1,4 +1,4 @@
-import { ArrowUpDown, Eye, Gamepad2, MapPin, Pencil } from 'lucide-react'
+import { ArrowUpDown, Car, Eye, Gamepad2, MapPin, Pencil } from 'lucide-react'
 import { ic } from './components/iconStyles'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from './auth'
@@ -12,6 +12,7 @@ import { RequestsPanel } from './components/RequestsPanel'
 import { QueueChangesLog, ReorderPanel } from './components/ReorderPanel'
 import { TranslationEditor } from './components/TranslationEditor'
 import { ManagementView } from './components/ManagementView'
+import { usePublicVehicles } from './vehicles'
 import { PeoplePanel } from './components/PeoplePanel'
 import { useI18n } from './i18n'
 import { asMapTaxi } from './rides'
@@ -19,10 +20,14 @@ import { parseOverrides } from './translations'
 import { useLiveQueue } from './useLiveQueue'
 import { useLocalQueue } from './useQueue'
 import { useMyRide, usePublicTaxis } from './useRides'
+import { usePeople, useShareMe } from './usePresence'
+import { ShareMe } from './components/ShareMe'
 import { validateCall } from './validate'
 
 // Leaflet is only loaded when a map is shown.
 const MapView = lazy(() => import('./components/MapView'))
+const MyVehicles = lazy(() => import('./components/MyVehicles').then((m) => ({ default: m.MyVehicles })))
+const VehiclesAdmin = lazy(() => import('./components/VehiclesAdmin').then((m) => ({ default: m.VehiclesAdmin })))
 const GameTab = lazy(() => import('./game/GameTab').then((m) => ({ default: m.GameTab })))
 
 // The GitHub Pages copy can't sign in (Firebase only allows its own domains), so it runs the
@@ -36,7 +41,7 @@ const DEMO_HOST = location.hostname.endsWith('github.io')
 //   public   signed out, or signed in without a role: the map and Hire a taxi
 //   dev      full access, for testing: every screen, incl. driver (any taxi) and hire
 type Mode = 'demo' | 'staff' | 'driver' | 'public' | 'dev'
-type View = 'queue' | 'map' | 'admin' | 'driver' | 'hire' | 'game'
+type View = 'queue' | 'map' | 'admin' | 'driver' | 'hire' | 'game' | 'vehicles'
 
 const EMPTY = new Set<string>()
 
@@ -101,13 +106,19 @@ export default function App() {
   const acceptedTrip = myRide?.status === 'accepted' && myRide.pickupAt && myRide.destinationAt && myRide.createdAt !== closedRide ? { from: myRide.pickupAt, to: myRide.destinationAt } : undefined
   // Demo rides (developers, and the demo site): no real taxi, nothing saved. The taxi accepts by
   // itself after a moment, then drives the trip on the map.
-  const demoAllowed = DEMO_HOST || (signedIn && auth.role === 'dev')
+  const demoAllowed = DEMO_HOST
   const [demoRide, setDemoRide] = useState<DemoRide | null>(null)
   useEffect(() => {
     if (demoRide?.status !== 'offering') return
     const timer = setTimeout(() => setDemoRide((r) => (r ? { ...r, status: 'accepted' } : r)), 3000)
     return () => clearTimeout(timer)
   }, [demoRide?.status])
+  // People showing themselves on the map (opt-in). Drivers and centers see names; others an icon.
+  const seesNames = signedIn && (role === 'admin' || role === 'operator' || role === 'dev' || role === 'driver')
+  const people = usePeople(auth.fb, signedIn && !DEMO_HOST, seesNames, auth.uid ?? null)
+  const shareMe = useShareMe(auth.fb, signedIn && !DEMO_HOST ? (auth.uid ?? null) : null, auth.name ?? '', myRide?.status === 'accepted')
+  const vehicles = usePublicVehicles(auth.fb, signedIn && !DEMO_HOST)
+  const shareControl = signedIn && !DEMO_HOST ? <ShareMe me={shareMe} /> : undefined
   const rideInProgress = !!myRide && myRide.createdAt !== closedRide && (myRide.status === 'offering' || myRide.status === 'accepted')
   const [hirePickup, setHirePickup] = useState<[number, number] | undefined>()
   const [pinMode, setPinMode] = useState<'pickup' | 'destination' | null>(null)
@@ -121,7 +132,7 @@ export default function App() {
   const assign = (id: string) => callValid && q.assign(id)
 
   // TaxiQ Game is open to everyone on the live site (not the demo host).
-  const game: View[] = DEMO_HOST ? [] : ['game']
+  const game: View[] = DEMO_HOST ? [] : ['vehicles', 'game']
   const tabs: View[] =
     mode === 'dev'
       ? ['queue', 'map', 'admin', 'driver', 'hire', ...game]
@@ -244,7 +255,13 @@ export default function App() {
                 aria-current={view === v ? 'page' : undefined}
                 className={`min-h-10 rounded-lg px-3 font-semibold ${view === v ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
               >
-                {{ queue: t.queue, map: t.map, admin: t.admin, driver: t.driver, hire: t.hireTab, game: (
+                {{ queue: t.queue, map: t.map, admin: t.admin, driver: t.driver, hire: t.hireTab, vehicles: (
+                    <span className="inline-flex items-center gap-1">
+                      <Car className="size-4" aria-hidden="true" />
+                      {t.vehTab}
+                    </span>
+                  ),
+                  game: (
                     <span className="inline-flex items-center gap-1">
                       <Gamepad2 className="size-4" aria-hidden="true" />
                       {t.gameTab}
@@ -319,7 +336,13 @@ export default function App() {
         )}
       </header>
 
-      {view === 'game' ? (
+      {view === 'vehicles' ? (
+        <main className="mx-auto max-w-5xl px-4 py-4 sm:py-6">
+          <Suspense fallback={<p className="text-sm text-slate-500">{t.loading}</p>}>
+            <MyVehicles />
+          </Suspense>
+        </main>
+      ) : view === 'game' ? (
         <main className="isolate mx-auto max-w-6xl px-2 py-3 sm:px-4 sm:py-6">
           <Suspense fallback={<p className="text-sm text-slate-500">{t.loading}</p>}>
             <GameTab />
@@ -330,6 +353,9 @@ export default function App() {
           <Suspense fallback={<p className="p-4 text-sm text-slate-500">{t.loading}</p>}>
             <MapView
               fullscreen
+              people={people}
+              vehicles={vehicles}
+              shareControl={shareControl}
               taxis={hireMapTaxis}
               interested={EMPTY}
               pickupAt={hireTrip ? undefined : hirePickup}
@@ -411,15 +437,16 @@ export default function App() {
           <ManagementView
             users={live && canAdmin ? <PeoplePanel taxis={queue} /> : <p className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">{t.mgmtUsersNeedLive}</p>}
             taxis={<AdminPanel taxis={queue} onRegister={q.register} onRemove={q.remove} onSuspend={q.suspend} onLift={q.lift} />}
+            vehicles={live ? <Suspense fallback={<p className="text-sm text-slate-500">{t.loading}</p>}><VehiclesAdmin /></Suspense> : undefined}
           />
         </main>
       ) : view === 'map' ? (
         <main className="relative isolate min-h-0 flex-1">
           <Suspense fallback={<p className="p-4 text-sm text-slate-500">{t.loading}</p>}>
             {mode === 'driver' ? (
-              <MapView fullscreen taxis={mapTaxis} interested={EMPTY} pickupAt={undefined} />
+              <MapView fullscreen people={people} vehicles={vehicles} shareControl={shareControl} taxis={mapTaxis} interested={EMPTY} pickupAt={undefined} />
             ) : (
-              <MapView fullscreen taxis={queue} interested={interested} pickupAt={call.pickupAt} trip={call.pickupAt && call.destinationAt ? { from: call.pickupAt, to: call.destinationAt } : undefined} />
+              <MapView fullscreen people={people} vehicles={vehicles} shareControl={shareControl} taxis={queue} interested={interested} pickupAt={call.pickupAt} trip={call.pickupAt && call.destinationAt ? { from: call.pickupAt, to: call.destinationAt } : undefined} />
             )}
           </Suspense>
         </main>

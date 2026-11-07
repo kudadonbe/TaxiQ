@@ -1,17 +1,18 @@
-import { CarTaxiFront, Users } from 'lucide-react'
+import { Car, CarTaxiFront, Users } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { useI18n } from '../i18n'
 
-type Section = 'users' | 'taxis'
+type Section = 'users' | 'taxis' | 'vehicles'
 const KEY = 'taxiq.management'
 
 // Management (admins): its own sections, starting with user management (everyone who has signed in,
 // their roles, who's online) and taxi registration. The choice is kept for the session.
-export function ManagementView({ users, taxis }: { users: ReactNode; taxis: ReactNode }) {
+export function ManagementView({ users, taxis, vehicles }: { users: ReactNode; taxis: ReactNode; vehicles?: ReactNode }) {
   const { t } = useI18n()
   const [section, setSectionState] = useState<Section>(() => {
     try {
-      return sessionStorage.getItem(KEY) === 'taxis' ? 'taxis' : 'users'
+      const v = sessionStorage.getItem(KEY)
+      return v === 'taxis' || v === 'vehicles' ? v : 'users'
     } catch {
       return 'users'
     }
@@ -27,6 +28,7 @@ export function ManagementView({ users, taxis }: { users: ReactNode; taxis: Reac
   const tabs: { id: Section; label: string; Icon: typeof Users }[] = [
     { id: 'users', label: t.mgmtUsers, Icon: Users },
     { id: 'taxis', label: t.mgmtTaxis, Icon: CarTaxiFront },
+    ...(vehicles ? [{ id: 'vehicles' as const, label: t.mgmtVehicles, Icon: Car }] : []),
   ]
   return (
     <div className="space-y-4">
@@ -47,7 +49,7 @@ export function ManagementView({ users, taxis }: { users: ReactNode; taxis: Reac
           </button>
         ))}
       </nav>
-      {section === 'users' ? users : taxis}
+      {section === 'users' ? users : section === 'vehicles' && vehicles ? vehicles : taxis}
     </div>
   )
 }

@@ -69,6 +69,34 @@ service cloud.firestore {
 
     // Everyone who has signed in: written by the person themselves on sign-in; readable by admins
     // (and devs) to see and manage all users. Holds no more than email, name and when.
+    // Citizens showing themselves on the map: opt-in, written only by the person, deleted when they
+    // stop, and hidden by readers after 2 minutes without an update or after its hour (src/core/presence.ts).
+    // presence/{uid}: with their name, for drivers and centers (staff) only.
+    // presencePublic/{uid}: no name, only when they chose everyone signed in.
+    function presenceShape(d) {
+      return d.at is list && d.at.size() == 2 && d.at[0] is number && d.at[1] is number
+        && d.mode in ['walk', 'run', 'bike', 'ebike', 'motorbike', 'taxi']
+        && d.modeAuto is bool
+        && d.updatedAt == request.time
+        && d.expiresAt is timestamp && d.expiresAt <= request.time + duration.value(61, 'm');
+    }
+    match /presence/{uid} {
+      allow read: if isStaff() || isDriver() || (signedIn() && uid == request.auth.uid);
+      allow create, update: if signedIn() && uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['name', 'at', 'mode', 'modeAuto', 'visibility', 'updatedAt', 'expiresAt'])
+        && str(request.resource.data.name, 80)
+        && request.resource.data.visibility in ['staff', 'public']
+        && presenceShape(request.resource.data);
+      allow delete: if signedIn() && uid == request.auth.uid;
+    }
+    match /presencePublic/{uid} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['at', 'mode', 'modeAuto', 'updatedAt', 'expiresAt'])
+        && presenceShape(request.resource.data);
+      allow delete: if signedIn() && uid == request.auth.uid;
+    }
+
     match /users/{uid} {
       function profile() {
         return request.resource.data;
@@ -103,6 +131,88 @@ service cloud.firestore {
     }
 
     // What the public map shows: no phone numbers. Kept in step with taxis by the admin screens.
+    // ---- Private vehicles for hire (people and companies, not a center's queue). The owner applies
+    // (status pending); any operator approves, rejects or suspends with a reason; every decision is
+    // logged (vehicleLog, append-only). The owner sets their price. While an approved vehicle is
+    // available, its owner's device shows it on the map (publicVehicles, no phone number).
+    function vehicleDetails(d) {
+      return d.type in ['car', 'van', 'pickup', 'motorbike', 'ebike']
+        && str(d.reg, 12) && d.reg.size() > 0
+        && str(d.colour, 24)
+        && d.seats is int && d.seats >= 1 && d.seats <= 20
+        && d.priceBase is number && d.priceBase >= 0 && d.priceBase <= 10000
+        && d.pricePerKm is number && d.pricePerKm >= 0 && d.pricePerKm <= 1000
+        && d.phone is string && d.phone.matches('^[0-9]{7}$')
+        && str(d.ownerName, 80)
+        && str(d.note, 120);
+    }
+    function vehicleKeys() {
+      return ['ownerUid', 'ownerName', 'kind', 'type', 'reg', 'colour', 'seats', 'priceBase', 'pricePerKm', 'phone', 'note',
+        'status', 'reason', 'decidedBy', 'decidedAt', 'createdAt', 'updatedAt'];
+    }
+    match /vehicles/{vehicleId} {
+      allow read: if isStaff() || (signedIn() && resource.data.ownerUid == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(vehicleKeys())
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.kind == 'private'
+        && request.resource.data.status == 'pending' && request.resource.data.reason == ''
+        && request.resource.data.decidedBy == null && request.resource.data.decidedAt == null
+        && request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time
+        && vehicleDetails(request.resource.data);
+      allow update: if signedIn() && request.resource.data.keys().hasOnly(vehicleKeys()) && (
+        // The owner edits details while pending or rejected (sending it back for approval), or only
+        // the price once approved. Never the decision.
+        (resource.data.ownerUid == request.auth.uid
+          && request.resource.data.ownerUid == resource.data.ownerUid
+          && request.resource.data.kind == resource.data.kind
+          && request.resource.data.decidedBy == resource.data.decidedBy
+          && request.resource.data.decidedAt == resource.data.decidedAt
+          && request.resource.data.updatedAt == request.time
+          && vehicleDetails(request.resource.data)
+          && ((resource.data.status in ['pending', 'rejected'] && request.resource.data.status == 'pending' && request.resource.data.reason == '')
+            || (resource.data.status == 'approved'
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['priceBase', 'pricePerKm', 'updatedAt']))))
+        // Any operator decides: approve, reject or suspend, with a reason; nothing else changes.
+        || (isStaff()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reason', 'decidedBy', 'decidedAt', 'updatedAt'])
+          && request.resource.data.status in ['approved', 'rejected', 'suspended']
+          && str(request.resource.data.reason, 120)
+          && (request.resource.data.status == 'approved' || request.resource.data.reason.size() > 0)
+          && request.resource.data.decidedBy == email()
+          && request.resource.data.decidedAt == request.time
+          && request.resource.data.updatedAt == request.time));
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid && resource.data.status in ['pending', 'rejected'];
+    }
+    // Every application and decision, kept for good.
+    match /vehicleLog/{logId} {
+      allow read: if isStaff() || (signedIn() && resource.data.ownerUid == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['vehicleId', 'ownerUid', 'action', 'by', 'reason', 'at'])
+        && request.resource.data.action in ['applied', 'edited', 'approved', 'rejected', 'suspended', 'withdrawn']
+        && str(request.resource.data.reason, 120)
+        && request.resource.data.at == request.time
+        && request.resource.data.by == email()
+        && (request.resource.data.action in ['applied', 'edited', 'withdrawn']
+          ? request.resource.data.ownerUid == request.auth.uid
+          : isStaff());
+      allow update, delete: if false;
+    }
+    // An approved vehicle on the map while its owner has it available: no phone number.
+    match /publicVehicles/{vehicleId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.ownerUid == request.auth.uid
+        && get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.status == 'approved'
+        && request.resource.data.keys().hasOnly(['type', 'colour', 'seats', 'firstName', 'priceBase', 'pricePerKm', 'at', 'heading', 'updatedAt'])
+        && request.resource.data.type in ['car', 'van', 'pickup', 'motorbike', 'ebike']
+        && str(request.resource.data.firstName, 40)
+        && request.resource.data.at is list && request.resource.data.at.size() == 2
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if signedIn() && (isStaff()
+        || get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.ownerUid == request.auth.uid);
+    }
+
     match /publicTaxis/{taxiId} {
       allow read: if true;
       allow create, update: if isAdmin()
