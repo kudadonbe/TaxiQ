@@ -94,7 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       (snap) => {
         const r = snap.exists() ? snap.data().role : null
         const t = snap.exists() ? snap.data().taxiId : null
-        setRole(r === 'admin' || r === 'operator' || r === 'driver' || r === 'dev' ? r : null)
+        setRole(r === 'admin' || r === 'operator' || r === 'driver' || r === 'private' || r === 'dev' ? r : null)
         setTaxiId((r === 'driver' || r === 'dev') && typeof t === 'string' ? t : null)
       },
       () => {
