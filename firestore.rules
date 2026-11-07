@@ -145,10 +145,11 @@ service cloud.firestore {
         && d.pricePerKm is number && d.pricePerKm >= 0 && d.pricePerKm <= 1000
         && d.phone is string && d.phone.matches('^[0-9]{7}$')
         && str(d.ownerName, 80)
-        && str(d.note, 120);
+        && str(d.note, 120)
+        && d.get('rider', 'none') in ['none', 'man', 'woman', 'young'];
     }
     function vehicleKeys() {
-      return ['ownerUid', 'ownerName', 'kind', 'type', 'reg', 'colour', 'seats', 'priceBase', 'pricePerKm', 'phone', 'note',
+      return ['ownerUid', 'ownerName', 'kind', 'type', 'reg', 'colour', 'seats', 'priceBase', 'pricePerKm', 'phone', 'note', 'rider',
         'status', 'reason', 'decidedBy', 'decidedAt', 'createdAt', 'updatedAt'];
     }
     match /vehicles/{vehicleId} {
@@ -173,7 +174,7 @@ service cloud.firestore {
           && vehicleDetails(request.resource.data)
           && ((resource.data.status in ['pending', 'rejected'] && request.resource.data.status == 'pending' && request.resource.data.reason == '')
             || (resource.data.status == 'approved'
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['priceBase', 'pricePerKm', 'updatedAt']))))
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['priceBase', 'pricePerKm', 'rider', 'updatedAt']))))
         // Any operator decides: approve, reject or suspend, with a reason; nothing else changes.
         || (isStaff()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reason', 'decidedBy', 'decidedAt', 'updatedAt'])
@@ -252,7 +253,8 @@ service cloud.firestore {
       allow create, update: if signedIn()
         && get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.ownerUid == request.auth.uid
         && get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.status == 'approved'
-        && request.resource.data.keys().hasOnly(['ownerUid', 'type', 'colour', 'seats', 'firstName', 'priceBase', 'pricePerKm', 'at', 'heading', 'level', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['ownerUid', 'type', 'colour', 'seats', 'firstName', 'priceBase', 'pricePerKm', 'at', 'heading', 'level', 'rider', 'updatedAt'])
+        && request.resource.data.get('rider', 'none') in ['none', 'man', 'woman', 'young']
         && request.resource.data.get('level', 'active') in ['active', 'rest', 'nap', 'sleep']
         && request.resource.data.ownerUid == request.auth.uid
         // Two checks: the person has the Private driver role, and the vehicle is approved.

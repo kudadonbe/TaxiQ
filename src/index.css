@@ -219,4 +219,8 @@ html .maplibregl-map {
 .vehicle-marker.mine .vehicle-shape {
   filter: drop-shadow(0 0 3px #10b981) drop-shadow(0 0 2px #10b981) drop-shadow(0 2px 2px rgb(15 23 42 / 0.45));
 }
+.bus-marker .vehicle-marker-price.bus-route {
+  color: white;
+  border: 1px solid white;
+}
 

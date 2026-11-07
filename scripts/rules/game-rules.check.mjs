@@ -106,6 +106,7 @@ const seed = await fetch(`${BASE}:commit`, { method: 'POST', headers: { Authoriz
 if (!seed.ok) { fails++; console.log('FAIL  could not set up a test operator') }
 const veh = (o = {}) => ({ ownerUid: 'b', ownerName: 'B', kind: 'private', type: 'motorbike', reg: 'P1234', colour: 'red', seats: 1, priceBase: 25, pricePerKm: 5, phone: '7771234', note: '', status: 'pending', reason: '', decidedBy: null, decidedAt: null, createdAt: NOW, updatedAt: NOW, ...o })
 await expect('a citizen applies to offer their motorbike for hire', 'b', [write('vehicles/v1', veh())], true)
+await expect('an edit that sends back the record id is refused (only details may be sent)', 'b', [write('vehicles/v4', { ...veh(), id: 'v4' })], false)
 await expect('nobody can apply already approved', 'b', [write('vehicles/v2', veh({ status: 'approved' }))], false)
 await expect('nobody can apply in someone else\'s name', 'c', [write('vehicles/v3', veh())], false)
 await expect('the owner cannot approve their own vehicle', 'b', [write('vehicles/v1', { status: 'approved', decidedBy: 'b@test.example', decidedAt: NOW, updatedAt: NOW }, { merge: true })], false)
@@ -117,6 +118,8 @@ await expect('once approved, the owner shows it on the map', 'b', [write('public
 await expect('an approved vehicle whose owner lacks the Private driver role cannot go on the map', 'e', [write('publicVehicles/v9', { ownerUid: 'e', type: 'car', colour: '', seats: 4, firstName: 'E', priceBase: 25, pricePerKm: 5, at: [4.17, 73.5], heading: 0, updatedAt: NOW })], false)
 await expect('the map copy cannot carry a phone number', 'b', [write('publicVehicles/v1', { ownerUid: 'b', type: 'motorbike', colour: 'red', seats: 1, firstName: 'B', priceBase: 25, pricePerKm: 5, at: [4.17, 73.5], heading: 0, updatedAt: NOW, phone: '7771234' })], false)
 await expect('the owner changes their price once approved', 'b', [write('vehicles/v1', { priceBase: 30, updatedAt: NOW }, { merge: true })], true)
+await expect('the owner chooses who rides it on the map, once approved', 'b', [write('vehicles/v1', { rider: 'woman', updatedAt: NOW }, { merge: true })], true)
+await expect('only the listed riders', 'b', [write('vehicles/v1', { rider: 'robot', updatedAt: NOW }, { merge: true })], false)
 await expect('but not the registration once approved', 'b', [write('vehicles/v1', { reg: 'P9999', updatedAt: NOW }, { merge: true })], false)
 await expect('rejecting needs a reason', 'op', [write('vehicles/v1', { status: 'rejected', reason: '', decidedBy: 'op@test.example', decidedAt: NOW, updatedAt: NOW }, { merge: true })], false)
 await canRead('another citizen cannot read the vehicle record (phone number)', 'c', 'vehicles/v1', false)

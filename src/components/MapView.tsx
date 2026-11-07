@@ -18,7 +18,8 @@ import { graphFromLines } from '../core/osmRoads'
 import { getArea, lastSpot, moveToLocation, offerRoads, useArea } from '../roadArea'
 import type { Taxi } from '../types'
 import type { Person } from '../usePresence'
-import type { PublicVehicle } from '../vehicles'
+import type { PublicVehicle, Rider } from '../vehicles'
+import { useLiveBuses, type Bus } from '../buses'
 import { MOVING_ICONS, VEHICLE_ICONS } from './iconStyles'
 import { glideAt, glideState, nextGlide, turnToward, type Glide } from '../core/glide'
 import { inLane, twoWayBetween } from '../core/lanes'
@@ -63,6 +64,8 @@ interface Props {
   people?: Person[]
   // Approved private vehicles whose owner has them available.
   vehicles?: PublicVehicle[]
+  // MTCC RTL buses with live GPS (Greater Malé).
+  buses?: Bus[]
   onHireVehicle?: (v: PublicVehicle) => void
   // Fly to and follow this vehicle (See it on the map); `n` changes each time it's asked.
   focusVehicle?: { id: string; n: number } | null
@@ -104,6 +107,38 @@ const CAR_SVG = `<svg viewBox="0 0 20 36" width="20" height="36" aria-hidden="tr
   <rect x="14" y="2.5" width="3" height="2" rx="1" fill="#fef9c3"/>
 </svg>`
 
+// A rider seen from above, sitting at (8, y): the owner's own choice (off by default). Helmet only;
+// a man (broad shoulders); a woman (narrower shoulders, a scarf trailing behind); a young rider
+// (smaller). Static markup, no user data.
+function riderSvg(rider: Rider, y: number) {
+  if (rider === 'man') return `<ellipse cx="8" cy="${y + 2.2}" rx="5.4" ry="2.6" fill="#334155"/><circle cx="8" cy="${y}" r="3.1" fill="#0f172a"/>`
+  if (rider === 'woman')
+    return `<ellipse cx="8" cy="${y + 2.2}" rx="4.3" ry="2.3" fill="#475569"/><path d="M5.6 ${y + 1} C6 ${y + 7} 7 ${y + 10} 8 ${y + 10.5} C9 ${y + 10} 10 ${y + 7} 10.4 ${y + 1} Z" fill="#be185d" opacity=".92"/><circle cx="8" cy="${y}" r="3" fill="#0f172a"/><path d="M5.2 ${y} A2.9 2.9 0 0 1 10.8 ${y}" fill="none" stroke="#be185d" stroke-width="1.4"/>`
+  if (rider === 'young') return `<ellipse cx="8" cy="${y + 1.8}" rx="3.5" ry="1.9" fill="#334155"/><circle cx="8" cy="${y}" r="2.5" fill="#0f172a"/>`
+  return `<circle cx="8" cy="${y}" r="3.6" fill="#0f172a" opacity=".85"/>`
+}
+// Top-down motorbike or e-bike, nose up, body in currentColor, with its rider.
+function bikeSvg(type: 'motorbike' | 'ebike', rider: Rider) {
+  if (type === 'ebike')
+    return `<svg viewBox="0 0 16 32" width="16" height="32" aria-hidden="true">
+  <rect x="6.5" y="1" width="3" height="6" rx="1.5" fill="#0f172a"/>
+  <rect x="6.5" y="25" width="3" height="6" rx="1.5" fill="#0f172a"/>
+  <line x1="2.5" y1="8" x2="13.5" y2="8" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round"/>
+  <rect x="5.5" y="7" width="5" height="19" rx="2.5" fill="currentColor" stroke="#0f172a" stroke-width="1.1"/>
+  <rect x="6.5" y="19" width="3" height="5" rx=".8" fill="#22c55e"/>
+  ${riderSvg(rider, 13.5)}
+</svg>`
+  return `<svg viewBox="0 0 16 34" width="16" height="34" aria-hidden="true">
+  <rect x="6.5" y="1" width="3" height="7" rx="1.5" fill="#0f172a"/>
+  <rect x="6.5" y="26" width="3" height="7" rx="1.5" fill="#0f172a"/>
+  <line x1="2" y1="9" x2="14" y2="9" stroke="#0f172a" stroke-width="1.8" stroke-linecap="round"/>
+  <rect x="5" y="8" width="6" height="19" rx="3" fill="currentColor" stroke="#0f172a" stroke-width="1.2"/>
+  ${riderSvg(rider, 15.5)}
+  <circle cx="8" cy="2" r="1" fill="#fde68a"/>
+</svg>`
+}
+const vehicleSvg = (type: PublicVehicle['type'], rider: Rider) => (type === 'motorbike' || type === 'ebike' ? bikeSvg(type, rider) : VEHICLE_SVGS[type])
+
 // Top-down private vehicles, nose up so rotate() aims them along the road; body in currentColor.
 // Static markup with no user data, so innerHTML is safe here.
 const VEHICLE_SVGS: Record<'car' | 'van' | 'pickup' | 'motorbike' | 'ebike', string> = {
@@ -123,23 +158,33 @@ const VEHICLE_SVGS: Record<'car' | 'van' | 'pickup' | 'motorbike' | 'ebike', str
   <rect x="3.5" y="2.5" width="3" height="2" rx="1" fill="#fde68a"/>
   <rect x="15.5" y="2.5" width="3" height="2" rx="1" fill="#fde68a"/>
 </svg>`,
-  motorbike: `<svg viewBox="0 0 16 34" width="16" height="34" aria-hidden="true">
-  <rect x="6.5" y="1" width="3" height="7" rx="1.5" fill="#0f172a"/>
-  <rect x="6.5" y="26" width="3" height="7" rx="1.5" fill="#0f172a"/>
-  <line x1="2" y1="9" x2="14" y2="9" stroke="#0f172a" stroke-width="1.8" stroke-linecap="round"/>
-  <rect x="5" y="8" width="6" height="19" rx="3" fill="currentColor" stroke="#0f172a" stroke-width="1.2"/>
-  <circle cx="8" cy="16" r="3.6" fill="#0f172a" opacity=".85"/>
-  <circle cx="8" cy="2" r="1" fill="#fde68a"/>
-</svg>`,
-  ebike: `<svg viewBox="0 0 14 32" width="14" height="32" aria-hidden="true">
-  <rect x="5.5" y="1" width="3" height="6" rx="1.5" fill="#0f172a"/>
-  <rect x="5.5" y="25" width="3" height="6" rx="1.5" fill="#0f172a"/>
-  <line x1="1.5" y1="8" x2="12.5" y2="8" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round"/>
-  <rect x="4.5" y="7" width="5" height="19" rx="2.5" fill="currentColor" stroke="#0f172a" stroke-width="1.1"/>
-  <rect x="5.5" y="17" width="3" height="5" rx=".8" fill="#22c55e"/>
-  <circle cx="7" cy="13.5" r="3" fill="#0f172a" opacity=".85"/>
-</svg>`,
+  motorbike: bikeSvg('motorbike', 'none'),
+  ebike: bikeSvg('ebike', 'none'),
 }
+
+// Vehicles at their real length for the zoom, like a game camera; a minimum on-screen size keeps
+// them visible when zoomed out, and a maximum keeps them from filling the screen.
+type SizedVehicle = 'car' | 'van' | 'pickup' | 'motorbike' | 'ebike' | 'bus'
+const REAL_LENGTH_M: Record<SizedVehicle, number> = { car: 4.5, van: 5.2, pickup: 5.3, motorbike: 2.1, ebike: 1.8, bus: 12 }
+const DRAWN_PX: Record<SizedVehicle, number> = { car: 36, van: 40, pickup: 40, motorbike: 34, ebike: 32, bus: 56 } // SVG height
+const MIN_PX: Record<SizedVehicle, number> = { car: 16, van: 17, pickup: 17, motorbike: 13, ebike: 12, bus: 24 }
+function realScale(m: MlMap, type: SizedVehicle) {
+  const lat = m.getCenter().lat
+  const metresPerPx = (40_075_016.686 * Math.cos((lat * Math.PI) / 180)) / (512 * 2 ** m.getZoom())
+  const px = Math.max(MIN_PX[type] ?? 16, Math.min((REAL_LENGTH_M[type] ?? 4.5) / metresPerPx, 160))
+  return px / (DRAWN_PX[type] ?? 36)
+}
+
+// Top-down city bus (about 12 m), nose up, body in the route's colour.
+const BUS_SVG = `<svg viewBox="0 0 22 56" width="22" height="56" aria-hidden="true">
+  <rect x="1.5" y="1.5" width="19" height="53" rx="3" fill="currentColor" stroke="#0f172a" stroke-width="1.5"/>
+  <rect x="4" y="3.5" width="14" height="5" rx="1.2" fill="#0f172a" opacity=".85"/>
+  <rect x="5" y="13" width="12" height="36" rx="1.5" fill="#ffffff" opacity=".22"/>
+  <rect x="8" y="20" width="6" height="4" rx=".8" fill="#0f172a" opacity=".35"/>
+  <rect x="8" y="34" width="6" height="4" rx=".8" fill="#0f172a" opacity=".35"/>
+  <rect x="3" y="2.5" width="3" height="1.6" rx=".8" fill="#fde68a"/>
+  <rect x="16" y="2.5" width="3" height="1.6" rx=".8" fill="#fde68a"/>
+</svg>`
 
 // The vehicle's colour from what the owner typed (English or Dhivehi), else a dark grey.
 const COLOURS: [RegExp, string][] = [
@@ -212,7 +257,7 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
 // Live map of taxis, on MapLibre: rotate (two fingers / right-drag), tilt, pinch zoom, compass and
 // "my location" like Google Maps. Markers are driven imperatively so 60fps position updates don't
 // re-render React.
-export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, activeTrip, onHireFrom, people = [], vehicles = [], onHireVehicle, focusVehicle = null, myUid = null, privateRide, shareControl, driving = false }: Props) {
+export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, activeTrip, onHireFrom, people = [], vehicles = [], buses: busesProp, onHireVehicle, focusVehicle = null, myUid = null, privateRide, shareControl, driving = false }: Props) {
   const { lang, t, driverName } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const map = useRef<MlMap | null>(null)
@@ -265,6 +310,9 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   // Places for search, labels and pin names: the viewer's area (e.g. Malé) on the real app's map;
   // the game map stays on Kulhudhuffushi.
   const placesKey = followsViewer ? (regionAt(area.center)?.id ?? 'home') : 'home'
+  // Live RTL buses: only on the real app's map, in the Greater Malé area, while Buses is on.
+  const [showBuses, setShowBuses] = useState(true)
+  const liveBuses = useLiveBuses(followsViewer && placesKey === 'male' && showBuses)
   const placesHere = () => (followRef.current ? loadPlacesAround(getArea().center) : loadPlaces())
 
   // Create the map once.
@@ -282,7 +330,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       attributionControl: {
         compact: true,
         customAttribution:
-          'Place names: <a href="https://kulhudhuffushicity.gov.mv/map">Kulhudhuffushi City Council</a> map, via <a href="https://mapkf.vercel.app">mapkf</a> by emjey; Malé: Malé City Council; Hulhumalé: <a href="https://gis.hdc.mv/">HDC</a>; postcodes: <a href="https://maldivespost.com/post-code">Maldives Post</a>',
+          'Place names: <a href="https://kulhudhuffushicity.gov.mv/map">Kulhudhuffushi City Council</a> map, via <a href="https://mapkf.vercel.app">mapkf</a> by emjey; Malé: Malé City Council; Hulhumalé: <a href="https://gis.hdc.mv/">HDC</a>; postcodes: <a href="https://maldivespost.com/post-code">Maldives Post</a>; bus positions: <a href="https://rtl.mv">RTL (MTCC)</a>',
       },
     })
     m.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true, showZoom: true }), 'top-right')
@@ -545,7 +593,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
           continue
         }
         entry.marker.setLngLat([p.lng, p.lat])
-        entry.parts.car.style.transform = `rotate(${p.heading - bearing}deg)`
+        entry.parts.car.style.transform = `rotate(${p.heading - bearing}deg) scale(${realScale(m, 'car')})`
         if (!entry.onMap) {
           entry.marker.addTo(m)
           entry.onMap = true
@@ -839,9 +887,10 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       vel.classList.toggle('mine', !!myUidRef.current && v.ownerUid === myUidRef.current)
       vel.style.opacity = v.level !== 'active' ? '0.7' : '1'
       vel.title = v.level !== 'active' ? vLabels.current.level(v.level) : ''
-      if (e.type !== v.type) {
-        e.type = v.type
-        e.shape.innerHTML = VEHICLE_SVGS[v.type] // static markup, no user data
+      const look = `${v.type}:${v.rider}`
+      if (e.type !== look) {
+        e.type = look
+        e.shape.innerHTML = vehicleSvg(v.type, v.rider) // static markup, no user data
         e.shape.dataset.type = v.type
       }
       e.marker.getElement().onclick = (ev) => {
@@ -880,11 +929,100 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       }
     }
     for (const [id, entry] of vehicleMarkers.current) {
-      if (seen.has(id)) continue
+      if (seen.has(id) || id.startsWith('b:')) continue
       entry.marker.remove()
       vehicleMarkers.current.delete(id)
     }
   }, [vehiclesKey, ready])
+
+  // MTCC RTL buses (live GPS, src/buses.ts): a top-down bus in its route's colour with the route
+  // number, gliding and kept on the road like private vehicles. Tap for the route and plate.
+  const buses = busesProp ?? liveBuses
+  const busesKey = JSON.stringify(buses)
+  const bLabels = useRef({ follow: '', unfollow: '', lang: 'en' as string })
+  useEffect(() => {
+    bLabels.current = { follow: t.menuFollow, unfollow: t.menuUnfollow, lang }
+  })
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready) return
+    const list = JSON.parse(busesKey) as Bus[]
+    const seen = new Set<string>()
+    for (const b of list) {
+      const key = `b:${b.id}`
+      seen.add(key)
+      let e = vehicleMarkers.current.get(key)
+      if (!e) {
+        const el = document.createElement('button')
+        el.type = 'button'
+        el.className = 'vehicle-marker bus-marker'
+        const shape = document.createElement('div')
+        shape.className = 'vehicle-shape'
+        shape.innerHTML = BUS_SVG // static markup, no user data
+        const price = document.createElement('span')
+        price.className = 'vehicle-marker-price bus-route'
+        el.append(shape, price)
+        const marker = new maplibregl.Marker({ element: el, rotationAlignment: 'viewport', pitchAlignment: 'viewport' }).setLngLat(ll(b.at)).addTo(m)
+        e = { marker, shape, price, type: 'bus', glide: null, lastReport: null, atKey: '', shownHeading: 0, onRoad: false }
+        vehicleMarkers.current.set(key, e)
+      }
+      const entry = e
+      const atKey = b.at.join(',')
+      if (atKey !== entry.atKey) {
+        const now = performance.now()
+        const g = graphRef.current
+        const snapped = snapToRoad(g, b.at)
+        const target = snapped ? snapped.at : b.at
+        let roadPath: [number, number][] | undefined
+        if (entry.glide && snapped) {
+          const from = glideAt(entry.glide, now)
+          const r = findRoute(g, from, target, 'taxi')
+          if (r && r.metres <= metresBetween(from, target) * 2.5 + 60) roadPath = r.path
+        }
+        entry.glide = nextGlide(entry.glide, target, now, entry.lastReport, null, roadPath)
+        entry.onRoad = !!snapped
+        entry.lastReport = now
+        entry.atKey = atKey
+      }
+      entry.shape.style.color = b.route.colour
+      entry.price.textContent = b.route.number || 'Bus'
+      entry.price.style.background = b.route.colour
+      entry.marker.getElement().onclick = (ev) => {
+        ev.stopPropagation()
+        popup.current?.remove()
+        const box = document.createElement('div')
+        box.className = 'taxi-menu-body'
+        const title = document.createElement('p')
+        title.className = 'taxi-menu-title'
+        title.textContent = `${b.route.number} · ${bLabels.current.lang === 'dv' && b.route.nameDv ? b.route.nameDv : b.route.name}`
+        const plate = document.createElement('p')
+        plate.className = 'taxi-menu-note'
+        plate.style.color = '#475569'
+        plate.textContent = `RTL · ${b.plate}`
+        box.append(title, plate)
+        const isFollowed = following.current === key
+        const f = document.createElement('button')
+        f.type = 'button'
+        f.className = 'taxi-menu-button plain'
+        f.textContent = isFollowed ? bLabels.current.unfollow : bLabels.current.follow
+        f.onclick = (x) => {
+          x.stopPropagation()
+          popup.current?.remove()
+          followRefFn.current(isFollowed ? null : key)
+        }
+        box.append(f)
+        const p = new maplibregl.Popup({ closeButton: false, offset: 24, className: 'taxi-menu', maxWidth: '16rem' }).setDOMContent(box)
+        entry.marker.setPopup(p)
+        if (!p.isOpen()) entry.marker.togglePopup()
+        popup.current = p
+      }
+    }
+    for (const [id, entry] of vehicleMarkers.current) {
+      if (!id.startsWith('b:') || seen.has(id)) continue
+      entry.marker.remove()
+      vehicleMarkers.current.delete(id)
+    }
+  }, [busesKey, ready])
 
   // Every frame: move each private vehicle (and each person sharing) along its glide, turn it toward
   // its heading (relative to the map's rotation), and keep a followed vehicle in the middle.
@@ -904,8 +1042,8 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         const at = e.onRoad ? inLane(st.at[0], st.at[1], st.heading, twoWayBetween(graphRef.current, st.a, st.b)) : st.at
         e.marker.setLngLat(ll(at))
         e.shownHeading = turnToward(e.shownHeading, st.heading, dt)
-        e.shape.style.transform = `rotate(${e.shownHeading - bearingNow}deg)`
-        if (following.current === `v:${id}`) m.setCenter(ll(at))
+        e.shape.style.transform = `rotate(${e.shownHeading - bearingNow}deg) scale(${realScale(m, e.type.split(':')[0] as SizedVehicle)})`
+        if (following.current === (id.startsWith('b:') ? id : `v:${id}`)) m.setCenter(ll(at))
       }
       for (const e of peopleMarkers.current.values()) {
         if (e.glide) e.marker.setLngLat(ll(glideAt(e.glide, now)))
@@ -1074,6 +1212,12 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
           <input type="checkbox" checked={showPlots} onChange={(e) => setShowPlots(e.target.checked)} className="size-4 accent-emerald-600" />
           {t.plotMap}
         </label>
+        {followsViewer && placesKey === 'male' && (
+          <label className="flex min-h-8 cursor-pointer items-center gap-1.5 font-medium">
+            <input type="checkbox" checked={showBuses} onChange={(e) => setShowBuses(e.target.checked)} className="size-4 accent-emerald-600" />
+            {t.busesToggle}
+          </label>
+        )}
       </div>
   )
 

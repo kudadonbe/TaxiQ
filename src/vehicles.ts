@@ -13,6 +13,10 @@ export type VehicleType = 'car' | 'van' | 'pickup' | 'motorbike' | 'ebike'
 export const VEHICLE_TYPES: VehicleType[] = ['car', 'van', 'pickup', 'motorbike', 'ebike']
 export const DEFAULT_SEATS: Record<VehicleType, number> = { car: 4, van: 8, pickup: 2, motorbike: 1, ebike: 1 }
 export type VehicleStatus = 'pending' | 'approved' | 'rejected' | 'suspended'
+// Who is shown riding a motorbike or e-bike on the map: the owner's own choice, off by default.
+export type Rider = 'none' | 'man' | 'woman' | 'young'
+export const RIDERS: Rider[] = ['none', 'man', 'woman', 'young']
+const riderOf = (x: unknown): Rider => RIDERS.find((r) => r === x) ?? 'none'
 
 export interface VehicleDetails {
   type: VehicleType
@@ -33,6 +37,7 @@ export interface Vehicle extends VehicleDetails {
   decidedBy: string | null
   decidedAt: number | null
   createdAt: number
+  rider: Rider
 }
 export interface PublicVehicle {
   id: string
@@ -47,6 +52,7 @@ export interface PublicVehicle {
   heading: number
   updatedAt: number
   level: BeatLevel
+  rider: Rider
 }
 export interface LogEntry {
   id: string
@@ -99,6 +105,7 @@ function parseVehicle(id: string, x: Record<string, unknown>): Vehicle | null {
     decidedBy: typeof x.decidedBy === 'string' ? x.decidedBy : null,
     decidedAt: ms(x.decidedAt) || null,
     createdAt: ms(x.createdAt),
+    rider: riderOf(x.rider),
   }
 }
 
@@ -147,7 +154,7 @@ export function usePublicVehicles(fb: Fb | null, signedIn: boolean): PublicVehic
       const type = typeOf(x.type)
       const at = Array.isArray(x.at) && x.at.length === 2 && x.at.every((n: unknown) => typeof n === 'number') ? ([x.at[0], x.at[1]] as [number, number]) : null
       if (!type || !at) return null
-      return { id, ownerUid: str(x.ownerUid, 128), type, colour: str(x.colour, 24), seats: num(x.seats), firstName: str(x.firstName, 40), priceBase: num(x.priceBase), pricePerKm: num(x.pricePerKm), at, heading: num(x.heading), level: (['active', 'rest', 'nap', 'sleep'] as const).find((l) => l === x.level) ?? 'active', updatedAt: ms(x.updatedAt) }
+      return { id, ownerUid: str(x.ownerUid, 128), type, colour: str(x.colour, 24), seats: num(x.seats), firstName: str(x.firstName, 40), priceBase: num(x.priceBase), pricePerKm: num(x.pricePerKm), at, heading: num(x.heading), level: (['active', 'rest', 'nap', 'sleep'] as const).find((l) => l === x.level) ?? 'active', rider: riderOf(x.rider), updatedAt: ms(x.updatedAt) }
     },
     [],
   )
@@ -159,7 +166,19 @@ async function log(fb: Fb, vehicleId: string, ownerUid: string, action: string, 
   await fb.setDoc(fb.doc(fb.collection(fb.db, 'vehicleLog')), { vehicleId, ownerUid, action, by, reason: reason.slice(0, 120), at: fb.serverTimestamp() })
 }
 
-const clean = (d: VehicleDetails) => ({ ...d, reg: d.reg.trim().toUpperCase(), colour: d.colour.trim(), phone: d.phone.trim(), note: d.note.trim() })
+// Only the vehicle's details go into the record (an edit starts from the whole record, with its id,
+// status and dates, which the rules don't allow to be sent back).
+const clean = (d: VehicleDetails & { rider?: Rider }) => ({
+  type: d.type,
+  reg: d.reg.trim().toUpperCase(),
+  colour: d.colour.trim(),
+  seats: d.seats,
+  priceBase: d.priceBase,
+  pricePerKm: d.pricePerKm,
+  phone: d.phone.trim(),
+  note: d.note.trim(),
+  rider: d.rider ?? 'none',
+})
 
 // The owner applies, or edits and sends back for approval.
 export async function applyVehicle(fb: Fb, me: { uid: string; name: string; email: string }, d: VehicleDetails, existing?: Vehicle) {
@@ -171,6 +190,9 @@ export async function applyVehicle(fb: Fb, me: { uid: string; name: string; emai
 }
 export async function setPrice(fb: Fb, v: Vehicle, priceBase: number, pricePerKm: number) {
   await fb.updateDoc(fb.doc(fb.db, 'vehicles', v.id), { priceBase, pricePerKm, updatedAt: fb.serverTimestamp() })
+}
+export async function setRider(fb: Fb, v: Vehicle, rider: Rider) {
+  await fb.updateDoc(fb.doc(fb.db, 'vehicles', v.id), { rider, updatedAt: fb.serverTimestamp() })
 }
 export async function withdrawVehicle(fb: Fb, v: Vehicle, email: string) {
   await log(fb, v.id, v.ownerUid, 'withdrawn', email)
@@ -188,7 +210,7 @@ export async function decideVehicle(fb: Fb, v: Vehicle, status: 'approved' | 're
 export function useAvailability(fb: Fb | null, v: Vehicle | null, firstName: string) {
   const [error, setError] = useState<string | null>(null)
   const id = v && v.status === 'approved' ? v.id : null
-  const shape = v ? JSON.stringify({ ownerUid: v.ownerUid, type: v.type, colour: v.colour, seats: v.seats, priceBase: v.priceBase, pricePerKm: v.pricePerKm }) : ''
+  const shape = v ? JSON.stringify({ ownerUid: v.ownerUid, type: v.type, colour: v.colour, seats: v.seats, priceBase: v.priceBase, pricePerKm: v.pricePerKm, rider: v.type === 'motorbike' || v.type === 'ebike' ? v.rider : 'none' }) : ''
   useEffect(() => {
     if (!fb || !id || !('geolocation' in navigator)) return
     const ref = fb.doc(fb.db, 'publicVehicles', id)

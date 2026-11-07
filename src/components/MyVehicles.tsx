@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { useAuth } from '../auth'
 import { useI18n } from '../i18n'
 import { useAvailableVehicle } from '../availability'
-import { applyVehicle, DEFAULT_SEATS, setPrice, useMyVehicles, vehicleErrors, VEHICLE_TYPES, withdrawVehicle, type Vehicle, type VehicleDetails, type VehicleType } from '../vehicles'
+import { applyVehicle, DEFAULT_SEATS, RIDERS, setPrice, setRider, useMyVehicles, vehicleErrors, VEHICLE_TYPES, withdrawVehicle, type Vehicle, type VehicleDetails, type VehicleType } from '../vehicles'
 import { VEHICLE_ICONS } from './iconStyles'
 
 const STATUS_CLASS: Record<Vehicle['status'], string> = {
@@ -103,6 +103,25 @@ function VehicleCard({ v, onEdit, onWithdraw, onShowOnMap }: { v: Vehicle; onEdi
             )}
           </div>
           {isOn && avail.error && <p className="text-xs font-semibold text-rose-700">{avail.error === 'location_denied' ? t.shareDenied : t.saveError(avail.error)}</p>}
+          {(v.type === 'motorbike' || v.type === 'ebike') && (
+            <div>
+              <p className="text-sm font-medium">{t.vehRider}</p>
+              <p className="text-xs text-slate-500">{t.vehRiderNote}</p>
+              <div className="mt-1 grid grid-cols-4 gap-1" role="group" aria-label={t.vehRider}>
+                {RIDERS.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    aria-pressed={v.rider === r}
+                    onClick={() => fb && v.rider !== r && void setRider(fb, v, r)}
+                    className={`min-h-10 rounded-lg px-1 text-xs font-semibold ${v.rider === r ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'}`}
+                  >
+                    {t.vehRiders[r]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2">
             <label className="block min-w-0">
               <span className="block truncate text-xs font-medium">{t.vehPriceBase}</span>
