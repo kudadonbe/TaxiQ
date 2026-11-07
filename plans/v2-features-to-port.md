@@ -177,6 +177,15 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
 - **v3:** bookings become one table for every provider (center or private) on the server, with payments, ratings and a history. Push notifications to the owner's phone replace the in-app banner.
 - [ ] Ported
 
+## 19. Heartbeat rest levels; app-wide Available; Private driver role
+
+- **v2:** `3b73176`:
+  - `src/core/heartbeat.ts`: rest levels like iclock-sync's SmartTiming (Active, Rest, Nap, Sleep at night), each update carrying its level, and readers waiting two missed beats.
+  - `src/availability.tsx`: one app-wide available vehicle.
+  - The `private` role (Private driver), required with an approved vehicle.
+- **v3:** use the same rest levels for driver GPS over WebSocket, so the server knows how long to wait. Private driver becomes a provider permission per center or platform.
+- [ ] Ported
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
