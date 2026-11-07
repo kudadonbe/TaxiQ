@@ -2,6 +2,7 @@
 // OpenFreeMap vector tiles (graphFromLines), or from the Overpass API (buildGraph). Both are
 // OpenStreetMap data. Pure: returns a RoadGraph (src/core/route.ts).
 
+import { roadLimitKmh } from './drive'
 import type { RoadGraph } from './route'
 
 // Roads cars can use. Footways, paths, steps and cycleways are left out.
@@ -43,7 +44,7 @@ export function buildGraph(json: { elements?: OsmElement[] }, minNodes = 20): Ro
     for (let k = 1; k < e.nodes.length; k++) {
       const p = coords.get(e.nodes[k - 1]!)
       const q = coords.get(e.nodes[k]!)
-      if (p && q) b.link(p, q, dir)
+      if (p && q) b.link(p, q, dir, roadLimitKmh(e.tags?.highway, p))
     }
   }
   return b.done(minNodes)
@@ -51,11 +52,14 @@ export function buildGraph(json: { elements?: OsmElement[] }, minNodes = 20): Ro
 
 // Road graph from road lines ([lng, lat] points, as vector tiles give them), with each line's
 // one-way direction. Points within 2.5 m are joined, including lines cut at tile edges.
-export function graphFromLines(lines: readonly { coords: readonly (readonly number[])[]; oneway?: number }[], minNodes = 20): RoadGraph | null {
+export function graphFromLines(lines: readonly { coords: readonly (readonly number[])[]; oneway?: number; kind?: string }[], minNodes = 20): RoadGraph | null {
   const b = new Builder()
-  for (const { coords, oneway } of lines) {
+  for (const { coords, oneway, kind } of lines) {
     const dir = oneway === 1 ? 1 : oneway === -1 ? -1 : 0
-    for (let k = 1; k < coords.length; k++) b.link([coords[k - 1]![1]!, coords[k - 1]![0]!], [coords[k]![1]!, coords[k]![0]!], dir)
+    for (let k = 1; k < coords.length; k++) {
+      const p: [number, number] = [coords[k - 1]![1]!, coords[k - 1]![0]!]
+      b.link(p, [coords[k]![1]!, coords[k]![0]!], dir, roadLimitKmh(kind, p))
+    }
   }
   return b.done(minNodes)
 }
@@ -91,12 +95,13 @@ class Builder {
     return i
   }
 
-  private readonly segs: { a: number; b: number; dir: 1 | -1 | 0 }[] = []
+  private readonly segs: { a: number; b: number; dir: 1 | -1 | 0; limit: number }[] = []
+  private readonly limits = new Map<string, number>() // 'i,j' -> km/h
 
-  link(p: readonly [number, number], q: readonly [number, number], dir: 1 | -1 | 0) {
+  link(p: readonly [number, number], q: readonly [number, number], dir: 1 | -1 | 0, limit = 30) {
     const a = this.idx(p)
     const b = this.idx(q)
-    if (a !== b) this.segs.push({ a, b, dir })
+    if (a !== b) this.segs.push({ a, b, dir, limit })
   }
 
   // Simplified road shapes (vector tiles) can lose the shared point where roads meet: a side road
@@ -181,6 +186,11 @@ class Builder {
         if (i === j) continue
         if (sg.dir >= 0) this.out[i]!.add(j)
         if (sg.dir <= 0) this.out[j]!.add(i)
+        // Where two roads share a stretch, the faster limit wins.
+        for (const [x, y] of [[i, j], [j, i]]) {
+          const k = `${x},${y}`
+          this.limits.set(k, Math.max(this.limits.get(k) ?? 0, sg.limit))
+        }
       }
     })
   }
@@ -203,8 +213,14 @@ class Builder {
     const nodes: [number, number][] = []
     for (let i = 0; i < n; i++) if (comp[i] === best) keep.set(i, nodes.push(this.nodes[i]!) - 1)
     const next = nodes.map(() => [] as number[])
-    for (const [i, j] of keep) for (const v of this.out[i]!) if (keep.has(v)) next[j]!.push(keep.get(v)!)
-    return { nodes, next }
+    const limit = nodes.map(() => [] as number[])
+    for (const [i, j] of keep)
+      for (const v of this.out[i]!)
+        if (keep.has(v)) {
+          next[j]!.push(keep.get(v)!)
+          limit[j]!.push(this.limits.get(`${i},${v}`) ?? 30)
+        }
+    return { nodes, next, limit }
   }
 }
 

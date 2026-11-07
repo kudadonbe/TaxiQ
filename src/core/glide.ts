@@ -84,6 +84,29 @@ export function glideState(g: Glide, now: number): { at: [number, number]; a: [n
 }
 export const glideAt = (g: Glide, now: number) => glideState(g, now).at
 
+// The turn coming up within `lookM` metres along the glide (signed degrees, + = right), and how far
+// away it is: for indicators.
+export function turnAhead(g: Glide, now: number, lookM = 30): { angle: number; dist: number } {
+  const total = g.cum[g.cum.length - 1] ?? 0
+  if (g.path.length < 3 || total === 0) return { angle: 0, dist: Infinity }
+  const f = g.dur > 0 ? easeDrive(Math.min(1, Math.max(0, (now - g.start) / g.dur))) : 1
+  const d = f * total
+  let i = 0
+  while (i < g.cum.length - 2 && g.cum[i + 1]! <= d) i++
+  const here = bearing(g.path[i]!, g.path[i + 1]!)
+  for (let k = i + 1; k < g.path.length - 1 && g.cum[k]! - d <= lookM; k++) {
+    const a = ((bearing(g.path[k]!, g.path[k + 1]!) - here + 540) % 360) - 180
+    if (Math.abs(a) >= 25) return { angle: a, dist: g.cum[k]! - d }
+  }
+  return { angle: 0, dist: Infinity }
+}
+
+// Its speed now (m/s), for leaning.
+export function glideSpeed(g: Glide) {
+  const total = g.cum[g.cum.length - 1] ?? 0
+  return g.dur > 0 ? total / (g.dur / 1000) : 0
+}
+
 // A new report arrived: glide on from where it is shown now. The glide lasts as long as the gap
 // since the last report (so it keeps moving until the next one), within limits. The heading is the
 // phone's own when it gives one, else the direction of travel; tiny moves keep the old heading.
@@ -99,6 +122,19 @@ export function nextGlide(prev: Glide | null, to: [number, number], now: number,
   const last = path.length >= 2 ? bearing(path[path.length - 2]!, path[path.length - 1]!) : (prev?.heading ?? 0)
   const heading = typeof phoneHeading === 'number' && phoneHeading > 0 ? phoneHeading : moved ? last : (prev?.heading ?? 0)
   return { from, to, path, cum, start: now, dur, heading }
+}
+
+// Keep going between readings (prediction): along `path` from where it is shown, at `speed`, easing
+// to a stop at the end. Used when no new reading has come yet.
+export function coastGlide(prev: Glide, path: [number, number][], speed: number, now: number): Glide {
+  const from = glideAt(prev, now)
+  const pts: [number, number][] = [from, ...path.slice(1)]
+  const cum = [0]
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1]! + metres(pts[i - 1]!, pts[i]!))
+  const total = cum[cum.length - 1] ?? 0
+  const dur = speed > 0 ? ((total / speed) * 1000) / 0.925 : 0
+  const heading = pts.length >= 2 ? bearing(pts[pts.length - 2]!, pts[pts.length - 1]!) : prev.heading
+  return { from, to: pts[pts.length - 1] ?? from, path: pts, cum, start: now, dur, heading }
 }
 
 // Turn the shown heading toward the target a little each frame (the shortest way round).

@@ -5,6 +5,8 @@
 export type TravelMode = 'taxi' | 'walk'
 
 export interface RoadGraph {
+  // Speed limit (km/h) for each road in `next` (same shape), when known; else 30 (island roads).
+  limit?: number[][]
   nodes: readonly [number, number][] // [lat, lng]
   next: readonly (readonly number[])[] // directed edges (one-way streets honoured)
 }

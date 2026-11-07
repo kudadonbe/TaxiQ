@@ -224,3 +224,76 @@ html .maplibregl-map {
   border: 1px solid white;
 }
 
+/* Indicators: two small amber lights at a vehicle's front corners, blinking on the turning side. */
+.sig-box {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+.sig-box .ind {
+  position: absolute;
+  top: 4%;
+  width: 18%;
+  max-width: 4px;
+  aspect-ratio: 1;
+  border-radius: 9999px;
+  background: #f59e0b;
+  box-shadow: 0 0 4px 1px #fbbf24;
+  opacity: 0;
+}
+.sig-box .ind.l {
+  left: 4%;
+}
+.sig-box .ind.r {
+  right: 4%;
+}
+.sig-left .ind.l,
+.sig-right .ind.r {
+  animation: indicator-blink 0.66s steps(1) infinite;
+}
+@keyframes indicator-blink {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Brake lights: two red lights at the back, glowing while slowing or stopped. */
+.sig-box .brk {
+  position: absolute;
+  bottom: 3%;
+  width: 18%;
+  max-width: 4px;
+  aspect-ratio: 1;
+  border-radius: 2px;
+  background: #7f1d1d;
+  opacity: 0.6;
+}
+.sig-box .brk.l {
+  left: 6%;
+}
+.sig-box .brk.r {
+  right: 6%;
+}
+.braking .sig-box .brk {
+  background: #ef4444;
+  box-shadow: 0 0 5px 1px #f87171;
+  opacity: 1;
+}
+
+/* Headlights at night: a soft beam ahead of each vehicle. */
+.map-night .sig-box::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 96%;
+  width: 150%;
+  height: 90%;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse at 50% 100%, rgb(255 247 210 / 0.75), rgb(255 247 210 / 0.25) 45%, transparent 72%);
+  border-radius: 50% 50% 0 0;
+  pointer-events: none;
+}
+

@@ -15,6 +15,7 @@ export interface BusRoute {
   name: string
   nameDv: string
   colour: string // e.g. #e9222a
+  stops: { name: string; nameDv: string; at: [number, number] }[] // in route order
 }
 export interface Bus {
   id: string // the bus code (also its plate)
@@ -33,7 +34,12 @@ export function loadBusRoutes(): Promise<BusRoute[]> {
         const code = typeof x.code === 'string' ? x.code : ''
         if (!code) return []
         const colour = typeof x.color === 'string' && /^#[0-9a-f]{6}$/i.test(x.color) ? x.color : '#0f766e'
-        return [{ code, number: String(x.routeNumber ?? '').slice(0, 6), name: String(x.name ?? '').slice(0, 60), nameDv: String(x.dvname ?? '').slice(0, 60), colour }]
+        const stops = (Array.isArray(x.busRouteStopList) ? x.busRouteStopList : [])
+          .map((st: Record<string, unknown>) => ({ order: Number(st.order), name: String(st.name ?? '').slice(0, 60), nameDv: String(st.dvname ?? '').slice(0, 60), at: [Number(st.latitude), Number(st.longitude)] as [number, number] }))
+          .filter((st) => Number.isFinite(st.order) && st.at.every(Number.isFinite))
+          .sort((a, b) => a.order - b.order)
+          .map(({ name, nameDv, at }) => ({ name, nameDv, at }))
+        return [{ code, number: String(x.routeNumber ?? '').slice(0, 6), name: String(x.name ?? '').slice(0, 60), nameDv: String(x.dvname ?? '').slice(0, 60), colour, stops }]
       })
     })
     .catch(() => {

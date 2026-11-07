@@ -90,3 +90,70 @@ export function alongRoad(g: RoadGraph, s: Snapped, wanted: number): number {
   return off(road) <= off(back) ? road : back
 }
 
+// The road ahead of a vehicle at a snapped point, going about `heading`, for `want` metres: along
+// its road, then at each junction the straightest way on (no U-turns). For predicting where a
+// vehicle is going between readings.
+export function roadAhead(g: RoadGraph, s: Snapped, heading: number, want: number): [number, number][] {
+  const bearingTo = (a: readonly [number, number], b: readonly [number, number]) => {
+    const k = Math.cos((((a[0] + b[0]) / 2) * Math.PI) / 180)
+    return ((Math.atan2((b[1] - a[1]) * k, b[0] - a[0]) * 180) / Math.PI + 360) % 360
+  }
+  const off = (h: number) => Math.abs(((h - heading + 540) % 360) - 180)
+  const m = (a: readonly [number, number], b: readonly [number, number]) =>
+    Math.hypot((b[0] - a[0]) * 111_320, (b[1] - a[1]) * 111_320 * Math.cos((a[0] * Math.PI) / 180))
+  // Toward whichever end of its road it is facing (and only if that way is allowed).
+  const towardJ = off(bearingTo(s.at, g.nodes[s.j]!)) <= off(bearingTo(s.at, g.nodes[s.i]!))
+  let prev = towardJ ? s.i : s.j
+  let cur = towardJ ? s.j : s.i
+  const out: [number, number][] = [s.at, g.nodes[cur]! as [number, number]]
+  let dist = m(s.at, g.nodes[cur]!)
+  let h = bearingTo(s.at, g.nodes[cur]!)
+  for (let guard = 0; dist < want && guard < 50; guard++) {
+    const options = (g.next[cur] ?? []).filter((n) => n !== prev)
+    if (!options.length) break
+    let best = options[0]!
+    let bestTurn = Infinity
+    for (const n of options) {
+      const t = Math.abs(((bearingTo(g.nodes[cur]!, g.nodes[n]!) - h + 540) % 360) - 180)
+      if (t < bestTurn) {
+        bestTurn = t
+        best = n
+      }
+    }
+    if (bestTurn > 100) break // no road straight on: stop at the junction
+    h = bearingTo(g.nodes[cur]!, g.nodes[best]!)
+    dist += m(g.nodes[cur]!, g.nodes[best]!)
+    prev = cur
+    cur = best
+    out.push(g.nodes[cur]! as [number, number])
+  }
+  return out
+}
+
+// For a parked vehicle: a parking aisle or lane (a 10 km/h road) within `nearM` metres is preferred
+// over the main road (plans/vehicle-movement-rules.md §8); otherwise the nearest road.
+export function snapParked(g: RoadGraph, p: readonly [number, number], nearM = 25): Snapped | null {
+  const any = snapToRoad(g, p)
+  if (!any || !g.limit) return any
+  let best: Snapped | null = null
+  const k = Math.cos((p[0] * Math.PI) / 180)
+  for (let i = 0; i < g.nodes.length; i++) {
+    const ns = g.next[i] ?? []
+    for (let q = 0; q < ns.length; q++) {
+      if (g.limit[i]?.[q] !== 10) continue
+      const j = ns[q]!
+      const a = g.nodes[i]!
+      const b = g.nodes[j]!
+      const ax = (a[1] - p[1]) * 111_320 * k
+      const ay = (a[0] - p[0]) * 111_320
+      const vx = (b[1] - a[1]) * 111_320 * k
+      const vy = (b[0] - a[0]) * 111_320
+      const len2 = vx * vx + vy * vy
+      const t = len2 ? Math.max(0, Math.min(1, -(ax * vx + ay * vy) / len2)) : 0
+      const dist = Math.hypot(ax + t * vx, ay + t * vy)
+      if (dist <= nearM && (!best || dist < best.dist)) best = { at: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], i, j, dist }
+    }
+  }
+  return best ?? any
+}
+

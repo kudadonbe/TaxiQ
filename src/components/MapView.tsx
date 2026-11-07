@@ -12,18 +12,21 @@ maplibregl.setWorkerUrl(workerUrl)
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useI18n } from '../i18n'
 import { loadPlaces, loadPlacesAround, metresBetween, nearestPlace, regionAt, searchPlaces, type Place } from '../places'
-import { route as findRoute, type TravelMode } from '../core/route'
+import { route as findRoute, type RoadGraph, type TravelMode } from '../core/route'
 import { driveTrip, endTrip, MAP_CENTER, ROAD_GRAPH, subscribePositions, TRIP_SPEED, tripProgress, type Positions } from '../positions'
 import { graphFromLines } from '../core/osmRoads'
 import { getArea, lastSpot, moveToLocation, offerRoads, useArea } from '../roadArea'
 import type { Taxi } from '../types'
 import type { Person } from '../usePresence'
 import type { PublicVehicle, Rider } from '../vehicles'
-import { useLiveBuses, type Bus } from '../buses'
+import { useLiveBuses, type Bus, type BusRoute } from '../buses'
 import { MOVING_ICONS, VEHICLE_ICONS } from './iconStyles'
-import { glideAt, glideState, nextGlide, turnToward, type Glide } from '../core/glide'
+import { bearing, coastGlide, glideAt, glideSpeed, glideState, nextGlide, turnAhead, turnToward, type Glide } from '../core/glide'
+import { indicator, leanDegrees } from '../core/drive'
 import { inLane, twoWayBetween } from '../core/lanes'
-import { alongRoad, snapToRoad } from '../core/snap'
+import { alongRoad, roadAhead, snapParked, snapToRoad, type Snapped } from '../core/snap'
+import { filterReading, newTracker, type Tracker } from '../core/gpsFilter'
+import { forward, makeLine, nextStop, pointAt, project, stretch, type RouteLine } from '../core/routeLine'
 import { createRoot, type Root } from 'react-dom/client'
 import { loadPlots, plotPopup, plotsGeoJSON, type Plot } from './plotLayer'
 
@@ -175,6 +178,26 @@ function realScale(m: MlMap, type: SizedVehicle) {
   return px / (DRAWN_PX[type] ?? 36)
 }
 
+// A bus route's own line: its stops in order, joined along the roads (built once per road map).
+const routeLines = new WeakMap<RoadGraph, Map<string, RouteLine | null>>()
+function routeLineFor(route: BusRoute, g: RoadGraph): RouteLine | null {
+  if (!g.nodes.length || route.stops.length < 2) return null
+  let cache = routeLines.get(g)
+  if (!cache) routeLines.set(g, (cache = new Map()))
+  if (cache.has(route.code)) return cache.get(route.code)!
+  const pts: [number, number][] = []
+  for (let i = 1; i < route.stops.length; i++) {
+    const a = route.stops[i - 1]!.at
+    const b = route.stops[i]!.at
+    const r = findRoute(g, a, b, 'taxi')
+    const leg = r && r.metres < metresBetween(a, b) * 3 + 200 ? r.path : [a, b]
+    pts.push(...(pts.length ? leg.slice(1) : leg))
+  }
+  const line = pts.length >= 2 ? makeLine(pts, route.stops.map((x) => x.at)) : null
+  cache.set(route.code, line)
+  return line
+}
+
 // Top-down city bus (about 12 m), nose up, body in the route's colour.
 const BUS_SVG = `<svg viewBox="0 0 22 56" width="22" height="56" aria-hidden="true">
   <rect x="1.5" y="1.5" width="19" height="53" rx="3" fill="currentColor" stroke="#0f172a" stroke-width="1.5"/>
@@ -214,7 +237,7 @@ function markerParts(): MarkerParts {
   root.className = 'relative size-10 cursor-pointer'
   const car = document.createElement('div')
   car.className = 'absolute inset-0 grid place-items-center drop-shadow-md will-change-transform'
-  car.innerHTML = CAR_SVG
+  car.innerHTML = withIndicators(CAR_SVG)
   const label = document.createElement('span')
   label.className = 'absolute -top-4 left-1/2 -translate-x-1/2 rounded-full border px-1.5 text-[11px] leading-4 font-black tabular-nums shadow'
   root.append(car, label)
@@ -222,6 +245,14 @@ function markerParts(): MarkerParts {
 }
 
 const ll = (p: [number, number]): [number, number] => [p[1], p[0]] // [lat, lng] -> MapLibre [lng, lat]
+
+// A vehicle drawing with two indicator lights at its front corners (they blink via .sig-left /
+// .sig-right on a parent). Static markup only.
+const withIndicators = (svg: string) => `<span class="sig-box">${svg}<i class="ind l"></i><i class="ind r"></i><i class="brk l"></i><i class="brk r"></i></span>`
+const setSignal = (el: HTMLElement, side: 'left' | 'right' | null | undefined) => {
+  el.classList.toggle('sig-left', side === 'left')
+  el.classList.toggle('sig-right', side === 'right')
+}
 
 // A text label marker that stays upright while the map rotates and tilts.
 function labelMarker(text: string, className: string, at: [number, number], m: MlMap): Marker {
@@ -263,6 +294,18 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   const map = useRef<MlMap | null>(null)
   const [ready, setReady] = useState(false)
   const [locationOff, setLocationOff] = useState(false) // the viewer blocked location
+  // Headlights from dusk to dawn (18:00–06:00 by the viewer's own clock).
+  const [night, setNight] = useState(() => {
+    const h = new Date().getHours()
+    return h >= 18 || h < 6
+  })
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const h = new Date().getHours()
+      setNight(h >= 18 || h < 6)
+    }, 60_000)
+    return () => clearInterval(timer)
+  }, [])
   const markers = useRef(new Map<string, { marker: Marker; parts: MarkerParts; onMap: boolean }>())
   const positions = useRef<Positions>(new Map())
   const pins = useRef<Marker[]>([])
@@ -594,6 +637,8 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         }
         entry.marker.setLngLat([p.lng, p.lat])
         entry.parts.car.style.transform = `rotate(${p.heading - bearing}deg) scale(${realScale(m, 'car')})`
+        setSignal(entry.parts.car, p.signal)
+        entry.parts.car.classList.toggle('braking', !!p.braking)
         if (!entry.onMap) {
           entry.marker.addTo(m)
           entry.onMap = true
@@ -663,13 +708,14 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       m.addLayer({ id: ROADS_LAYER, type: 'line', source: ROADS_SOURCE, 'source-layer': 'transportation', minzoom: 12, filter: ['in', ['get', 'class'], ['literal', DRIVABLE_CLASSES]], paint: { 'line-opacity': 0 } })
     }
     const read = () => {
-      const lines: { coords: number[][]; oneway?: number }[] = []
+      const lines: { coords: number[][]; oneway?: number; kind?: string }[] = []
       for (const f of m.querySourceFeatures(ROADS_SOURCE, { sourceLayer: 'transportation' })) {
         if (!DRIVABLE_CLASSES.includes(String(f.properties?.class))) continue
         const oneway = Number(f.properties?.oneway) || 0
         const g = f.geometry
-        if (g.type === 'LineString') lines.push({ coords: g.coordinates, oneway })
-        else if (g.type === 'MultiLineString') for (const c of g.coordinates) lines.push({ coords: c, oneway })
+        const kind = String(f.properties?.class ?? '')
+        if (g.type === 'LineString') lines.push({ coords: g.coordinates, oneway, kind })
+        else if (g.type === 'MultiLineString') for (const c of g.coordinates) lines.push({ coords: c, oneway, kind })
       }
       const roads = graphFromLines(lines)
       if (roads) offerRoads(roads, 'tiles')
@@ -828,7 +874,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   // turns to face its way (src/core/glide.ts), so it drives rather than jumps. Tap for its type,
   // owner's first name and price. Text goes in with textContent only.
   const vehicleMarkers = useRef(
-    new Map<string, { marker: Marker; shape: HTMLDivElement; price: HTMLSpanElement; type: string; glide: Glide | null; lastReport: number | null; atKey: string; shownHeading: number; onRoad: boolean; roadHeading: number | null }>(),
+    new Map<string, { marker: Marker; shape: HTMLDivElement; price: HTMLSpanElement; type: string; glide: Glide | null; lastReport: number | null; atKey: string; shownHeading: number; onRoad: boolean; roadHeading: number | null; lean: number; tracker: Tracker; s: number | null; speed: number; coasted: number; snap: Snapped | null }>(),
   )
   const vehiclesKey = JSON.stringify(vehicles)
   const vLabels = useRef({ type: (x: string) => x, price: (b: number, k: number) => `${b} ${k}`, hire: '', follow: '', unfollow: '', level: (l: string) => l })
@@ -857,19 +903,33 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         price.className = 'vehicle-marker-price'
         el.append(shape, price)
         const marker = new maplibregl.Marker({ element: el, rotationAlignment: 'viewport', pitchAlignment: 'viewport' }).setLngLat(ll(v.at)).addTo(m)
-        entry = { marker, shape, price, type: '', glide: null, lastReport: null, atKey: '', shownHeading: v.heading || 0, onRoad: false, roadHeading: null }
+        entry = { marker, shape, price, type: '', glide: null, lastReport: null, atKey: '', shownHeading: v.heading || 0, onRoad: false, roadHeading: null, lean: 0, tracker: newTracker(), s: null, speed: 0, coasted: 0, snap: null }
         vehicleMarkers.current.set(v.id, entry)
       }
       const e = entry
       // A new report: glide on to it from where it is shown now.
       const atKey = v.at.join(',')
-      if (atKey !== e.atKey) {
+      const verdict = atKey !== e.atKey ? filterReading(e.tracker, { at: v.at, t: performance.now() }, 60 / 3.6) : 'still'
+      if (atKey !== e.atKey) e.atKey = atKey
+      // Odd readings are held until confirmed, parked wobbles ignored (§6); never a step back.
+      const g0 = graphRef.current
+      // Parked (it has stopped moving): prefer a parking aisle nearby.
+      const snap0 = verdict === 'move' ? (v.level !== 'active' ? snapParked(g0, v.at) : snapToRoad(g0, v.at)) : null
+      const behind =
+        verdict === 'move' && e.glide && snap0
+          ? Math.abs(((bearing(glideAt(e.glide, performance.now()), snap0.at) - e.shownHeading + 540) % 360) - 180) > 120 &&
+            metresBetween(glideAt(e.glide, performance.now()), snap0.at) < 40
+          : false
+      if (verdict === 'move' && !behind) {
         const now = performance.now()
         // Keep it on the road: snap the fix to the nearest road (or parking aisle), and drive there
         // along the roads, unless that is far longer than a straight hop (a GPS jump).
-        const g = graphRef.current
-        const snapped = snapToRoad(g, v.at)
+        const g = g0
+        const snapped = snap0
         const target = snapped ? snapped.at : v.at
+        const dt = e.lastReport === null ? 0 : (now - e.lastReport) / 1000
+        if (dt > 0 && e.glide) e.speed = Math.min(60 / 3.6, metresBetween(glideAt(e.glide, now), target) / dt)
+        e.snap = snapped
         let roadPath: [number, number][] | undefined
         if (e.glide && snapped) {
           const from = glideAt(e.glide, now)
@@ -880,7 +940,6 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         e.onRoad = !!snapped
         e.roadHeading = snapped ? alongRoad(g, snapped, e.glide.path.length >= 2 ? e.glide.heading : e.shownHeading) : null
         e.lastReport = now
-        e.atKey = atKey
       }
       e.shape.style.color = vehicleColour(v.colour)
       e.price.textContent = vLabels.current.price(v.priceBase, v.pricePerKm)
@@ -891,7 +950,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       const look = `${v.type}:${v.rider}`
       if (e.type !== look) {
         e.type = look
-        e.shape.innerHTML = vehicleSvg(v.type, v.rider) // static markup, no user data
+        e.shape.innerHTML = withIndicators(vehicleSvg(v.type, v.rider)) // static markup, no user data
         e.shape.dataset.type = v.type
       }
       e.marker.getElement().onclick = (ev) => {
@@ -940,6 +999,10 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   // number, gliding and kept on the road like private vehicles. Tap for the route and plate.
   const buses = busesProp ?? liveBuses
   const busesKey = JSON.stringify(buses)
+  const bussesRef = useRef(new Map<string, BusRoute>())
+  useEffect(() => {
+    bussesRef.current = new Map(buses.map((b) => [b.id, b.route]))
+  })
   const bLabels = useRef({ follow: '', unfollow: '', lang: 'en' as string })
   useEffect(() => {
     bLabels.current = { follow: t.menuFollow, unfollow: t.menuUnfollow, lang }
@@ -959,32 +1022,57 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         el.className = 'vehicle-marker bus-marker'
         const shape = document.createElement('div')
         shape.className = 'vehicle-shape'
-        shape.innerHTML = BUS_SVG // static markup, no user data
+        shape.innerHTML = withIndicators(BUS_SVG) // static markup, no user data
         const price = document.createElement('span')
         price.className = 'vehicle-marker-price bus-route'
         el.append(shape, price)
         const marker = new maplibregl.Marker({ element: el, rotationAlignment: 'viewport', pitchAlignment: 'viewport' }).setLngLat(ll(b.at)).addTo(m)
-        e = { marker, shape, price, type: 'bus', glide: null, lastReport: null, atKey: '', shownHeading: 0, onRoad: false, roadHeading: null }
+        e = { marker, shape, price, type: 'bus', glide: null, lastReport: null, atKey: '', shownHeading: 0, onRoad: false, roadHeading: null, lean: 0, tracker: newTracker(), s: null, speed: 0, coasted: 0, snap: null }
         vehicleMarkers.current.set(key, e)
       }
       const entry = e
       const atKey = b.at.join(',')
       if (atKey !== entry.atKey) {
+        entry.atKey = atKey
         const now = performance.now()
         const g = graphRef.current
-        const snapped = snapToRoad(g, b.at)
-        const target = snapped ? snapped.at : b.at
-        let roadPath: [number, number][] | undefined
-        if (entry.glide && snapped) {
-          const from = glideAt(entry.glide, now)
-          const r = findRoute(g, from, target, 'taxi')
-          if (r && r.metres <= metresBetween(from, target) * 2.5 + 60) roadPath = r.path
+        // Odd readings are held until confirmed; parked wobbles are ignored (§6).
+        const verdict = filterReading(entry.tracker, { at: b.at, t: now }, 35 / 3.6)
+        const line = routeLineFor(b.route, g)
+        const proj = line && verdict === 'move' ? project(line, b.at) : null
+        if (verdict === 'move' && line && proj && proj.dist < 60) {
+          // On its own route: only forward along it (§6), the stretch between as the path.
+          const shownS = entry.glide ? project(line, glideAt(entry.glide, now)).s : proj.s
+          const ahead = forward(line, shownS, proj.s)
+          if (entry.glide && ahead < 0 && ahead > -60) {
+            // Behind where it's shown (a slow bus after a little prediction): wait, never go back.
+          } else {
+            const dt = entry.lastReport === null ? 0 : (now - entry.lastReport) / 1000
+            if (dt > 0) entry.speed = Math.max(0, Math.min(35 / 3.6, ahead / dt))
+            const path = entry.glide ? stretch(line, shownS, proj.s) : undefined
+            entry.glide = nextGlide(entry.glide, pointAt(line, proj.s), now, entry.lastReport, null, path)
+            entry.s = proj.s
+            entry.onRoad = true
+            const sn = snapToRoad(g, pointAt(line, proj.s))
+            entry.roadHeading = sn ? alongRoad(g, sn, entry.glide.heading) : entry.glide.heading
+            entry.lastReport = now
+          }
+        } else if (verdict === 'move') {
+          // Off its route line (a diversion, or no line yet): keep it on the nearest road.
+          const snapped = snapToRoad(g, b.at)
+          const target = snapped ? snapped.at : b.at
+          let roadPath: [number, number][] | undefined
+          if (entry.glide && snapped) {
+            const from = glideAt(entry.glide, now)
+            const r = findRoute(g, from, target, 'taxi')
+            if (r && r.metres <= metresBetween(from, target) * 2.5 + 60) roadPath = r.path
+          }
+          entry.glide = nextGlide(entry.glide, target, now, entry.lastReport, null, roadPath)
+          entry.onRoad = !!snapped
+          entry.s = null
+          entry.roadHeading = snapped ? alongRoad(g, snapped, entry.glide.path.length >= 2 ? entry.glide.heading : entry.shownHeading) : null
+          entry.lastReport = now
         }
-        entry.glide = nextGlide(entry.glide, target, now, entry.lastReport, null, roadPath)
-        entry.onRoad = !!snapped
-        entry.roadHeading = snapped ? alongRoad(g, snapped, entry.glide.path.length >= 2 ? entry.glide.heading : entry.shownHeading) : null
-        entry.lastReport = now
-        entry.atKey = atKey
       }
       entry.shape.style.color = b.route.colour
       entry.price.textContent = b.route.number || 'Bus'
@@ -1039,6 +1127,31 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       const bearingNow = m.getBearing()
       for (const [id, e] of vehicleMarkers.current) {
         if (!e.glide) continue
+        // Between readings (§7): when its glide is done and no new reading has come, keep going at
+        // about 80% of its recent speed for up to 12 s, easing to a stop. A bus follows its own route
+        // toward the next stop; a private vehicle the road it's on.
+        if (now >= e.glide.start + e.glide.dur && e.lastReport !== null && e.coasted !== e.lastReport && now - e.lastReport < 15_000 && e.speed > 1.5) {
+          e.coasted = e.lastReport
+          const v = e.speed * 0.8
+          const g = graphRef.current
+          if (id.startsWith('b:') && e.s !== null) {
+            const route = bussesRef.current.get(id.slice(2))
+            const line = route ? routeLineFor(route, g) : null
+            if (line) {
+              const stop = nextStop(line, e.s)
+              let reach = v * 12
+              if (stop !== null) reach = Math.min(reach, Math.max(0, forward(line, e.s, stop)))
+              const end = line.loop ? (e.s + reach) % line.length : Math.min(line.length, e.s + reach)
+              if (reach > 3) {
+                e.glide = coastGlide(e.glide, stretch(line, e.s, end), v, now)
+                e.s = end
+              }
+            }
+          } else if (e.snap) {
+            const ahead = roadAhead(g, snapToRoad(g, glideAt(e.glide, now)) ?? e.snap, e.glide.heading, v * 12)
+            if (ahead.length >= 2) e.glide = coastGlide(e.glide, ahead, v, now)
+          }
+        }
         // Along its glide, facing the stretch it's on, and in the left lane of two-way roads.
         const st = glideState(e.glide, now)
         // Moving: face along the stretch it's driving. Stopped: line up with its road (never across it).
@@ -1046,8 +1159,22 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         const heading = moving || e.roadHeading === null ? st.heading : e.roadHeading
         const at = e.onRoad ? inLane(st.at[0], st.at[1], heading, moving ? twoWayBetween(graphRef.current, st.a, st.b) : true) : st.at
         e.marker.setLngLat(ll(at))
+        const before = e.shownHeading
         e.shownHeading = turnToward(e.shownHeading, heading, dt)
-        e.shape.style.transform = `rotate(${e.shownHeading - bearingNow}deg) scale(${realScale(m, e.type.split(':')[0] as SizedVehicle)})`
+        const kind = e.type.split(':')[0] as SizedVehicle
+        const speed = moving ? glideSpeed(e.glide) : 0
+        // Indicators a moment before a turn; bikes lean into it (a slight sideways squeeze).
+        const ahead = moving ? turnAhead(e.glide, now) : { angle: 0, dist: Infinity }
+        setSignal(e.shape, indicator(ahead.angle, ahead.dist, speed))
+        // Brake lights while easing to a stop or standing still.
+        e.shape.classList.toggle('braking', !moving || (now - e.glide.start) / e.glide.dur > 0.85)
+        let squeeze = ''
+        if (kind === 'motorbike' || kind === 'ebike') {
+          const rate = dt > 0 ? (((e.shownHeading - before + 540) % 360) - 180) / (dt / 1000) : 0
+          e.lean += (leanDegrees(rate, speed) - e.lean) * Math.min(1, dt / 200)
+          squeeze = ` scaleX(${(1 - Math.abs(e.lean) / 90).toFixed(3)})`
+        }
+        e.shape.style.transform = `rotate(${e.shownHeading - bearingNow}deg) scale(${realScale(m, kind)})${squeeze}`
         if (following.current === (id.startsWith('b:') ? id : `v:${id}`)) m.setCenter(ll(at))
       }
       for (const e of peopleMarkers.current.values()) {
@@ -1227,7 +1354,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   )
 
   return (
-    <section className={fullscreen ? 'relative h-full w-full' : 'space-y-2 sm:space-y-3'}>
+    <section className={`${fullscreen ? 'relative h-full w-full' : 'space-y-2 sm:space-y-3'} ${night ? 'map-night' : ''}`}>
       {!fullscreen && legend}
       <div className={fullscreen ? 'absolute inset-0' : 'relative'}>
         <div
