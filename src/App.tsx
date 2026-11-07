@@ -178,7 +178,8 @@ export default function App() {
   // Without a staff role, the Hire screen is the full-screen map (taxis, vehicles, hiring): call it Map.
   const tabLabels = { queue: t.queue, map: t.map, admin: t.admin, driver: t.driver, hire: mode === 'public' && !DEMO_HOST ? t.map : t.hireTab, vehicles: t.vehTab, game: t.gameTab }
   // The map views fill the screen under the header; everything else floats over the map.
-  const fullMap = view === 'map' || (view !== 'game' && (mode === 'public' || view === 'hire'))
+  // Only the map screens fill the screen (no page scroll); My vehicles and the game scroll normally.
+  const fullMap = view === 'map' || (view !== 'game' && view !== 'vehicles' && (mode === 'public' || view === 'hire'))
   const [editingTranslations, setEditingTranslations] = useState(false)
   const canTranslate = !DEMO_HOST && (role === 'admin' || role === 'dev')
 
@@ -198,7 +199,7 @@ export default function App() {
     <div className={`bg-slate-100 text-slate-900 ${fullMap ? 'flex h-dvh flex-col overflow-hidden' : 'min-h-dvh'}`}>
       {editingTranslations && canTranslate && <TranslationEditor onClose={() => setEditingTranslations(false)} />}
       {signedIn && !DEMO_HOST && <IncomingRides />}
-      <header className="sticky top-0 z-[1200] border-b border-slate-200 bg-white/90 backdrop-blur">
+      <header className="sticky top-0 z-[1200] border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-4 py-2 sm:py-3">
           <h1 className="flex shrink-0 items-center gap-2 text-xl font-black tracking-tight" dir="ltr">
             <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="size-8 sm:size-9" />
