@@ -31,6 +31,18 @@ def fold(s):
     return re.sub(r'[^a-z0-9]', '', (s or '').lower())
 
 
+def loose(s):
+    """Spelling variants of Maldivian names in Latin letters folded together: ee/ii -> i, oo/uu -> u,
+    aa -> a, dh -> d, th -> t, w -> v, ey -> e, and doubled letters as one."""
+    s = fold(s)
+    for a, b in (('ee', 'i'), ('ii', 'i'), ('oo', 'u'), ('uu', 'u'), ('aa', 'a'), ('dh', 'd'), ('th', 't'), ('w', 'v'), ('ey', 'e')):
+        s = s.replace(a, b)
+    return re.sub(r'(.)\1+', r'\1', s)
+
+
+LOOSE_ROAD_M = 150  # a loose match counts only if its road runs within this of the house
+
+
 def get(params):
     url = f'{API}?{urllib.parse.urlencode(params)}'
     for attempt in range(4):
@@ -79,19 +91,31 @@ def main():
             print(f'{i + 1}/{len(roads)} roads searched')
 
     # house name -> {road (folded): postcode}
-    by_name = {}
+    by_name, by_loose = {}, {}
     for rows in cache.values():
         for house, road, code in rows:
             by_name.setdefault(fold(house), {})[fold(road)] = code
+            by_loose.setdefault(loose(house), {})[fold(road)] = code
     road_pts = [(fold(r['e']), pt) for r in roads for pt in r['p']]
 
-    matched = 0
+    matched = loose_matched = 0
     for p in places:
         p.pop('pc', None)
         if p['t'] not in ('h', 'l') or not p['e']:
             continue
         codes = by_name.get(fold(p['e']))
         if not codes:
+            # Loose spelling: only if that postcode's road runs near the house.
+            codes = by_loose.get(loose(p['e']))
+            if not codes:
+                continue
+            near = {name for name, pt in road_pts if metres(p['p'][0], pt) <= LOOSE_ROAD_M}
+            close = {road: code for road, code in codes.items() if road in near}
+            if len(set(close.values())) != 1:
+                continue
+            p['pc'] = next(iter(close.values()))
+            matched += 1
+            loose_matched += 1
             continue
         if len(set(codes.values())) == 1:
             p['pc'] = next(iter(codes.values()))
@@ -107,7 +131,7 @@ def main():
     json.dump(places, open(PLACES, 'w', encoding='utf8'), ensure_ascii=False, separators=(',', ':'))
     addresses = sum(len(v) for v in cache.values())
     houses = sum(1 for p in places if p['t'] in ('h', 'l') and p['e'])
-    print(f'Postcode finder: {addresses} addresses on {len(cache)} roads. Matched {matched} of {houses} named places.')
+    print(f'Postcode finder: {addresses} addresses on {len(cache)} roads. Matched {matched} of {houses} named places ({matched - loose_matched} exact, {loose_matched} by loose spelling near their road).')
 
 
 if __name__ == '__main__':
