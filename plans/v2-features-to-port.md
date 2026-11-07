@@ -223,6 +223,20 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
   - Give the game cars a deterministic version of the drive rules.
 - [ ] Ported
 
+## 23. Open trips, voice messages, fixed price, both-side finish; map overlays; routes on roads
+
+- **v2:** `1e81ed1`, `da03a22`, `c675d2c`, `cf03bad`:
+  - Open trip (`src/core/openTrip.ts`): by taxi (taxi queue) or private hire (private queue, first available first by `publicVehicles.since`); top driver offers (20 s), passenger books (60 s), driver's phone completes (30 s).
+  - Voice messages (`src/announce.ts`, `src/voiceClips.ts`): admins record or upload a clip per message and language; otherwise the phone speaks.
+  - Trip total fixed from the start (`src/core/taxiFare.ts`, `config/fares`; owner's price for private hire) on the road distance.
+  - Finish: Picked up, Arrived (driver), then the passenger confirms or reports a problem; 10 minutes counts as finished.
+  - Map overlays: one column on the physical left, one panel at a time; lost-signal fade out and in.
+  - Routes join the road at the nearest point on a road (`src/core/route.ts`).
+- **v3:**
+  - The server runs the queues and timeouts, checks the private queue order and the price against the distance (both known gaps in v2), and sends push notifications so the app needn't be open.
+  - Voice clips in object storage instead of Firestore documents.
+- [ ] Ported
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
