@@ -61,7 +61,7 @@ export function PlaceInput({ id, label, hint, value, error, onChange }: Props) {
                 // mousedown fires before the input's blur, so the pick isn't lost.
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
-                  const label = p.pl && p.t !== 'p' ? `${name(p)} (${t.plot} ${p.pl})` : name(p)
+                  const label = `${p.pl && p.t !== 'p' ? `${name(p)} (${t.plot} ${p.pl})` : name(p)}${p.pc ? `, ${p.pc}` : ''}`
                   onChange(label, p.p[0])
                   setOpen(false)
                 }}
@@ -73,6 +73,7 @@ export function PlaceInput({ id, label, hint, value, error, onChange }: Props) {
                   <span className="block truncate text-xs text-slate-500">
                     {t.placeTypes[p.t]}
                     {p.pl && p.t !== 'p' ? ` · ${t.plot} ${p.pl}` : ''}
+                    {p.pc ? ` · ${t.postcode} ${p.pc}` : ''}
                   </span>
                 </span>
               </button>

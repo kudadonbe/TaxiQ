@@ -198,7 +198,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       attributionControl: {
         compact: true,
         customAttribution:
-          'Place names: <a href="https://kulhudhuffushicity.gov.mv/map">Kulhudhuffushi City Council</a> map, via <a href="https://mapkf.vercel.app">mapkf</a> by emjey; Malé: Malé City Council; Hulhumalé: <a href="https://gis.hdc.mv/">HDC</a>',
+          'Place names: <a href="https://kulhudhuffushicity.gov.mv/map">Kulhudhuffushi City Council</a> map, via <a href="https://mapkf.vercel.app">mapkf</a> by emjey; Malé: Malé City Council; Hulhumalé: <a href="https://gis.hdc.mv/">HDC</a>; postcodes: <a href="https://maldivespost.com/post-code">Maldives Post</a>',
       },
     })
     m.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true, showZoom: true }), 'top-right')
@@ -548,7 +548,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       const c = m.getCenter()
       const at: [number, number] = [c.lat, c.lng]
       const best = nearestPlace(all, at)
-      setPin({ at, name: best ? (lang === 'dv' && best.d ? best.d : best.e) : '' })
+      setPin({ at, name: best ? `${lang === 'dv' && best.d ? best.d : best.e}${best.pc ? `, ${best.pc}` : ''}` : '' })
     }
     void placesHere().then((p) => {
       all = p
@@ -943,6 +943,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
                         <span className="block truncate text-xs text-slate-500">
                           {t.placeTypes[p.t]}
                           {p.pl && p.t !== 'p' ? ` · ${t.plot} ${p.pl}` : ''}
+                          {p.pc ? ` · ${t.postcode} ${p.pc}` : ''}
                           {lang === 'dv' ? (p.d ? ` · ${p.e}` : '') : p.d ? ` · ${p.d}` : ''}
                         </span>
                       </span>
@@ -963,6 +964,11 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
                   {selected.pl && selected.t !== 'p' && (
                     <span className="ms-2 text-sm font-medium text-slate-500">
                       {t.plot} {selected.pl}
+                    </span>
+                  )}
+                  {selected.pc && (
+                    <span className="ms-2 text-sm font-medium text-slate-500" dir="ltr">
+                      {t.postcode} {selected.pc}
                     </span>
                   )}
                 </p>

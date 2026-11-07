@@ -11,6 +11,7 @@ export interface Place {
   d: string // Dhivehi name (may be empty)
   k: string // search key (lowercase, simplified spelling)
   pl?: string // plot number
+  pc?: string // Maldives Post postcode (Malé houses)
   p: [number, number][] // lat/lng points (roads have several)
 }
 
@@ -62,7 +63,7 @@ export function searchPlaces(places: Place[], query: string, limit = 8): Place[]
   if (!q) return []
   const scored: [number, Place][] = []
   for (const place of places) {
-    const fields = place.t === 'p' ? [place.pl ?? fold(place.e)] : [fold(place.e), fold(place.d), place.k, place.pl ?? '']
+    const fields = place.t === 'p' ? [place.pl ?? fold(place.e)] : [fold(place.e), fold(place.d), place.k, place.pl ?? '', place.pc ?? '']
     let best = 0
     for (const f of fields) {
       if (!f) continue
