@@ -3,6 +3,12 @@
 Decisions made by Hussain (product owner). Newest first. Plans in this folder follow these; where a
 plan says otherwise, this log wins.
 
+## 2026-11-07
+
+| # | Decision | Effect |
+|---|----------|--------|
+| D6 | **v3 is an API-first core engine** for the whole vehicle economy: identity and organisations, vehicles, hire, **leasing**, **bank and ledger**, pricing, management, places, tracking, events. Every app (web, driver, game, back offices, partners) is a client of the API. | New plan: [v3 core engine](v3-core-api.md). **Refines D4:** the engine keeps contracts, schedules and an append-only ledger; real money moves only through a licensed partner, added later; the game uses play money. |
+
 ## 2026-11-05
 
 | # | Decision | Effect |

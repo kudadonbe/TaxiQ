@@ -1,6 +1,6 @@
 # TaxiQ v3 (in progress)
 
-TaxiQ v3 turns the single-center taxi queue of v2 into a **platform for many taxi centers** with a server of its own:
+TaxiQ v3 is an **API-first core engine** for the vehicle economy: hire, leasing, a bank and ledger, management and more, behind one API that every app uses ([plan](plans/v3-core-api.md), decision D6). It turns the single-center taxi queue of v2 into a **platform for many organisations** with a server of its own:
 
 - a **core engine** (`src/core`): the queue, offers, dispatches, routes, the game and money rules, pure TypeScript with tests, shared by the server and the browser;
 - an **API server** (`server/`): Node.js, Fastify and PostgreSQL, running the core engine for every center (API reference in `server/openapi.yaml`);
