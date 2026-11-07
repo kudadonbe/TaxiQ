@@ -53,6 +53,8 @@ interface Props {
   onPanelOpenChange?: (open: boolean) => void
   // Close the panel completely (X). Without it the panel can only be folded.
   onPanelClose?: () => void
+  // The trip's road distance by taxi (metres), or null: for the trip's total price.
+  onTripMetres?: (metres: number | null) => void
   // Pin a place on the map (hiring): a pin sits in the middle; the viewer moves the map under it and
   // confirms. The nearest known place gives its name.
   pinMode?: 'pickup' | 'destination' | null
@@ -327,7 +329,7 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
 // Live map of taxis, on MapLibre: rotate (two fingers / right-drag), tilt, pinch zoom, compass and
 // "my location" like Google Maps. Markers are driven imperatively so 60fps position updates don't
 // re-render React.
-export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, activeTrip, onHireFrom, people = [], vehicles = [], buses: busesProp, onHireVehicle, focusVehicle = null, myUid = null, privateRide, shareControl, driving = false }: Props) {
+export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, activeTrip, onHireFrom, people = [], vehicles = [], buses: busesProp, onHireVehicle, focusVehicle = null, myUid = null, privateRide, shareControl, driving = false, onTripMetres }: Props) {
   const { lang, t, driverName } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const map = useRef<MlMap | null>(null)
@@ -1300,8 +1302,10 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   const planned = useMemo(() => {
     if (!tripKey) return null
     const { from, to } = JSON.parse(tripKey) as { from: [number, number]; to: [number, number] }
-    const near = (p: [number, number]) => graph.nodes.some((n) => Math.abs(n[0] - p[0]) < 0.005 && Math.abs(n[1] - p[1]) < 0.005)
-    const r = near(from) && near(to) ? findRoute(graph, from, to, mode) : null
+    // Both ends need a road within 300 m (else another island: a dashed straight line). If one-way
+    // streets leave no way for a vehicle, still show the way along the roads, never over buildings.
+    const near = (p: [number, number]) => !!snapToRoad(graph, p, 300)
+    const r = near(from) && near(to) ? (findRoute(graph, from, to, mode) ?? (mode === 'taxi' ? findRoute(graph, from, to, 'walk') : null)) : null
     const straight = metresBetween(from, to)
     return {
       from,
@@ -1311,6 +1315,11 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     }
   }, [tripKey, mode, graph])
   const tripInfo = planned?.info ?? null
+  // Report the road distance by taxi (the price is worked out from it), on the roads only.
+  const taxiMetres = planned && mode === 'taxi' && planned.info.onRoad ? Math.round(planned.info.metres) : planned ? undefined : null
+  useEffect(() => {
+    if (taxiMetres !== undefined) onTripMetres?.(taxiMetres)
+  }, [taxiMetres, onTripMetres])
 
   useEffect(() => {
     const m = map.current

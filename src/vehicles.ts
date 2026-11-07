@@ -53,6 +53,7 @@ export interface PublicVehicle {
   updatedAt: number
   level: BeatLevel
   rider: Rider
+  since: number // ms: when it became available (or came back from its last trip): the private queue
 }
 export interface LogEntry {
   id: string
@@ -154,7 +155,7 @@ export function usePublicVehicles(fb: Fb | null, signedIn: boolean): PublicVehic
       const type = typeOf(x.type)
       const at = Array.isArray(x.at) && x.at.length === 2 && x.at.every((n: unknown) => typeof n === 'number') ? ([x.at[0], x.at[1]] as [number, number]) : null
       if (!type || !at) return null
-      return { id, ownerUid: str(x.ownerUid, 128), type, colour: str(x.colour, 24), seats: num(x.seats), firstName: str(x.firstName, 40), priceBase: num(x.priceBase), pricePerKm: num(x.pricePerKm), at, heading: num(x.heading), level: (['active', 'rest', 'nap', 'sleep'] as const).find((l) => l === x.level) ?? 'active', rider: riderOf(x.rider), updatedAt: ms(x.updatedAt) }
+      return { id, ownerUid: str(x.ownerUid, 128), type, colour: str(x.colour, 24), seats: num(x.seats), firstName: str(x.firstName, 40), priceBase: num(x.priceBase), pricePerKm: num(x.pricePerKm), at, heading: num(x.heading), level: (['active', 'rest', 'nap', 'sleep'] as const).find((l) => l === x.level) ?? 'active', rider: riderOf(x.rider), updatedAt: ms(x.updatedAt), since: ms(x.since) || ms(x.updatedAt) }
     },
     [],
   )
@@ -222,9 +223,14 @@ export function useAvailability(fb: Fb | null, v: Vehicle | null, firstName: str
     let sentAt = 0
     const send = () => {
       if (!last) return
+      // The first report sets `since` (its place in the private queue: first available first);
+      // later ones keep it (merge), so a finished trip's "back of the queue" isn't undone.
+      const first = !sentAt
       sentAt = Date.now()
       const level = beatLevel(Date.now() - movedAt, new Date().getHours())
-      fb.setDoc(ref, { ...JSON.parse(shape), firstName: firstName.slice(0, 40), at: [last.lat, last.lng], heading: last.heading, level, updatedAt: fb.serverTimestamp() }).catch((e: { code?: string }) => setError(e.code ?? 'error'))
+      const data: Record<string, unknown> = { ...JSON.parse(shape), firstName: firstName.slice(0, 40), at: [last.lat, last.lng], heading: last.heading, level, updatedAt: fb.serverTimestamp() }
+      if (first) data.since = fb.serverTimestamp()
+      fb.setDoc(ref, data, { merge: true }).catch((e: { code?: string }) => setError(e.code ?? 'error'))
     }
     const beat = setInterval(() => {
       const level = beatLevel(Date.now() - movedAt, new Date().getHours())

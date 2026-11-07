@@ -13,8 +13,12 @@ import { QueueChangesLog, ReorderPanel } from './components/ReorderPanel'
 import { TranslationEditor } from './components/TranslationEditor'
 import { ManagementView } from './components/ManagementView'
 import { usePublicVehicles, type PublicVehicle } from './vehicles'
-import { useMyPrivateRide } from './privateRides'
+import { movePrivateOn, openPrivate, useMyPrivateRide } from './privateRides'
+import { privateQueue, timedOut } from './core/openTrip'
 import { PrivateHirePanel } from './components/PrivateHirePanel'
+import { VoiceMessagesPanel } from './components/VoiceMessagesPanel'
+import { TaxiFaresPanel } from './components/TaxiFaresPanel'
+import { useVoiceClips } from './voiceClips'
 import { IncomingRides } from './components/IncomingRides'
 import { PeoplePanel } from './components/PeoplePanel'
 import { useI18n } from './i18n'
@@ -118,7 +122,9 @@ export default function App() {
   const [hireOpen, setHireOpen] = useState(false)
   const myRide = useMyRide(auth.fb, auth.uid ?? null)
   const [closedRide, setClosedRide] = useState<number | null>(null)
-  const acceptedTrip = myRide?.status === 'accepted' && myRide.pickupAt && myRide.destinationAt && myRide.createdAt !== closedRide ? { from: myRide.pickupAt, to: myRide.destinationAt } : undefined
+  // Booked and until the passenger confirms it finished: the taxi's trip on the map.
+  const riding = myRide?.status === 'accepted' || myRide?.status === 'onboard' || myRide?.status === 'arrived'
+  const acceptedTrip = riding && myRide?.pickupAt && myRide.destinationAt && myRide.createdAt !== closedRide ? { from: myRide.pickupAt, to: myRide.destinationAt } : undefined
   // Demo rides (developers, and the demo site): no real taxi, nothing saved. The taxi accepts by
   // itself after a moment, then drives the trip on the map.
   const demoAllowed = DEMO_HOST
@@ -135,19 +141,43 @@ export default function App() {
   // so Show me pauses and you can't hire. Switching it off (park and walk) is fine.
   const { availableId } = useAvailableVehicle()
   const driving = !!availableId
-  const shareMe = useShareMe(auth.fb, signedIn && !DEMO_HOST ? (auth.uid ?? null) : null, auth.name ?? '', myRide?.status === 'accepted', driving)
+  const shareMe = useShareMe(auth.fb, signedIn && !DEMO_HOST ? (auth.uid ?? null) : null, auth.name ?? '', !!riding, driving)
   const vehicles = usePublicVehicles(auth.fb, signedIn && !DEMO_HOST)
+  // Recorded voice messages (Management -> Voice messages), kept in memory to play.
+  useVoiceClips(auth.fb, signedIn && !DEMO_HOST)
   // Booking a private vehicle: the vehicle tapped on the map, and this passenger's booking.
   const [chosenVehicle, setChosenVehicle] = useState<PublicVehicle | null>(null)
   // See it on the map (from My vehicles): fly to and follow that vehicle.
   const [focusVehicle, setFocusVehicle] = useState<{ id: string; n: number } | null>(null)
   const myPrivate = useMyPrivateRide(auth.fb, signedIn && !DEMO_HOST ? (auth.uid ?? null) : null)
   const [closedPrivate, setClosedPrivate] = useState<number | null>(null)
-  const privateLive = !!myPrivate && myPrivate.createdAt !== closedPrivate && (myPrivate.status === 'offering' || myPrivate.status === 'accepted' || myPrivate.status === 'onboard' || myPrivate.status === 'done' || myPrivate.status === 'declined')
+  const privateLive = !!myPrivate && myPrivate.createdAt !== closedPrivate && myPrivate.status !== 'cancelled'
+  // The private queue (open trips by private hire): vehicles on the map, first available first.
+  const privateQ = useMemo(() => privateQueue(vehicles, auth.uid ?? ''), [vehicles, auth.uid])
+  // An open private trip waits its time at each step, then moves on to the next vehicle (the
+  // passenger's phone does it; the rules check the time).
+  const movedPrivate = useRef('')
+  useEffect(() => {
+    const fb = auth.fb
+    const r = myPrivate
+    if (!fb || !r || r.mode !== 'queue' || !(r.status === 'offering' || r.status === 'interest' || r.status === 'confirmed')) return
+    const step = r.status
+    const tick = () => {
+      const key = `${r.createdAt}:${r.offerAt}`
+      if (movedPrivate.current === key || !timedOut(step, r.offerAt, Date.now())) return
+      movedPrivate.current = key
+      movePrivateOn(fb, r, privateQueue(vehicles, r.uid, r.skipped)).catch(() => {
+        movedPrivate.current = ''
+      })
+    }
+    const timer = setInterval(tick, 1000)
+    return () => clearInterval(timer)
+  }, [auth.fb, myPrivate, vehicles])
   const privateMode = !!chosenVehicle || privateLive
   const shareControl = signedIn && !DEMO_HOST && !driving ? <ShareMe me={shareMe} /> : undefined
-  const rideInProgress = !!myRide && myRide.createdAt !== closedRide && (myRide.status === 'offering' || myRide.status === 'accepted')
+  const rideInProgress = !!myRide && myRide.createdAt !== closedRide && (myRide.status === 'offering' || myRide.status === 'interest' || myRide.status === 'confirmed' || myRide.status === 'accepted' || myRide.status === 'onboard' || myRide.status === 'arrived' || myRide.status === 'problem')
   const [hirePickup, setHirePickup] = useState<[number, number] | undefined>()
+  const [tripMetres, setTripMetres] = useState<number | null>(null)
   const [pinMode, setPinMode] = useState<'pickup' | 'destination' | null>(null)
   const pinApply = useRef<((at: [number, number], name: string) => void) | null>(null)
   const [hireTrip, setHireTrip] = useState<{ from: [number, number]; to: [number, number] } | undefined>()
@@ -410,8 +440,8 @@ export default function App() {
                     }
               }
               privateRide={
-                privateLive && myPrivate && (myPrivate.status === 'offering' || myPrivate.status === 'accepted' || myPrivate.status === 'onboard')
-                  ? { vehicleId: myPrivate.vehicleId, pickup: myPrivate.pickupAt, destination: myPrivate.destinationAt ?? myPrivate.pickupAt, status: myPrivate.status }
+                privateLive && myPrivate && (myPrivate.status === 'offering' || myPrivate.status === 'accepted' || myPrivate.status === 'onboard' || myPrivate.status === 'arrived')
+                  ? { vehicleId: myPrivate.vehicleId, pickup: myPrivate.pickupAt, destination: myPrivate.destinationAt ?? myPrivate.pickupAt, status: myPrivate.status === 'arrived' ? 'onboard' : myPrivate.status }
                   : undefined
               }
               shareControl={shareControl}
@@ -431,19 +461,20 @@ export default function App() {
               trip={
                 demoRide?.status === 'accepted'
                   ? { from: demoRide.pickupAt, to: demoRide.destinationAt }
-                  : privateLive && myPrivate && myPrivate.destinationAt && (myPrivate.status === 'accepted' || myPrivate.status === 'onboard')
+                  : privateLive && myPrivate && myPrivate.destinationAt && (myPrivate.status === 'accepted' || myPrivate.status === 'onboard' || myPrivate.status === 'arrived')
                     ? { from: myPrivate.pickupAt, to: myPrivate.destinationAt }
                     : (acceptedTrip ?? hireTrip)
               }
               activeTrip={
                 demoRide?.status === 'accepted'
                   ? { taxiId: demoRide.taxiId, pickup: demoRide.pickupAt, destination: demoRide.destinationAt }
-                  : myRide?.status === 'accepted' && myRide.acceptedBy && myRide.pickupAt && myRide.createdAt !== closedRide
+                  : riding && myRide?.acceptedBy && myRide.pickupAt && myRide.createdAt !== closedRide
                   ? { taxiId: myRide.acceptedBy, pickup: myRide.pickupAt, destination: myRide.destinationAt ?? myRide.pickupAt }
                   : undefined
               }
               panelTitle={privateMode ? t.privTitle : t.hire}
               panelOpen={hireOpen}
+              onTripMetres={setTripMetres}
               onPanelOpenChange={setHireOpen}
               onPanelClose={() => {
                 setChosenVehicle(null)
@@ -476,6 +507,9 @@ export default function App() {
                     key={`${chosenVehicle?.id ?? ''}-${hireFrom?.n ?? 0}`}
                     vehicle={chosenVehicle}
                     ride={privateLive ? myPrivate : null}
+                    tripMetres={tripMetres}
+                    offered={myPrivate ? (vehicles.find((x) => x.id === myPrivate.vehicleId) ?? null) : null}
+                    onNoThanks={() => auth.fb && myPrivate && void movePrivateOn(auth.fb, myPrivate, privateQueue(vehicles, myPrivate.uid, myPrivate.skipped)).catch(() => {})}
                     initialPickup={hireFrom ?? undefined}
                     onTrip={setHireTrip}
                     onPinRequest={(kind, apply) => {
@@ -492,6 +526,14 @@ export default function App() {
                 ) : (
                 <HirePanel
                   key={hireFrom?.n ?? 0}
+                  tripMetres={tripMetres}
+                  onOpenPrivate={
+                    signedIn && !DEMO_HOST && auth.fb && auth.uid
+                      ? privateQ.length
+                        ? (b) => openPrivate(auth.fb!, { uid: auth.uid!, name: auth.name ?? '' }, privateQ, b)
+                        : null
+                      : undefined
+                  }
                   initialPickup={hireFrom ?? undefined}
                   taxis={hireTaxis}
                   demoAllowed={demoAllowed}
@@ -527,8 +569,14 @@ export default function App() {
         <main className="mx-auto max-w-5xl px-4 py-4 sm:py-6">
           <ManagementView
             users={live && canAdmin ? <PeoplePanel taxis={queue} /> : <p className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">{t.mgmtUsersNeedLive}</p>}
-            taxis={<AdminPanel taxis={queue} onRegister={q.register} onRemove={q.remove} onSuspend={q.suspend} onLift={q.lift} />}
+            taxis={
+              <div className="space-y-4">
+                {live && canAdmin && <TaxiFaresPanel />}
+                <AdminPanel taxis={queue} onRegister={q.register} onRemove={q.remove} onSuspend={q.suspend} onLift={q.lift} />
+              </div>
+            }
             vehicles={live ? <Suspense fallback={<p className="text-sm text-slate-500">{t.loading}</p>}><VehiclesAdmin /></Suspense> : undefined}
+            voice={live && canAdmin ? <VoiceMessagesPanel /> : undefined}
           />
         </main>
       ) : view === 'map' ? (

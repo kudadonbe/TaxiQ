@@ -205,16 +205,34 @@ service cloud.firestore {
     // booked. The owner accepts or declines, then marks picked up and done; the passenger can cancel.
     function rideKeys() {
       return ['uid', 'name', 'phone', 'vehicleId', 'ownerUid', 'ownerFirstName', 'ownerPhone', 'pickup', 'pickupAt', 'destination', 'destinationAt',
-        'note', 'price', 'status', 'createdAt', 'updatedAt'];
+        'note', 'price', 'km', 'status', 'mode', 'skipped', 'offerAt', 'arrivedAt', 'createdAt', 'updatedAt'];
+    }
+    // A vehicle that may be offered a trip: approved, on the map, owned as stated, not the passenger's.
+    function bookable(vehicleId, ownerUid, passengerUid) {
+      return ownerUid == get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.ownerUid
+        && get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.status == 'approved'
+        && exists(/databases/$(database)/documents/publicVehicles/$(vehicleId))
+        && ownerUid != passengerUid;
+    }
+    // Open trips by private hire: how long the current step may wait.
+    function privWaited(d) {
+      return (d.status == 'offering' && request.time > d.offerAt + duration.value(20, 's'))
+        || (d.status == 'interest' && request.time > d.offerAt + duration.value(60, 's'))
+        || (d.status == 'confirmed' && request.time > d.offerAt + duration.value(30, 's'));
     }
     match /privateRides/{uid} {
       allow read: if isStaff() || (signedIn() && (uid == request.auth.uid || resource.data.ownerUid == request.auth.uid));
       allow create, update: if signedIn() && request.resource.data.keys().hasOnly(rideKeys()) && (
         // The passenger books (or books again, replacing a finished one).
         (uid == request.auth.uid
-          && (resource == null || resource.data.status in ['declined', 'cancelled', 'done'])
+          && (resource == null || resource.data.status in ['declined', 'cancelled', 'done', 'expired'])
           && request.resource.data.uid == uid
           && request.resource.data.status == 'offering'
+          && request.resource.data.get('mode', 'direct') in ['direct', 'queue']
+          && request.resource.data.get('skipped', []) == []
+          && request.resource.data.get('offerAt', request.time) == request.time
+          && (request.resource.data.get('km', null) == null || (request.resource.data.km is number && request.resource.data.km >= 0 && request.resource.data.km <= 1000))
+          && !('arrivedAt' in request.resource.data)
           && str(request.resource.data.name, 80)
           && request.resource.data.phone is string && request.resource.data.phone.matches('^[0-9]{7}$')
           && str(request.resource.data.pickup, 120) && request.resource.data.pickup.size() > 0
@@ -231,19 +249,58 @@ service cloud.firestore {
         // The passenger cancels before the trip starts.
         || (resource != null && uid == request.auth.uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
-          && resource.data.status in ['offering', 'accepted'] && request.resource.data.status == 'cancelled'
+          && resource.data.status in ['offering', 'interest', 'confirmed', 'accepted'] && request.resource.data.status == 'cancelled'
           && request.resource.data.updatedAt == request.time)
+        // At the destination: the passenger confirms it finished, or reports a problem. With no
+        // answer in 10 minutes, the passenger or the owner marks it done. Staff close a problem.
+        || (resource != null && resource.data.status == 'arrived'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+          && request.resource.data.updatedAt == request.time
+          && ((uid == request.auth.uid && request.resource.data.status in ['done', 'problem'])
+            || (request.resource.data.status == 'done' && (uid == request.auth.uid || resource.data.ownerUid == request.auth.uid || isStaff())
+              && request.time > resource.data.arrivedAt + duration.value(10, 'm'))))
+        || (resource != null && resource.data.status == 'problem' && isStaff()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+          && request.resource.data.status == 'done' && request.resource.data.updatedAt == request.time)
+        // Open trip: the passenger books the vehicle that offered.
+        || (resource != null && uid == request.auth.uid && resource.data.get('mode', 'direct') == 'queue'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'offerAt', 'updatedAt'])
+          && resource.data.status == 'interest' && request.resource.data.status == 'confirmed'
+          && request.resource.data.offerAt == request.time && request.resource.data.updatedAt == request.time)
+        // Open trip: on to the next vehicle in the private queue, or expired. The passenger, when
+        // saying no thanks or after the step's time; the offered owner, when passing.
+        || (resource != null && resource.data.get('mode', 'direct') == 'queue'
+          && resource.data.status in ['offering', 'interest', 'confirmed']
+          && ((uid == request.auth.uid && (resource.data.status == 'interest' || privWaited(resource.data)))
+            || (resource.data.ownerUid == request.auth.uid && resource.data.status == 'offering'))
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['vehicleId', 'ownerUid', 'price', 'skipped', 'offerAt', 'status', 'updatedAt'])
+          && request.resource.data.skipped == resource.data.skipped.concat([resource.data.vehicleId])
+          && request.resource.data.skipped.size() <= 200
+          && request.resource.data.offerAt == request.time && request.resource.data.updatedAt == request.time
+          && (request.resource.data.status == 'expired'
+            || (request.resource.data.status == 'offering'
+              && !(request.resource.data.vehicleId in request.resource.data.skipped)
+              && bookable(request.resource.data.vehicleId, request.resource.data.ownerUid, uid)
+              && request.resource.data.price is number && request.resource.data.price >= 0 && request.resource.data.price <= 100000)))
         // The owner answers and moves the trip on: offering -> accepted (with their name and phone)
         // or declined; accepted -> onboard; onboard -> done.
         || (resource != null && resource.data.ownerUid == request.auth.uid
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'ownerFirstName', 'ownerPhone', 'updatedAt'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'ownerFirstName', 'ownerPhone', 'offerAt', 'arrivedAt', 'updatedAt'])
           && request.resource.data.updatedAt == request.time
-          && ((resource.data.status == 'offering' && request.resource.data.status == 'accepted' && role() in ['private', 'dev']
+          // A vehicle picked on the map: accept from offering. An open trip: only once booked.
+          && ((((resource.data.get('mode', 'direct') == 'direct' && resource.data.status == 'offering')
+                  || (resource.data.get('mode', 'direct') == 'queue' && resource.data.status == 'confirmed'))
+                && request.resource.data.status == 'accepted' && role() in ['private', 'dev']
+                && request.resource.data.get('offerAt', null) == resource.data.get('offerAt', null)
                 && str(request.resource.data.ownerFirstName, 40)
                 && request.resource.data.ownerPhone is string && request.resource.data.ownerPhone.matches('^[0-9]{7}$'))
-            || (resource.data.status == 'offering' && request.resource.data.status == 'declined')
+            // An open trip: the owner offers to take it.
+            || (resource.data.get('mode', 'direct') == 'queue' && resource.data.status == 'offering' && request.resource.data.status == 'interest'
+                && role() in ['private', 'dev'] && request.resource.data.offerAt == request.time
+                && request.resource.data.ownerFirstName == '' && request.resource.data.ownerPhone == '')
+            || (resource.data.get('mode', 'direct') == 'direct' && resource.data.status == 'offering' && request.resource.data.status == 'declined')
             || (resource.data.status == 'accepted' && request.resource.data.status == 'onboard')
-            || (resource.data.status == 'onboard' && request.resource.data.status == 'done'))));
+            || (resource.data.status == 'onboard' && request.resource.data.status == 'arrived' && request.resource.data.arrivedAt == request.time))));
       allow delete: if false;
     }
 
@@ -253,7 +310,10 @@ service cloud.firestore {
       allow create, update: if signedIn()
         && get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.ownerUid == request.auth.uid
         && get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.status == 'approved'
-        && request.resource.data.keys().hasOnly(['ownerUid', 'type', 'colour', 'seats', 'firstName', 'priceBase', 'pricePerKm', 'at', 'heading', 'level', 'rider', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['ownerUid', 'type', 'colour', 'seats', 'firstName', 'priceBase', 'pricePerKm', 'at', 'heading', 'level', 'rider', 'since', 'updatedAt'])
+        // Its place in the private queue: set now (switched on, or back from a trip), or kept.
+        && (!('since' in request.resource.data) || request.resource.data.since == request.time
+          || (resource != null && request.resource.data.since == resource.data.get('since', null)))
         && request.resource.data.get('rider', 'none') in ['none', 'man', 'woman', 'young']
         && request.resource.data.get('level', 'active') in ['active', 'rest', 'nap', 'sleep']
         && request.resource.data.ownerUid == request.auth.uid
@@ -316,7 +376,7 @@ service cloud.firestore {
       }
       function validShape() {
         return next().keys().hasOnly(['uid', 'name', 'mode', 'pickup', 'pickupAt', 'destination', 'destinationAt', 'phone', 'note',
-            'status', 'offerTo', 'offerAt', 'skipped', 'acceptedBy', 'createdAt'])
+            'status', 'offerTo', 'offerAt', 'skipped', 'acceptedBy', 'price', 'km', 'arrivedAt', 'createdAt'])
           && next().uid == uid
           && str(next().name, 80)
           && next().mode in ['queue', 'direct']
@@ -326,7 +386,10 @@ service cloud.firestore {
           && str(next().note, 120)
           && (!('pickupAt' in next()) || (next().pickupAt is list && next().pickupAt.size() == 2))
           && (!('destinationAt' in next()) || (next().destinationAt is list && next().destinationAt.size() == 2))
-          && next().status in ['offering', 'accepted', 'expired', 'cancelled']
+          && next().status in ['offering', 'interest', 'confirmed', 'accepted', 'onboard', 'arrived', 'done', 'problem', 'expired', 'cancelled']
+          && (next().get('price', null) == null || (next().price is number && next().price >= 0 && next().price <= 100000))
+          && (next().get('km', null) == null || (next().km is number && next().km >= 0 && next().km <= 1000))
+          && (!('arrivedAt' in next()) || next().arrivedAt is timestamp)
           && (next().offerTo == null || str(next().offerTo, 40))
           && next().offerAt is timestamp
           && next().skipped is list && next().skipped.size() <= 500
@@ -346,11 +409,33 @@ service cloud.firestore {
           && next().pickup == prev().pickup && next().destination == prev().destination
           && next().phone == prev().phone && next().note == prev().note
           && next().createdAt == prev().createdAt
-          && next().get('pickupAt', null) == prev().get('pickupAt', null);
+          && next().get('pickupAt', null) == prev().get('pickupAt', null)
+          // The total price is fixed from the start.
+          && next().get('price', null) == prev().get('price', null) && next().get('km', null) == prev().get('km', null);
       }
-      // Move the offer on from the current taxi (declined or timed out) to the next, or expire.
+      // After booking: the same trip, taxi and booking; only the step (and arrivedAt) change.
+      function sameBooking() {
+        return next().acceptedBy == prev().acceptedBy && next().offerTo == prev().offerTo
+          && next().skipped == prev().skipped && next().offerAt == prev().offerAt && sameTrip();
+      }
+      function myRide() {
+        return isDriver() && prev().acceptedBy == myTaxi();
+      }
+      // How long the current step may wait (open trips: driver 20 s, passenger 60 s, the driver's
+      // phone 30 s to complete a booking).
+      function waited() {
+        return (prev().status == 'offering' && request.time > prev().offerAt + duration.value(20, 's'))
+          || (prev().status == 'interest' && request.time > prev().offerAt + duration.value(60, 's'))
+          || (prev().status == 'confirmed' && request.time > prev().offerAt + duration.value(30, 's'));
+      }
+      // The trip stays with the same taxi, and only the step and its time change.
+      function sameOffer() {
+        return sameTrip() && next().offerTo == prev().offerTo && next().skipped == prev().skipped
+          && next().acceptedBy == null && next().offerAt == request.time;
+      }
+      // Move the offer on from the current taxi (passed, no thanks, or timed out) to the next, or expire.
       function movesOn() {
-        return prev().status == 'offering'
+        return prev().status in ['offering', 'interest', 'confirmed']
           && sameTrip()
           && next().skipped == prev().skipped.concat([prev().offerTo])
           && next().offerAt == request.time
@@ -367,22 +452,78 @@ service cloud.firestore {
 
       allow create: if signedIn() && uid == request.auth.uid && validShape() && isFresh();
 
+      // Each kind of change is told apart first by a cheap check (the new status, or a new
+      // createdAt), so only one branch is checked in full (rules may evaluate 1000 expressions).
       allow update: if signedIn() && validShape() && (
-        // The passenger: a new request, or cancel.
-        (uid == request.auth.uid && (isFresh() || (sameTrip() && next().status == 'cancelled')))
-        // Anyone involved, once the offer has waited 20 s: move it on.
-        || ((uid == request.auth.uid || isStaff() || isDriver())
-            && request.time > prev().offerAt + duration.value(20, 's') && movesOn())
-        // The offered driver declines: move it on.
-        || (isDriver() && prev().offerTo == myTaxi() && movesOn())
-        // The offered driver accepts (taxi must not be suspended).
-        || (isDriver() && prev().status == 'offering' && prev().offerTo == myTaxi()
+        // The passenger: a new request.
+        (next().createdAt == request.time && uid == request.auth.uid && isFresh())
+        // The passenger (before pickup) or staff: cancel.
+        || (next().status == 'cancelled' && sameTrip()
+            && (isStaff() || (uid == request.auth.uid && prev().status in ['offering', 'interest', 'confirmed', 'accepted', 'expired'])))
+        // The trip. The driver: picked up, then arrived at the destination.
+        || (next().status == 'onboard' && prev().status == 'accepted' && myRide()
+            && next().get('arrivedAt', null) == prev().get('arrivedAt', null) && sameBooking())
+        || (next().status == 'arrived' && prev().status == 'onboard' && myRide()
+            && next().arrivedAt == request.time && sameBooking())
+        // The passenger: finished, or a problem. With no answer in 10 minutes, anyone involved
+        // marks it done. Staff close a problem.
+        || (next().status in ['done', 'problem'] && prev().status == 'arrived'
+            && (uid == request.auth.uid
+              || (next().status == 'done' && (myRide() || isStaff()) && request.time > prev().arrivedAt + duration.value(10, 'm')))
+            && next().arrivedAt == prev().arrivedAt && sameBooking())
+        || (next().status == 'done' && prev().status == 'problem' && isStaff()
+            && next().get('arrivedAt', null) == prev().get('arrivedAt', null) && sameBooking())
+        // On to the next taxi (or expired): once the step has waited its time (anyone involved);
+        // the offered driver passing; or the passenger saying no thanks to a taxi that offered.
+        || (next().skipped.size() == prev().skipped.size() + 1
+            && ((waited() && (uid == request.auth.uid || isStaff() || isDriver()))
+              || (prev().status == 'offering' && isDriver() && prev().offerTo == myTaxi())
+              || (prev().status == 'interest' && uid == request.auth.uid))
+            && movesOn())
+        // Open trip: the offered driver offers to take it (taxi must not be suspended).
+        || (next().status == 'interest' && prev().status == 'offering' && prev().mode == 'queue'
+            && isDriver() && prev().offerTo == myTaxi()
             && !('suspended' in get(/databases/$(database)/documents/taxis/$(myTaxi())).data)
-            && sameTrip() && next().status == 'accepted' && next().acceptedBy == myTaxi()
-            && next().offerTo == prev().offerTo && next().skipped == prev().skipped && next().offerAt == prev().offerAt)
-        // Staff can cancel any request.
-        || (isStaff() && sameTrip() && next().status == 'cancelled')
+            && sameOffer())
+        // Open trip: the passenger books the taxi that offered.
+        || (next().status == 'confirmed' && prev().status == 'interest' && uid == request.auth.uid && sameOffer())
+        // Booked (open trip), or a taxi the passenger picked on the map (direct): the driver
+        // completes it; staff may complete a booked one for them.
+        || (next().status == 'accepted'
+            && (prev().status == 'confirmed' || (prev().status == 'offering' && prev().mode == 'direct'))
+            && ((isDriver() && prev().offerTo == myTaxi()) || (isStaff() && prev().status == 'confirmed'))
+            && next().acceptedBy == prev().offerTo && next().offerTo == prev().offerTo
+            && next().skipped == prev().skipped && next().offerAt == prev().offerAt
+            && !('suspended' in get(/databases/$(database)/documents/taxis/$(prev().offerTo)).data)
+            && sameTrip())
       );
+    }
+
+    // The taxi fare table: admins set it; everyone signed in reads it (the total before sending a trip).
+    match /config/fares {
+      allow read: if signedIn();
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['base', 'perKm', 'minimum', 'updatedBy', 'updatedAt'])
+        && request.resource.data.base is number && request.resource.data.base >= 0 && request.resource.data.base <= 10000
+        && request.resource.data.perKm is number && request.resource.data.perKm >= 0 && request.resource.data.perKm <= 10000
+        && request.resource.data.minimum is number && request.resource.data.minimum >= 0 && request.resource.data.minimum <= 10000
+        && request.resource.data.updatedBy == email()
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    // Recorded voice messages (Management -> Voice messages): a short audio clip per message and
+    // language, recorded or uploaded by admins; everyone signed in plays them.
+    match /voiceClips/{id} {
+      allow read: if signedIn();
+      allow create, update: if isAdmin()
+        && id in ['tripNew-en', 'tripNew-dv', 'tripBooked-en', 'tripBooked-dv', 'offerReceived-en', 'offerReceived-dv']
+        && request.resource.data.keys().hasOnly(['data', 'mime', 'by', 'updatedAt'])
+        && request.resource.data.data is string && request.resource.data.data.size() <= 480000
+        && request.resource.data.mime is string && request.resource.data.mime.size() <= 60
+        && request.resource.data.mime.matches('^audio/[a-z0-9.+-]+(;.*)?$')
+        && request.resource.data.by == email()
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if isAdmin();
     }
 
     // Manual queue changes (reorder / shuffle) by staff, each with a reason. A permanent log:

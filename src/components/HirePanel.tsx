@@ -3,7 +3,11 @@ import { ic, icFlip } from './iconStyles'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../auth'
 import { useI18n } from '../i18n'
-import { cancelRide, OFFER_SECONDS, requestRide, type PublicTaxi } from '../rides'
+import { bookOffer, cancelRide, finishRide, moveOn, problemRide, requestRide, type PublicTaxi } from '../rides'
+import { taxiFare, CONFIRM_FINISH_MINUTES } from '../core/taxiFare'
+import { useFareTable } from '../taxiFares'
+import { secondsLeft } from '../core/openTrip'
+import { announce } from '../announce'
 import { useMyRide, useNow } from '../useRides'
 import { isFreeText } from '../validate'
 import { PlaceInput } from './PlaceInput'
@@ -27,6 +31,11 @@ interface Props {
   demoRide?: DemoRide | null
   onDemoRide?: (r: Omit<DemoRide, 'taxiId' | 'status'> & { taxiId?: string }) => void
   onEndDemo?: () => void
+  // Open trip by private hire: send it to the private queue (App books it with the top vehicle).
+  // Null when no private vehicle is available.
+  // The road distance of the trip (metres, from the map's route), for the total price.
+  tripMetres?: number | null
+  onOpenPrivate?: ((b: { phone: string; pickup: string; pickupAt: [number, number]; destination: string; destinationAt: [number, number] | null; note: string; metres: number | null }) => Promise<void>) | null
 }
 
 export interface DemoRide {
@@ -40,11 +49,14 @@ export interface DemoRide {
 
 // Public: ask for a ride. Either a specific taxi (tapped on the map) or the queue, where the offer
 // goes to each taxi in turn. Needs Google sign-in (no staff role).
-export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPinRequest, initialPickup, demoAllowed = false, demoRide = null, onDemoRide, onEndDemo }: Props) {
+export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPinRequest, initialPickup, demoAllowed = false, demoRide = null, onDemoRide, onEndDemo, onOpenPrivate, tripMetres = null }: Props) {
+  // Open trip: by taxi (the taxi queue) or private hire (the private queue).
+  const [by, setBy] = useState<'taxi' | 'private'>('taxi')
   const { fb, uid, name, status, signIn } = useAuth()
   const { lang, t } = useI18n()
   const ride = useMyRide(fb, uid)
-  const now = useNow(ride?.status === 'offering')
+  const fares = useFareTable(fb, status === 'signedIn')
+  const now = useNow(ride?.status === 'offering' || ride?.status === 'interest' || ride?.status === 'confirmed')
   const [pickup, setPickup] = useState(() => (initialPickup ? (initialPickup.name || t.pinnedPlace).slice(0, 120) : ''))
   const [pickupAt, setPickupAt] = useState<[number, number] | undefined>(() => initialPickup?.at)
   const [destination, setDestination] = useState('')
@@ -55,6 +67,11 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
   const [error, setError] = useState<string | null>(null)
   // A finished request the passenger cleared from the screen (it stays in the database until replaced).
   const [dismissed, setDismissed] = useState<number | null>(null)
+  // A voice message when a taxi offers to take the passenger (they may have looked away).
+  const offerKey = ride?.status === 'interest' ? `${ride.createdAt}:${ride.offerAt}` : ''
+  useEffect(() => {
+    if (offerKey) announce('offerReceived', lang, { en: t.voiceOfferEn, dv: t.voiceOfferDv })
+  }, [offerKey, lang, t])
 
   const tripKey = pickupAt && destinationAt ? JSON.stringify([pickupAt, destinationAt]) : ''
   useEffect(() => {
@@ -95,6 +112,10 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
     return x ? { no: x.taxiNo, name: lang === 'dv' && x.nameDv ? x.nameDv : x.name } : { no: '?', name: '' }
   }
   const chosenTaxi = chosen ? byId.get(chosen) : undefined
+  // The total, fixed from the start: the center's fare for the road distance (both places picked).
+  const km = pickupAt && destinationAt && tripMetres ? Math.round(tripMetres / 100) / 10 : null
+  const price = fares && km !== null ? taxiFare(fares, km * 1000) : null
+  const privateOpen = by === 'private' && !(chosenTaxi && !chosenTaxi.suspended) && onOpenPrivate !== undefined
   const valid =
     pickup.trim().length > 0 && isFreeText(pickup.trim()) && isFreeText(destination.trim()) && isFreeText(note.trim()) && /^\d{7}$/.test(phone.trim())
 
@@ -102,7 +123,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
     if (!fb || !uid || busy) return
     setBusy(true)
     setError(null)
-    requestRide(fb, uid, { name: name ?? '', pickup, pickupAt, destination, destinationAt, phone, note, taxiId })
+    requestRide(fb, uid, { name: name ?? '', pickup, pickupAt, destination, destinationAt, phone, note, taxiId, price, km })
       .catch((e: { code?: string }) => setError(e.code ?? 'error'))
       .finally(() => setBusy(false))
   }
@@ -115,7 +136,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
     setNote(ride.note)
     if (!fb || !uid) return
     setBusy(true)
-    requestRide(fb, uid, { name: name ?? '', pickup: ride.pickup, pickupAt: ride.pickupAt, destination: ride.destination, destinationAt: ride.destinationAt, phone: ride.phone, note: ride.note, taxiId })
+    requestRide(fb, uid, { name: name ?? '', pickup: ride.pickup, pickupAt: ride.pickupAt, destination: ride.destination, destinationAt: ride.destinationAt, phone: ride.phone, note: ride.note, taxiId, price: ride.price, km: ride.km })
       .catch((e: { code?: string }) => setError(e.code ?? 'error'))
       .finally(() => setBusy(false))
   }
@@ -168,8 +189,9 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
   }
 
   // An active request: show its progress.
-  if (!demo && ride && ride.createdAt !== dismissed && (ride.status === 'offering' || ride.status === 'accepted' || ride.status === 'expired')) {
-    const left = Math.max(0, Math.ceil((ride.offerAt + OFFER_SECONDS * 1000 - now) / 1000))
+  if (!demo && ride && ride.createdAt !== dismissed && ride.status !== 'cancelled') {
+    const left = ride.status === 'offering' || ride.status === 'interest' || ride.status === 'confirmed' ? secondsLeft(ride.status, ride.offerAt, now) : 0
+    const minutesLeft = ride.arrivedAt ? Math.max(0, Math.ceil((ride.arrivedAt + CONFIRM_FINISH_MINUTES * 60_000 - now) / 60_000)) : 0
     const offered = label(ride.offerTo)
     const taker = label(ride.acceptedBy)
     return (
@@ -183,6 +205,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
             </>
           )}
         </p>
+        {ride.price !== null && <p className="text-lg font-black">{t.tripTotal(ride.price)}</p>}
         {ride.status === 'offering' && (
           <div className="flex items-center gap-3 rounded-lg bg-amber-50 p-3 text-amber-900">
             <span className="size-3 animate-pulse rounded-full bg-amber-500" aria-hidden />
@@ -192,9 +215,62 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
             </span>
           </div>
         )}
+        {ride.status === 'interest' && (
+          <div className="space-y-2 rounded-lg bg-emerald-50 p-3 text-emerald-950">
+            <p className="flex items-center justify-between gap-2 font-black">
+              <span>
+                <CarTaxiFront className={ic} aria-hidden="true" /> {t.taxiOffers(offered.no)}
+                {offered.name ? ` · ${offered.name}` : ''}
+              </span>
+              <span className="shrink-0 tabular-nums" dir="ltr">
+                {t.secondsLeft(left)}
+              </span>
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" disabled={busy} onClick={() => fb && uid && void bookOffer(fb, uid).catch((e: { code?: string }) => setError(e.code ?? 'error'))} className="min-h-11 rounded-xl bg-emerald-600 font-bold text-white">
+                {t.bookIt}
+              </button>
+              <button type="button" disabled={busy} onClick={() => fb && uid && void moveOn(fb, uid).catch(() => {})} className="min-h-11 rounded-xl border border-slate-300 bg-white/70 font-semibold">
+                {t.noThanks}
+              </button>
+            </div>
+          </div>
+        )}
+        {ride.status === 'confirmed' && (
+          <p className="flex items-center gap-2 rounded-lg bg-emerald-50 p-3 font-semibold text-emerald-900">
+            <span className="size-3 animate-pulse rounded-full bg-emerald-500" aria-hidden /> {t.bookingTaxi(offered.no)}
+          </p>
+        )}
+        {error && <p className="text-sm font-semibold text-rose-700">{t.requestFailed(error)}</p>}
         {ride.status === 'accepted' && (
           <p className="rounded-lg bg-emerald-50 p-3 font-semibold text-emerald-900"><CircleCheck className={ic} aria-hidden="true" /> {t.acceptedBy(taker.no, taker.name)}</p>
         )}
+        {ride.status === 'onboard' && (
+          <p className="rounded-lg bg-emerald-50 p-3 font-semibold text-emerald-900">
+            <CarTaxiFront className={ic} aria-hidden="true" /> {t.onTheWay(taker.no)}
+          </p>
+        )}
+        {ride.status === 'arrived' && (
+          <div className="space-y-2 rounded-xl border-2 border-emerald-500 bg-white/80 p-3">
+            <p className="text-lg font-black">{t.tripFinishedQ}</p>
+            {ride.price !== null && <p className="font-bold">{t.payDriver(ride.price)}</p>}
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => fb && uid && void finishRide(fb, uid).catch((e: { code?: string }) => setError(e.code ?? 'error'))} className="min-h-12 rounded-xl bg-emerald-600 font-bold text-white">
+                <CircleCheck className={ic} aria-hidden="true" /> {t.yesFinished}
+              </button>
+              <button type="button" onClick={() => fb && uid && void problemRide(fb, uid).catch((e: { code?: string }) => setError(e.code ?? 'error'))} className="min-h-12 rounded-xl border border-rose-300 bg-rose-50 font-semibold text-rose-800">
+                {t.reportProblem}
+              </button>
+            </div>
+            <p className="text-xs text-slate-500">{t.autoFinish(minutesLeft)}</p>
+          </div>
+        )}
+        {ride.status === 'done' && (
+          <p className="rounded-lg bg-emerald-50 p-3 font-semibold text-emerald-900">
+            <CircleCheck className={ic} aria-hidden="true" /> {t.tripDoneThanks}
+          </p>
+        )}
+        {ride.status === 'problem' && <p className="rounded-lg bg-amber-50 p-3 font-semibold text-amber-900">{t.problemReported}</p>}
         {ride.status === 'expired' && (
           <div className="space-y-2">
             <p className="rounded-lg bg-rose-50 p-3 font-semibold text-rose-800">{t.noTaxi}</p>
@@ -206,7 +282,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
           </div>
         )}
         <div className="flex flex-wrap gap-2">
-          {ride.status !== 'expired' && (
+          {(ride.status === 'offering' || ride.status === 'interest' || ride.status === 'confirmed' || ride.status === 'accepted') && (
             <button
               type="button"
               onClick={() => fb && uid && void cancelRide(fb, uid).catch(() => {})}
@@ -215,7 +291,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
               {t.cancelRide}
             </button>
           )}
-          {ride.status !== 'offering' && (
+          {(ride.status === 'done' || ride.status === 'problem' || ride.status === 'expired') && (
             <button
               type="button"
               onClick={() => setDismissed(ride.createdAt)}
@@ -249,7 +325,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
       {pinButton('pickup')}
       <PlaceInput
         id="hire-destination"
-        label={`${t.destination} (${t.optional})`}
+        label={t.destination}
         hint={t.pickupHint}
         value={destination}
         error={!!destination.trim() && !isFreeText(destination.trim())}
@@ -295,6 +371,33 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
         </p>
       )}
 
+      {!demo && !(chosenTaxi && !chosenTaxi.suspended) && onOpenPrivate !== undefined && (
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-slate-700">{t.openTripBy}</p>
+          <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1" role="group" aria-label={t.openTripBy}>
+            {(['taxi', 'private'] as const).map((x) => (
+              <button key={x} type="button" aria-pressed={by === x} onClick={() => setBy(x)} className={`min-h-10 rounded-lg text-sm font-semibold ${by === x ? 'bg-white shadow' : 'text-slate-600'}`}>
+                {x === 'taxi' ? t.openByTaxi : t.openByPrivate}
+              </button>
+            ))}
+          </div>
+          {by === 'private' && !onOpenPrivate && <p className="text-xs font-semibold text-amber-800">{t.noPrivateNow}</p>}
+          {by === 'private' && onOpenPrivate && !pickupAt && <p className="text-xs text-amber-800">{t.privNeedsPin}</p>}
+        </div>
+      )}
+      {!demo && !privateOpen && (
+        <p className="rounded-lg bg-white/70 p-2 text-sm">
+          {price !== null ? (
+            <span className="text-lg font-black">
+              {t.tripTotal(price)} <span className="text-sm font-normal text-slate-500">· {km} km</span>
+            </span>
+          ) : !fares ? (
+            t.fareNotSet
+          ) : (
+            t.pickBothForPrice
+          )}
+        </p>
+      )}
       {error && <p className="text-sm font-semibold text-rose-700">{t.requestFailed(error)}</p>}
       {demo ? (
         <>
@@ -314,11 +417,20 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
       ) : (
       <button
         type="button"
-        disabled={!valid || busy}
-        onClick={() => send(chosenTaxi && !chosenTaxi.suspended ? chosenTaxi.id : undefined)}
+        disabled={!valid || busy || (privateOpen ? !onOpenPrivate || !pickupAt || !destinationAt : !!fares && price === null)}
+        onClick={() => {
+          if (privateOpen) {
+            if (!onOpenPrivate || !pickupAt) return
+            setBusy(true)
+            setError(null)
+            onOpenPrivate({ phone: phone.trim(), pickup: pickup.trim(), pickupAt, destination: destination.trim(), destinationAt: destinationAt ?? null, note: note.trim(), metres: tripMetres })
+              .catch((e: { code?: string; message?: string }) => setError(e.code ?? e.message ?? 'error'))
+              .finally(() => setBusy(false))
+          } else send(chosenTaxi && !chosenTaxi.suspended ? chosenTaxi.id : undefined)
+        }}
         className="min-h-12 w-full rounded-xl bg-emerald-500 px-4 font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-40"
       >
-        {chosenTaxi && !chosenTaxi.suspended ? t.hireThis(chosenTaxi.taxiNo) : t.hireAny}
+        {chosenTaxi && !chosenTaxi.suspended ? t.hireThis(chosenTaxi.taxiNo) : privateOpen ? t.sendOpenPrivate : t.hireAny}
       </button>
       )}
     </section>

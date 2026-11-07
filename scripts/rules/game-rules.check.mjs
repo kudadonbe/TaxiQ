@@ -135,7 +135,67 @@ await expect('the owner accepts, sharing their first name and phone', 'b', [writ
 await expect('the owner cannot jump straight to done', 'b', [write('privateRides/c', { status: 'done', updatedAt: NOW }, { merge: true })], false)
 await expect('the owner marks the passenger picked up', 'b', [write('privateRides/c', { status: 'onboard', updatedAt: NOW }, { merge: true })], true)
 await expect('the passenger cannot cancel once on board', 'c', [write('privateRides/c', { status: 'cancelled', updatedAt: NOW }, { merge: true })], false)
-await expect('the owner marks the trip done', 'b', [write('privateRides/c', { status: 'done', updatedAt: NOW }, { merge: true })], true)
+await expect('the owner cannot mark the trip done (the passenger confirms)', 'b', [write('privateRides/c', { status: 'done', updatedAt: NOW }, { merge: true })], false)
+await expect('the owner arrives at the destination', 'b', [write('privateRides/c', { status: 'arrived', arrivedAt: NOW, updatedAt: NOW }, { merge: true })], true)
+await expect('the owner cannot mark it done before the 10 minutes', 'b', [write('privateRides/c', { status: 'done', updatedAt: NOW }, { merge: true })], false)
+await expect('the passenger confirms the trip finished', 'c', [write('privateRides/c', { status: 'done', updatedAt: NOW }, { merge: true })], true)
 await expect('the owner cannot book their own vehicle', 'b', [write('privateRides/b', ride({ uid: 'b' }))], false)
+// Open trips by private hire: the top of the private queue offers, the passenger books.
+const seed2 = await fetch(`${BASE}:commit`, { method: 'POST', headers: { Authorization: 'Bearer owner', 'Content-Type': 'application/json' }, body: JSON.stringify({ writes: [
+  write('vehicles/v8', { ownerUid: 'f', ownerName: 'F', kind: 'private', type: 'car', reg: 'F1', colour: '', seats: 4, priceBase: 25, pricePerKm: 5, phone: '7770002', note: '', status: 'approved', reason: '', decidedBy: 'op@test.example', decidedAt: new Date(), createdAt: new Date(), updatedAt: new Date() }),
+  write('publicVehicles/v8', { ownerUid: 'f', type: 'car', colour: '', seats: 4, firstName: 'F', priceBase: 25, pricePerKm: 5, at: [4.17, 73.5], heading: 0, updatedAt: new Date() }),
+  write('roles/f@test.example', { role: 'private' }),
+  write('queue/state', { order: ['t1', 't2'], interested: [] }),
+  write('taxis/t1', { taxiNo: '34', taxiReg: 'A1', driver: { name: 'D' } }),
+  write('taxis/t2', { taxiNo: '35', taxiReg: 'A2', driver: { name: 'E' } }),
+  write('roles/drv@test.example', { role: 'driver', taxiId: 't1' }),
+] }) })
+if (!seed2.ok) { fails++; console.log('FAIL  could not set up the open-trip checks') }
+const open = (o = {}) => ride({ mode: 'queue', skipped: [], offerAt: NOW, ...o })
+await expect('a passenger sends an open trip to the top of the private queue', 'c', [write('privateRides/c', open())], true)
+await expect('the owner cannot accept an open trip before the passenger books it', 'b', [write('privateRides/c', { status: 'accepted', ownerFirstName: 'B', ownerPhone: '7771234', updatedAt: NOW }, { merge: true })], false)
+await expect('the passenger cannot book before a vehicle offers', 'c', [write('privateRides/c', { status: 'confirmed', offerAt: NOW, updatedAt: NOW }, { merge: true })], false)
+await expect('the owner offers to take it', 'b', [write('privateRides/c', { status: 'interest', offerAt: NOW, updatedAt: NOW }, { merge: true })], true)
+await expect('the passenger books it', 'c', [write('privateRides/c', { status: 'confirmed', offerAt: NOW, updatedAt: NOW }, { merge: true })], true)
+await expect("the owner's phone completes it, sharing first name and phone", 'b', [write('privateRides/c', { status: 'accepted', ownerFirstName: 'B', ownerPhone: '7771234', updatedAt: NOW }, { merge: true })], true)
+await expect('the vehicle goes to the back of the private queue', 'b', [write('publicVehicles/v1', { since: NOW, updatedAt: NOW }, { merge: true })], true)
+await expect('nobody can put their vehicle at the front of the queue', 'b', [write('publicVehicles/v1', { since: new Date(2020, 0, 1), updatedAt: NOW }, { merge: true })], false)
+await expect('another passenger sends an open trip', 'd', [write('privateRides/d', open({ uid: 'd' }))], true)
+await expect('the passenger cannot skip the vehicle before its time is up', 'd', [write('privateRides/d', { vehicleId: 'v8', ownerUid: 'f', price: 40, skipped: ['v1'], offerAt: NOW, status: 'offering', updatedAt: NOW }, { merge: true })], false)
+await expect('the offered owner passes: on to the next vehicle', 'b', [write('privateRides/d', { vehicleId: 'v8', ownerUid: 'f', price: 40, skipped: ['v1'], offerAt: NOW, status: 'offering', updatedAt: NOW }, { merge: true })], true)
+await canRead('the owner who passed no longer sees it', 'b', 'privateRides/d', false)
+await canRead('the next owner sees it', 'f', 'privateRides/d', true)
+await expect('the next owner cannot pass it back to a vehicle that passed', 'f', [write('privateRides/d', { vehicleId: 'v1', ownerUid: 'b', price: 40, skipped: ['v1', 'v8'], offerAt: NOW, status: 'offering', updatedAt: NOW }, { merge: true })], false)
+await expect('the next owner passes too: no vehicle left, expired', 'f', [write('privateRides/d', { skipped: ['v1', 'v8'], offerAt: NOW, status: 'expired', updatedAt: NOW }, { merge: true })], true)
+// Open trips by taxi: the top taxi offers, the passenger books, the driver completes it.
+const req = (o = {}) => ({ uid: 'p', name: 'Aisha', mode: 'queue', pickup: 'Here', destination: 'There', phone: '7770003', note: '', status: 'offering', offerTo: 't1', offerAt: NOW, skipped: [], acceptedBy: null, price: 35, km: 3, createdAt: NOW, ...o })
+await expect('a passenger sends an open trip to the taxi queue', 'p', [write('requests/p', req())], true)
+await expect('the driver cannot book it straight away (the passenger decides)', 'drv', [write('requests/p', { status: 'accepted', acceptedBy: 't1' }, { merge: true })], false)
+await expect('the passenger cannot say no thanks before a taxi offers', 'p', [write('requests/p', { status: 'offering', offerTo: 't2', skipped: ['t1'], offerAt: NOW }, { merge: true })], false)
+await expect('the top driver offers to take it', 'drv', [write('requests/p', { status: 'interest', offerAt: NOW }, { merge: true })], true)
+await expect('the passenger books it', 'p', [write('requests/p', { status: 'confirmed', offerAt: NOW }, { merge: true })], true)
+await expect("the driver's phone completes the booking", 'drv', [write('requests/p', { status: 'accepted', acceptedBy: 't1' }, { merge: true })], true)
+await expect('the price cannot change after booking', 'p', [write('requests/p', { price: 1 }, { merge: true })], false)
+await expect('the driver cannot jump to arrived before picking up', 'drv', [write('requests/p', { status: 'arrived', arrivedAt: NOW }, { merge: true })], false)
+await expect('the driver picks the passenger up', 'drv', [write('requests/p', { status: 'onboard' }, { merge: true })], true)
+await expect('the passenger cannot cancel once on board', 'p', [write('requests/p', { status: 'cancelled' }, { merge: true })], false)
+await expect('the driver arrives at the destination', 'drv', [write('requests/p', { status: 'arrived', arrivedAt: NOW }, { merge: true })], true)
+await expect('the driver cannot mark it done (the passenger confirms)', 'drv', [write('requests/p', { status: 'done' }, { merge: true })], false)
+await expect('the passenger reports a problem', 'p', [write('requests/p', { status: 'problem' }, { merge: true })], true)
+await expect('an operator closes the problem', 'op', [write('requests/p', { status: 'done' }, { merge: true })], true)
+await expect('a passenger sends another open trip', 'p', [write('requests/p', req())], true)
+await expect('the driver offers', 'drv', [write('requests/p', { status: 'interest', offerAt: NOW }, { merge: true })], true)
+await expect('the passenger says no thanks: on to the next taxi', 'p', [write('requests/p', { status: 'offering', offerTo: 't2', skipped: ['t1'], offerAt: NOW }, { merge: true })], true)
+await fetch(`${BASE}:commit`, { method: 'POST', headers: { Authorization: 'Bearer owner', 'Content-Type': 'application/json' }, body: JSON.stringify({ writes: [write('roles/adm@test.example', { role: 'admin' })] }) })
+await expect('an admin sets the taxi fare', 'adm', [write('config/fares', { base: 20, perKm: 5, minimum: 25, updatedBy: 'adm@test.example', updatedAt: NOW })], true)
+await expect('an operator cannot set the fare', 'op', [write('config/fares', { base: 1, perKm: 0, minimum: 0, updatedBy: 'op@test.example', updatedAt: NOW })], false)
+await canRead('a passenger reads the fare', 'p', 'config/fares', true)
+// Recorded voice messages: admins record them, everyone signed in plays them.
+const clip = (o = {}) => ({ data: 'AAAA', mime: 'audio/webm;codecs=opus', by: 'adm@test.example', updatedAt: NOW, ...o })
+await expect('an admin saves a Dhivehi clip for a new trip', 'adm', [write('voiceClips/tripNew-dv', clip())], true)
+await expect('an operator cannot', 'op', [write('voiceClips/tripNew-dv', clip({ by: 'op@test.example' }))], false)
+await expect('only the known messages', 'adm', [write('voiceClips/anything-dv', clip())], false)
+await expect('only audio', 'adm', [write('voiceClips/tripNew-en', clip({ mime: 'text/html' }))], false)
+await canRead('a driver can play it', 'drv', 'voiceClips/tripNew-dv', true)
 console.log(fails ? `\n${fails} FAILED` : '\nAll rules checks passed')
 process.exit(fails ? 1 : 0)

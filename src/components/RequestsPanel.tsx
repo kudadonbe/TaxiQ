@@ -2,16 +2,17 @@ import { ArrowRight, MapPin, Phone } from 'lucide-react'
 import { ic, icFlip } from './iconStyles'
 import { useAuth } from '../auth'
 import { useI18n } from '../i18n'
-import { cancelRide, OFFER_SECONDS } from '../rides'
+import { cancelRide, finishRide } from '../rides'
+import { secondsLeft } from '../core/openTrip'
 import type { Taxi } from '../types'
 import { useNow, useOpenRequests } from '../useRides'
 
 // Staff: passenger requests still being offered, or that no taxi took (handle those by radio).
 export function RequestsPanel({ taxis }: { taxis: Taxi[] }) {
-  const { fb } = useAuth()
+  const { fb, email } = useAuth()
   const { t } = useI18n()
-  const list = useOpenRequests(fb, true)
-  const now = useNow(list.some((r) => r.status === 'offering'))
+  const list = useOpenRequests(fb, true, email)
+  const now = useNow(list.some((r) => r.status !== 'expired'))
   const no = (id: string | null) => taxis.find((x) => x.id === id)?.taxiNo ?? '?'
 
   return (
@@ -22,7 +23,7 @@ export function RequestsPanel({ taxis }: { taxis: Taxi[] }) {
       ) : (
         <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white">
           {list.map((r) => {
-            const left = Math.max(0, Math.ceil((r.offerAt + OFFER_SECONDS * 1000 - now) / 1000))
+            const left = r.status === 'expired' ? 0 : secondsLeft(r.status === 'interest' ? 'interest' : r.status === 'confirmed' ? 'confirmed' : 'offering', r.offerAt, now)
             return (
               <li key={r.id} className="space-y-1 px-3 py-2 text-sm">
                 <p className="font-semibold">
@@ -39,19 +40,24 @@ export function RequestsPanel({ taxis }: { taxis: Taxi[] }) {
                   <bdi dir="ltr" className="tabular-nums text-slate-500">
                     <Phone className={ic} aria-hidden="true" /> {r.phone}
                   </bdi>
-                  {r.status === 'offering' ? (
+                  {r.status === 'problem' ? (
+                    <span className="rounded bg-rose-100 px-1.5 py-0.5 font-semibold text-rose-800">
+                      {t.problemFrom(no(r.acceptedBy))}
+                      {r.price !== null ? ` · MVR ${r.price}` : ''}
+                    </span>
+                  ) : r.status !== 'expired' ? (
                     <span className="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-900">
-                      {t.offeredTo(no(r.offerTo))} · <span dir="ltr">{t.secondsLeft(left)}</span>
+                      {r.status === 'offering' ? t.offeredTo(no(r.offerTo)) : r.status === 'interest' ? t.taxiOffers(no(r.offerTo)) : t.bookedFinishing} · <span dir="ltr">{t.secondsLeft(left)}</span>
                     </span>
                   ) : (
                     <span className="rounded bg-rose-100 px-1.5 py-0.5 font-semibold text-rose-800">{t.expiredRequest}</span>
                   )}
                   <button
                     type="button"
-                    onClick={() => fb && void cancelRide(fb, r.id).catch(() => {})}
+                    onClick={() => fb && void (r.status === 'problem' ? finishRide(fb, r.id) : cancelRide(fb, r.id)).catch(() => {})}
                     className="ms-auto min-h-8 rounded-lg px-2 font-medium text-slate-600 hover:bg-slate-100"
                   >
-                    {t.cancelRide}
+                    {r.status === 'problem' ? t.closeProblem : t.cancelRide}
                   </button>
                 </p>
               </li>
