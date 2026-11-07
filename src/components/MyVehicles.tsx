@@ -1,4 +1,5 @@
-import { Plus } from 'lucide-react'
+import { MapPin, Plus, ShieldAlert } from 'lucide-react'
+import { Switch } from './Switch'
 import { useState } from 'react'
 import { useAuth } from '../auth'
 import { useI18n } from '../i18n'
@@ -15,7 +16,7 @@ const STATUS_CLASS: Record<Vehicle['status'], string> = {
 
 // My vehicles: offer a vehicle for hire (any operator approves it), see its status, set its price,
 // and make it available (shown on the map while on).
-export function MyVehicles() {
+export function MyVehicles({ onShowOnMap }: { onShowOnMap?: (vehicleId: string) => void } = {}) {
   const { fb, uid, name, email } = useAuth()
   const { t } = useI18n()
   const mine = useMyVehicles(fb, uid)
@@ -24,10 +25,10 @@ export function MyVehicles() {
   const me = { uid, name: name ?? '', email: email ?? '' }
   return (
     <div className="mx-auto max-w-2xl space-y-4">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <h2 className="flex-1 text-xl font-black">{t.vehMine}</h2>
         {!editing && (
-          <button type="button" onClick={() => setEditing('new')} className="inline-flex min-h-10 items-center gap-1 rounded-lg bg-emerald-600 px-3 text-sm font-bold text-white">
+          <button type="button" onClick={() => setEditing('new')} className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 text-sm font-bold text-white sm:w-auto">
             <Plus className="size-4" aria-hidden="true" /> {t.vehOffer}
           </button>
         )}
@@ -36,13 +37,13 @@ export function MyVehicles() {
       {editing && <VehicleForm key={editing === 'new' ? 'new' : editing.id} me={me} existing={editing === 'new' ? undefined : editing} onDone={() => setEditing(null)} />}
       {mine.length === 0 && !editing && <p className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">{t.vehNone}</p>}
       {mine.map((v) => (
-        <VehicleCard key={v.id} v={v} onEdit={() => setEditing(v)} onWithdraw={() => void withdrawVehicle(fb, v, me.email)} />
+        <VehicleCard key={v.id} v={v} onShowOnMap={onShowOnMap} onEdit={() => setEditing(v)} onWithdraw={() => void withdrawVehicle(fb, v, me.email)} />
       ))}
     </div>
   )
 }
 
-function VehicleCard({ v, onEdit, onWithdraw }: { v: Vehicle; onEdit: () => void; onWithdraw: () => void }) {
+function VehicleCard({ v, onEdit, onWithdraw, onShowOnMap }: { v: Vehicle; onEdit: () => void; onWithdraw: () => void; onShowOnMap?: (id: string) => void }) {
   const { fb } = useAuth()
   const { t } = useI18n()
   const avail = useAvailableVehicle()
@@ -72,29 +73,41 @@ function VehicleCard({ v, onEdit, onWithdraw }: { v: Vehicle; onEdit: () => void
 
       {v.status === 'approved' && (
         <>
-          <label className="flex items-center justify-between gap-2 rounded-lg bg-emerald-50 p-3">
-            <span>
-              <span className="block font-bold">{isOn ? t.vehAvailableOn : t.vehAvailableOff}</span>
-              <span className="block text-xs text-slate-600">{t.vehAvailableNote}</span>
-            </span>
-            <input type="checkbox" checked={isOn} disabled={!canTake} onChange={(e) => avail.setAvailable(e.target.checked ? v.id : null)} className="size-6 accent-emerald-600" aria-label={t.vehAvailable} />
-          </label>
-          {!canTake && <p className="text-sm font-semibold text-amber-800">{t.vehNeedsRole}</p>}
+          <div className={`space-y-2 rounded-xl p-3 ${isOn ? 'bg-emerald-50' : 'bg-slate-50'}`}>
+            <div className="flex items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="font-bold">{isOn ? t.vehAvailableOn : t.vehAvailableOff}</p>
+                <p className="text-xs text-slate-600">{t.vehAvailableNote}</p>
+              </div>
+              <Switch on={isOn} locked={!canTake} label={t.vehAvailable} onChange={(on) => avail.setAvailable(on ? v.id : null)} />
+            </div>
+            {isOn && onShowOnMap && (
+              <button type="button" onClick={() => onShowOnMap(v.id)} className="inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-slate-900 text-sm font-bold text-white">
+                <MapPin className="size-4" aria-hidden="true" /> {t.vehSeeOnMap}
+              </button>
+            )}
+            {!canTake && (
+              <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900">
+                <ShieldAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                {t.vehNeedsRole}
+              </p>
+            )}
+          </div>
           {isOn && avail.error && <p className="text-xs font-semibold text-rose-700">{avail.error === 'location_denied' ? t.shareDenied : t.saveError(avail.error)}</p>}
-          <div className="flex flex-wrap items-end gap-2">
-            <label className="block">
-              <span className="text-xs font-medium">{t.vehPriceBase}</span>
-              <input type="number" min={0} max={10000} value={price.base} onChange={(e) => setPriceState({ ...price, base: Number(e.target.value) })} className="mt-1 block min-h-10 w-28 rounded-lg border border-slate-300 px-2" />
+          <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2">
+            <label className="block min-w-0">
+              <span className="block truncate text-xs font-medium">{t.vehPriceBase}</span>
+              <input type="number" inputMode="numeric" min={0} max={10000} value={price.base} onChange={(e) => setPriceState({ ...price, base: Number(e.target.value) })} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-300 px-3 text-base" />
             </label>
-            <label className="block">
-              <span className="text-xs font-medium">{t.vehPricePerKm}</span>
-              <input type="number" min={0} max={1000} value={price.perKm} onChange={(e) => setPriceState({ ...price, perKm: Number(e.target.value) })} className="mt-1 block min-h-10 w-28 rounded-lg border border-slate-300 px-2" />
+            <label className="block min-w-0">
+              <span className="block truncate text-xs font-medium">{t.vehPricePerKm}</span>
+              <input type="number" inputMode="numeric" min={0} max={1000} value={price.perKm} onChange={(e) => setPriceState({ ...price, perKm: Number(e.target.value) })} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-300 px-3 text-base" />
             </label>
             <button
               type="button"
               disabled={!fb || (price.base === v.priceBase && price.perKm === v.pricePerKm) || !(price.base >= 0 && price.base <= 10000 && price.perKm >= 0 && price.perKm <= 1000)}
               onClick={() => fb && void setPrice(fb, v, price.base, price.perKm)}
-              className="min-h-10 rounded-lg bg-slate-900 px-3 text-sm font-bold text-white disabled:opacity-40"
+              className="min-h-11 rounded-lg bg-slate-900 px-4 text-sm font-bold text-white disabled:opacity-40"
             >
               {t.save}
             </button>

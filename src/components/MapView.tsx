@@ -61,6 +61,10 @@ interface Props {
   // Approved private vehicles whose owner has them available.
   vehicles?: PublicVehicle[]
   onHireVehicle?: (v: PublicVehicle) => void
+  // Fly to and follow this vehicle (See it on the map); `n` changes each time it's asked.
+  focusVehicle?: { id: string; n: number } | null
+  // The viewer, so their own vehicle is ringed and isn't offered for hire to them.
+  myUid?: string | null
   // A booked private vehicle: shown on its real position, with a ride card and Show my vehicle.
   privateRide?: { vehicleId: string; pickup: [number, number]; destination: [number, number]; status: 'offering' | 'accepted' | 'onboard' }
   shareControl?: ReactNode
@@ -147,7 +151,7 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
 // Live map of taxis, on MapLibre: rotate (two fingers / right-drag), tilt, pinch zoom, compass and
 // "my location" like Google Maps. Markers are driven imperatively so 60fps position updates don't
 // re-render React.
-export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, activeTrip, onHireFrom, people = [], vehicles = [], onHireVehicle, privateRide, shareControl }: Props) {
+export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, activeTrip, onHireFrom, people = [], vehicles = [], onHireVehicle, focusVehicle = null, myUid = null, privateRide, shareControl }: Props) {
   const { lang, t, driverName } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const map = useRef<MlMap | null>(null)
@@ -693,9 +697,11 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   const vehiclesKey = JSON.stringify(vehicles)
   const vLabels = useRef({ type: (x: string) => x, price: (b: number, k: number) => `${b} ${k}`, hire: '', follow: '', unfollow: '', level: (l: string) => l })
   const hireVehicleRef = useRef(onHireVehicle)
+  const myUidRef = useRef(myUid)
   useEffect(() => {
     vLabels.current = { type: (x) => t.vehTypes[x as keyof typeof t.vehTypes] ?? x, price: t.vehPrice, hire: t.privHire, follow: t.menuFollow, unfollow: t.menuUnfollow, level: (l) => t.beatLevels[l as keyof typeof t.beatLevels] ?? l }
     hireVehicleRef.current = onHireVehicle
+    myUidRef.current = myUid
   })
   useEffect(() => {
     const m = map.current
@@ -724,6 +730,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       if (following.current === `v:${v.id}`) m.setCenter(ll(v.at))
       e.price.textContent = vLabels.current.price(v.priceBase, v.pricePerKm)
       const vel = e.marker.getElement()
+      vel.classList.toggle('mine', !!myUidRef.current && v.ownerUid === myUidRef.current)
       vel.style.opacity = v.level !== 'active' ? '0.7' : '1'
       vel.title = v.level !== 'active' ? vLabels.current.level(v.level) : ''
       if (e.type !== v.type) {
@@ -756,7 +763,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
           }
           box.append(b)
         }
-        if (hireVehicleRef.current) button(vLabels.current.hire, 'primary', () => hireVehicleRef.current?.(v))
+        if (hireVehicleRef.current && v.ownerUid !== myUidRef.current) button(vLabels.current.hire, 'primary', () => hireVehicleRef.current?.(v))
         const fid = `v:${v.id}`
         const isFollowed = following.current === fid
         button(isFollowed ? vLabels.current.unfollow : vLabels.current.follow, 'plain', () => followRefFn.current(isFollowed ? null : fid))
@@ -797,6 +804,22 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     }
     return { text: privateRide.status === 'onboard' ? t.privRiding(minutes) : t.privComing(minutes), Icon: VEHICLE_ICONS[bookedVehicle.type], show }
   })()
+
+  // See it on the map: once that vehicle is in the list, fly to it and follow it.
+  const focusKey = focusVehicle ? `${focusVehicle.id}:${focusVehicle.n}` : ''
+  const focusDone = useRef('')
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready || !focusKey || focusDone.current === focusKey) return
+    const id = focusKey.split(':')[0]!
+    const v = (JSON.parse(vehiclesKey) as PublicVehicle[]).find((x) => x.id === id)
+    if (!v) return // not on the map yet: try again when the list updates
+    focusDone.current = focusKey
+    m.flyTo({ center: ll(v.at), zoom: 17, duration: 800 })
+    follow(`v:${id}`)
+    // follow is stable for this map.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusKey, vehiclesKey, ready])
 
   // When the viewer's location arrives, fly there (the demo taxis restart on the roads there).
   const areaKey = followsViewer && area.located ? area.center.join(',') : ''

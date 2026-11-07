@@ -54,7 +54,7 @@ const TAB_ICONS: Record<View, (l: Record<View, string>) => { Icon: LucideIcon; l
   map: (l) => ({ Icon: MapIcon, label: l.map }),
   admin: (l) => ({ Icon: Settings2, label: l.admin }),
   driver: (l) => ({ Icon: CarTaxiFront, label: l.driver }),
-  hire: (l) => ({ Icon: Hand, label: l.hire }),
+  hire: (l) => ({ Icon: l.hire === l.map ? MapIcon : Hand, label: l.hire }),
   vehicles: (l) => ({ Icon: Car, label: l.vehicles }),
   game: (l) => ({ Icon: Gamepad2, label: l.game }),
 }
@@ -134,6 +134,8 @@ export default function App() {
   const vehicles = usePublicVehicles(auth.fb, signedIn && !DEMO_HOST)
   // Booking a private vehicle: the vehicle tapped on the map, and this passenger's booking.
   const [chosenVehicle, setChosenVehicle] = useState<PublicVehicle | null>(null)
+  // See it on the map (from My vehicles): fly to and follow that vehicle.
+  const [focusVehicle, setFocusVehicle] = useState<{ id: string; n: number } | null>(null)
   const myPrivate = useMyPrivateRide(auth.fb, signedIn && !DEMO_HOST ? (auth.uid ?? null) : null)
   const [closedPrivate, setClosedPrivate] = useState<number | null>(null)
   const privateLive = !!myPrivate && myPrivate.createdAt !== closedPrivate && (myPrivate.status === 'offering' || myPrivate.status === 'accepted' || myPrivate.status === 'onboard' || myPrivate.status === 'done' || myPrivate.status === 'declined')
@@ -168,6 +170,8 @@ export default function App() {
   const [viewState, setView] = useState<View>('queue')
   const view: View = tabs.includes(viewState) ? viewState : (tabs[0] ?? 'map')
   const { lang, t, toggleLang, driverName, setDvFixes } = useI18n()
+  // Without a staff role, the Hire screen is the full-screen map (taxis, vehicles, hiring): call it Map.
+  const tabLabels = { queue: t.queue, map: t.map, admin: t.admin, driver: t.driver, hire: mode === 'public' && !DEMO_HOST ? t.map : t.hireTab, vehicles: t.vehTab, game: t.gameTab }
   // The map views fill the screen under the header; everything else floats over the map.
   const fullMap = view === 'map' || (view !== 'game' && (mode === 'public' || view === 'hire'))
   const [editingTranslations, setEditingTranslations] = useState(false)
@@ -282,11 +286,11 @@ export default function App() {
                 type="button"
                 onClick={() => setView(v)}
                 aria-current={view === v ? 'page' : undefined}
-                aria-label={TAB_ICONS[v]({ queue: t.queue, map: t.map, admin: t.admin, driver: t.driver, hire: t.hireTab, vehicles: t.vehTab, game: t.gameTab }).label}
+                aria-label={TAB_ICONS[v](tabLabels).label}
                 className={`relative min-h-12 min-w-0 rounded-lg px-1 font-semibold sm:min-h-10 sm:px-3 ${view === v ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
               >
                 {(() => {
-                  const { Icon, label } = TAB_ICONS[v]({ queue: t.queue, map: t.map, admin: t.admin, driver: t.driver, hire: t.hireTab, vehicles: t.vehTab, game: t.gameTab })
+                  const { Icon, label } = TAB_ICONS[v](tabLabels)
                   return (
                     <span className="flex flex-col items-center gap-0.5 sm:flex-row sm:gap-1.5">
                       <Icon className="size-5 sm:size-4" aria-hidden="true" />
@@ -366,7 +370,12 @@ export default function App() {
       {view === 'vehicles' ? (
         <main className="mx-auto max-w-5xl px-4 py-4 sm:py-6">
           <Suspense fallback={<p className="text-sm text-slate-500">{t.loading}</p>}>
-            <MyVehicles />
+            <MyVehicles
+              onShowOnMap={(id) => {
+                setFocusVehicle({ id, n: Date.now() })
+                setView('hire')
+              }}
+            />
           </Suspense>
         </main>
       ) : view === 'game' ? (
@@ -382,6 +391,8 @@ export default function App() {
               fullscreen
               people={people}
               vehicles={vehicles}
+              focusVehicle={focusVehicle}
+              myUid={auth.uid ?? null}
               onHireVehicle={(v) => {
                 setChosenVehicle(v)
                 setChosen(null)
