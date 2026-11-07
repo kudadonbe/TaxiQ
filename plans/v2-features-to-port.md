@@ -196,6 +196,19 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
 - **v3:** do the map-matching (snap and route) on the server, so every viewer sees the same road position. Keep left for all simulated and matched vehicles. Enforce "one way of moving" in the API (a driver on duty can't book).
 - [ ] Ported
 
+## 21. Live RTL buses; game-like movement; rider on bikes; road alignment
+
+- **v2:** `f31bd42`, `64f9286`:
+  - `src/buses.ts`: MTCC RTL live bus GPS from RTL's public feed, polled politely, drawn in the route colour.
+  - Real-size vehicles for the zoom (`realScale`).
+  - Rounded corners, overrun and a gentle stop (`src/core/glide.ts`).
+  - Stopped vehicles line up with their road (`alongRoad`).
+  - An optional rider figure on motorbikes and e-bikes (the owner's choice).
+- **v3:**
+  - Fetch the RTL feed once on the server and share it over WebSocket, and ask MTCC for a formal OK or an official API.
+  - Keep the movement rules (snap, route, keep left, align, glide) as shared core so every client draws vehicles the same way.
+- [ ] Ported
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
