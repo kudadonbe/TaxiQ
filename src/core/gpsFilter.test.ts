@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { filterReading, newTracker } from './gpsFilter'
+import { filterReading, newTracker, shouldReappear } from './gpsFilter'
 import { forward, makeLine, nextStop, pointAt, project, stretch } from './routeLine'
 
 const MAX = 40 / 3.6 // 40 km/h
@@ -30,6 +30,16 @@ describe('GPS: stay calm about odd readings', () => {
     filterReading(tr, { at: at(0), t: 0 }, MAX)
     filterReading(tr, { at: at(80), t: 10_000 }, MAX) // going north
     expect(filterReading(tr, { at: at(60), t: 12_000 }, MAX)).toBe('hold') // 20 m back south
+  })
+})
+
+describe('lost signal: fade out and reappear instead of sliding across the map', () => {
+  it('reappears after a big jump or a long gap', () => {
+    expect(shouldReappear(80, 10)).toBe(false) // normal driving
+    expect(shouldReappear(500, 10)).toBe(true) // a big jump
+    expect(shouldReappear(150, 60)).toBe(true) // a minute without signal
+    expect(shouldReappear(100, 10, 400)).toBe(true) // the roads there are far longer: can't have driven it
+    expect(shouldReappear(100, 10, 140)).toBe(false)
   })
 })
 

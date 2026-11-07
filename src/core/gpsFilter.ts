@@ -52,3 +52,15 @@ export function filterReading(tr: Tracker, r: Reading, maxSpeed: number): 'move'
   tr.held = []
   return 'move'
 }
+
+// After lost signal, or a big jump: rather than drive it across the map, the vehicle fades out where
+// it was and fades in at the new place. True when it moved more than 300 m, or more than 120 m after
+// 45 s or more with no reading, or when the roads between are far longer than the straight hop (it
+// can't have driven there in that time).
+export const REAPPEAR_M = 300
+export function shouldReappear(distM: number, gapS: number, roadM: number | null = null) {
+  if (distM > REAPPEAR_M) return true
+  if (gapS >= 45 && distM > 120) return true
+  return roadM === null ? false : distM > 60 && roadM > distM * 2.5 + 60
+}
+

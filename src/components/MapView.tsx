@@ -1,4 +1,4 @@
-import { CarTaxiFront, ChevronDown, ChevronUp, Footprints, Info, LocateFixed, MapPin, X } from 'lucide-react'
+import { CarTaxiFront, Footprints, Hand, Info, LocateFixed, MapPin, Radar, X } from 'lucide-react'
 import { PlaceTypeIcon } from './icons'
 import { ic } from './iconStyles'
 import type { Feature, LineString } from 'geojson'
@@ -25,7 +25,7 @@ import { bearing, coastGlide, glideAt, glideSpeed, glideState, nextGlide, turnAh
 import { indicator, leanDegrees } from '../core/drive'
 import { inLane, twoWayBetween } from '../core/lanes'
 import { alongRoad, roadAhead, snapParked, snapToRoad, type Snapped } from '../core/snap'
-import { filterReading, newTracker, type Tracker } from '../core/gpsFilter'
+import { filterReading, newTracker, shouldReappear, type Tracker } from '../core/gpsFilter'
 import { forward, makeLine, nextStop, pointAt, project, stretch, type RouteLine } from '../core/routeLine'
 import { createRoot, type Root } from 'react-dom/client'
 import { loadPlots, plotPopup, plotsGeoJSON, type Plot } from './plotLayer'
@@ -79,6 +79,25 @@ interface Props {
   // A booked private vehicle: shown on its real position, with a ride card and Show my vehicle.
   privateRide?: { vehicleId: string; pickup: [number, number]; destination: [number, number]; status: 'offering' | 'accepted' | 'onboard' }
   shareControl?: ReactNode
+}
+
+// A small round-cornered button in the map's tool row (opens one panel).
+function ToolButton({ active, onClick, label, children }: { active: boolean; onClick: () => void; label: string; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`inline-flex min-h-10 items-center gap-1.5 rounded-full border px-3 text-xs font-bold shadow backdrop-blur-[3px] ${active ? 'border-slate-900 bg-slate-900 text-white' : 'border-white/60 bg-white/70 text-slate-800'}`}
+    >
+      {children}
+      <span className="max-w-[9rem] truncate">{label}</span>
+    </button>
+  )
+}
+// One short status line over the map.
+function Chip({ children }: { children: ReactNode }) {
+  return <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-white/60 bg-white/70 px-3 py-1.5 text-sm shadow backdrop-blur-[3px]">{children}</div>
 }
 
 // Pin for a searched place. Static markup, no user data.
@@ -176,6 +195,26 @@ function realScale(m: MlMap, type: SizedVehicle) {
   const metresPerPx = (40_075_016.686 * Math.cos((lat * Math.PI) / 180)) / (512 * 2 ** m.getZoom())
   const px = Math.max(MIN_PX[type] ?? 16, Math.min((REAL_LENGTH_M[type] ?? 4.5) / metresPerPx, 160))
   return px / (DRAWN_PX[type] ?? 36)
+}
+
+// Lost signal or a big GPS jump: the vehicle fades out where it was shown, then fades in at its new
+// place, standing along the road (plans/vehicle-movement-rules.md §6). It never slides across the map.
+const VANISH_MS = 500
+function reappear(e: { marker: maplibregl.Marker; glide: Glide | null; roadHeading: number | null; shownHeading: number }, at: [number, number], heading: () => number) {
+  const el = e.marker.getElement()
+  el.classList.remove('reappear')
+  el.classList.add('vanish')
+  const stay = e.glide ? glideAt(e.glide, performance.now()) : at
+  e.glide = { from: stay, to: stay, path: [stay], cum: [0], start: performance.now(), dur: 0, heading: e.shownHeading }
+  setTimeout(() => {
+    const h = heading()
+    e.glide = { from: at, to: at, path: [at], cum: [0], start: performance.now(), dur: 0, heading: h }
+    e.roadHeading = h
+    e.shownHeading = h
+    el.classList.remove('vanish')
+    void el.offsetWidth // restart the animation
+    el.classList.add('reappear')
+  }, VANISH_MS)
 }
 
 // A bus route's own line: its stops in order, joined along the roads (built once per road map).
@@ -931,14 +970,23 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         if (dt > 0 && e.glide) e.speed = Math.min(60 / 3.6, metresBetween(glideAt(e.glide, now), target) / dt)
         e.snap = snapped
         let roadPath: [number, number][] | undefined
+        let roadM: number | null = null
         if (e.glide && snapped) {
           const from = glideAt(e.glide, now)
           const r = findRoute(g, from, target, 'taxi')
+          roadM = r ? r.metres : Infinity
           if (r && r.metres <= metresBetween(from, target) * 2.5 + 60) roadPath = r.path
         }
-        e.glide = nextGlide(e.glide, target, now, e.lastReport, snapped ? null : v.heading, roadPath)
+        const hop = e.glide ? metresBetween(glideAt(e.glide, now), target) : 0
+        if (e.glide && shouldReappear(hop, dt, roadM)) {
+          // Lost signal or a big jump: fade out here, fade in there (never slide across the map).
+          reappear(e, target, () => (snapped ? alongRoad(g, snapped, e.shownHeading) : v.heading || e.shownHeading))
+          e.speed = 0
+        } else {
+          e.glide = nextGlide(e.glide, target, now, e.lastReport, snapped ? null : v.heading, roadPath)
+          e.roadHeading = snapped ? alongRoad(g, snapped, e.glide.path.length >= 2 ? e.glide.heading : e.shownHeading) : null
+        }
         e.onRoad = !!snapped
-        e.roadHeading = snapped ? alongRoad(g, snapped, e.glide.path.length >= 2 ? e.glide.heading : e.shownHeading) : null
         e.lastReport = now
       }
       e.shape.style.color = vehicleColour(v.colour)
@@ -1044,7 +1092,19 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
           // On its own route: only forward along it (§6), the stretch between as the path.
           const shownS = entry.glide ? project(line, glideAt(entry.glide, now)).s : proj.s
           const ahead = forward(line, shownS, proj.s)
-          if (entry.glide && ahead < 0 && ahead > -60) {
+          const gap = entry.lastReport === null ? 0 : (now - entry.lastReport) / 1000
+          if (entry.glide && (ahead < -60 || shouldReappear(Math.abs(ahead), gap))) {
+            // Lost signal or a big jump: fade out and reappear at its new place on the route.
+            const at = pointAt(line, proj.s)
+            entry.s = proj.s
+            entry.speed = 0
+            entry.onRoad = true
+            reappear(entry, at, () => {
+              const sn = snapToRoad(g, at)
+              return sn ? alongRoad(g, sn, bearing(at, pointAt(line, Math.min(line.length, proj.s + 10)))) : entry.shownHeading
+            })
+            entry.lastReport = now
+          } else if (entry.glide && ahead < 0 && ahead > -60) {
             // Behind where it's shown (a slow bus after a little prediction): wait, never go back.
           } else {
             const dt = entry.lastReport === null ? 0 : (now - entry.lastReport) / 1000
@@ -1062,15 +1122,22 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
           const snapped = snapToRoad(g, b.at)
           const target = snapped ? snapped.at : b.at
           let roadPath: [number, number][] | undefined
+          let roadM: number | null = null
           if (entry.glide && snapped) {
             const from = glideAt(entry.glide, now)
             const r = findRoute(g, from, target, 'taxi')
+            roadM = r ? r.metres : Infinity
             if (r && r.metres <= metresBetween(from, target) * 2.5 + 60) roadPath = r.path
           }
-          entry.glide = nextGlide(entry.glide, target, now, entry.lastReport, null, roadPath)
+          const gap = entry.lastReport === null ? 0 : (now - entry.lastReport) / 1000
+          if (entry.glide && shouldReappear(metresBetween(glideAt(entry.glide, now), target), gap, roadM)) {
+            reappear(entry, target, () => (snapped ? alongRoad(g, snapped, entry.shownHeading) : entry.shownHeading))
+          } else {
+            entry.glide = nextGlide(entry.glide, target, now, entry.lastReport, null, roadPath)
+            entry.roadHeading = snapped ? alongRoad(g, snapped, entry.glide.path.length >= 2 ? entry.glide.heading : entry.shownHeading) : null
+          }
           entry.onRoad = !!snapped
           entry.s = null
-          entry.roadHeading = snapped ? alongRoad(g, snapped, entry.glide.path.length >= 2 ? entry.glide.heading : entry.shownHeading) : null
           entry.lastReport = now
         }
       }
@@ -1326,9 +1393,24 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   }
 
   const note = followsViewer ? (area.kind === 'here' ? t.mapDemoHere : area.kind === 'loading' ? t.mapDemoLoading : area.kind === 'none' ? t.mapDemoNone : t.mapPlaceholder) : null
-  const withPanel = fullscreen && !!panel
-  // The map key starts open on wide screens and folded on phones.
-  const [wide] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 640px)').matches)
+  // At most one panel open at a time: the map key, Show me, or the hire form (App controls that one).
+  const [openPanel, setOpenPanel] = useState<'key' | 'share' | null>(null)
+  const active: 'key' | 'share' | 'hire' | null = pinMode ? null : panel && panelOpen ? 'hire' : openPanel
+  const toggle = (which: 'key' | 'share' | 'hire') => {
+    if (active === which) return closeActive()
+    if (which === 'hire') {
+      setOpenPanel(null)
+      onPanelOpenChange?.(true)
+    } else {
+      setOpenPanel(which)
+      if (panelOpen) onPanelOpenChange?.(false)
+    }
+  }
+  const closeActive = () => {
+    // Closing folds the hire form away (its details are kept); the Hire button opens it again.
+    if (active === 'hire') onPanelOpenChange?.(false)
+    else setOpenPanel(null)
+  }
   const legend = (
       <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 text-xs ${fullscreen ? '' : 'px-1 sm:text-sm'}`}>
         <span className="flex items-center gap-1.5">
@@ -1367,53 +1449,88 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
           aria-label={t.map}
         />
 
-        {/* Full screen: the key and the demo note float as a small card. */}
-        {fullscreen && (
-          <div
-            className={`absolute start-2 end-14 top-16 z-[4] space-y-1 rounded-xl border border-slate-200 bg-white/90 px-3 py-2 shadow backdrop-blur sm:end-auto sm:w-96 ${withPanel ? 'sm:top-auto sm:bottom-8 sm:start-[25rem] sm:w-auto sm:max-w-sm' : ''}`}
-          >
+        {/* Full screen: one column at the top-left, under the search: a row of small buttons (Map key,
+            Show me, Hire) and status chips, then at most ONE open panel, each with its own close.
+            It never covers the map controls on the right or the status card at the bottom. */}
+        {fullscreen && !pinMode && (
+          <div className="pointer-events-none absolute inset-x-2 top-16 bottom-28 z-[6] flex flex-col gap-2 sm:inset-x-auto sm:start-2 sm:w-96 [@media(max-width:639px)]:end-14">
+            <div className="pointer-events-auto flex flex-wrap items-center gap-1.5">
+              <ToolButton active={active === 'key'} onClick={() => toggle('key')} label={t.mapKey}>
+                <Info className="size-4" aria-hidden="true" />
+              </ToolButton>
+              {shareControl && (
+                <ToolButton active={active === 'share'} onClick={() => toggle('share')} label={t.shareMe}>
+                  <Radar className="size-4 text-sky-600" aria-hidden="true" />
+                </ToolButton>
+              )}
+              {panel && (
+                <ToolButton active={active === 'hire'} onClick={() => toggle('hire')} label={panelTitle ?? ''}>
+                  <Hand className="size-4 text-emerald-700" aria-hidden="true" />
+                </ToolButton>
+              )}
+            </div>
+            {/* Status chips: one short line each. */}
             {followId && (
-              <div className="flex items-center gap-2 text-sm" role="status">
+              <Chip>
                 <LocateFixed className="size-4 shrink-0 text-sky-600" aria-hidden="true" />
                 <span className="min-w-0 flex-1 truncate font-semibold">
-                  {followId.startsWith('v:') ? t.followingVehicle(t.vehTypes[vehicles.find((x) => `v:${x.id}` === followId)?.type ?? 'car']) : t.followingTaxi(taxis.find((x) => x.id === followId)?.taxiNo ?? '')}
+                  {followId.startsWith('v:') ? t.followingVehicle(t.vehTypes[vehicles.find((x) => `v:${x.id}` === followId)?.type ?? 'car']) : followId.startsWith('b:') ? t.followingVehicle('bus') : t.followingTaxi(taxis.find((x) => x.id === followId)?.taxiNo ?? '')}
                 </span>
                 <button type="button" onClick={() => follow(null)} className="shrink-0 rounded-lg bg-slate-900 px-2 py-1 text-xs font-bold text-white">
                   {t.stopFollowing}
                 </button>
-              </div>
+              </Chip>
             )}
-            {near && (
-              <div className="flex items-center gap-2 text-sm">
+            {near && !driving && (
+              <Chip>
                 <MapPin className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />
-                <span className="min-w-0 flex-1 truncate">
-                  {near.name ? t.youAreNear(near.name) : t.youAreHere}
-                </span>
+                <span className="min-w-0 flex-1 truncate">{near.name ? t.youAreNear(near.name) : t.youAreHere}</span>
                 {onHireFrom && !activeTrip && (
                   <button type="button" onClick={() => onHireFrom(near.at, near.name)} className="shrink-0 rounded-lg bg-emerald-600 px-2 py-1 text-xs font-bold text-white">
                     {t.hireFromHere}
                   </button>
                 )}
-              </div>
+              </Chip>
             )}
-            {locationOff && <p className="text-xs font-semibold text-amber-800">{t.locationOff}</p>}
             {driving && (
-              <p className="flex items-center gap-2 text-sm font-semibold text-emerald-800" role="status">
-                <CarTaxiFront className="size-4 shrink-0" aria-hidden="true" /> {t.drivingNote}
-              </p>
-            )}
-            {shareControl}
-            <details className="group" open={wide}>
-              <summary className="cursor-pointer list-none text-xs font-semibold text-slate-600 [&::-webkit-details-marker]:hidden">
-                <span className="inline-flex items-center gap-1">
-                  <Info className="size-3.5" aria-hidden="true" /> {t.mapKey}
+              <Chip>
+                <CarTaxiFront className="size-4 shrink-0 text-emerald-700" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate font-semibold text-emerald-800" title={t.drivingNote}>
+                  {t.drivingShort}
                 </span>
-              </summary>
-              <div className="mt-1 space-y-1">
-                {legend}
-                {note && <p className="text-[11px] leading-snug text-amber-800">{note}</p>}
+              </Chip>
+            )}
+            {locationOff && (
+              <Chip>
+                <span className="min-w-0 flex-1 text-xs font-semibold text-amber-800">{t.locationOff}</span>
+              </Chip>
+            )}
+            {/* The one open panel. */}
+            {active && (
+              <div className="map-glass pointer-events-auto flex min-h-0 flex-col rounded-2xl border border-white/60 bg-white/70 shadow-xl backdrop-blur-[3px] backdrop-saturate-150">
+                <div className="flex shrink-0 items-center gap-2 ps-4">
+                  <p className="min-w-0 flex-1 truncate py-2.5 font-bold">{active === 'key' ? t.mapKey : active === 'share' ? t.shareMe : panelTitle}</p>
+                  {active === 'hire' && onPanelClose && (
+                    <button type="button" onClick={onPanelClose} className="min-h-9 rounded-lg px-2 text-xs font-bold text-red-700 hover:bg-red-50">
+                      {t.cancel}
+                    </button>
+                  )}
+                  <button type="button" onClick={closeActive} aria-label={t.close} title={t.close} className="grid min-h-11 min-w-11 place-items-center text-slate-500 hover:text-slate-900">
+                    <X className="size-5" aria-hidden="true" />
+                  </button>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+                  {active === 'key' && (
+                    <div className="space-y-2">
+                      {legend}
+                      {note && <p className="text-xs leading-snug text-amber-800">{note}</p>}
+                    </div>
+                  )}
+                  {active === 'share' && shareControl}
+                  {active === 'hire' && panel}
+                </div>
               </div>
-            </details>
+            )}
           </div>
         )}
 
@@ -1443,36 +1560,10 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
           </>
         )}
 
-        {/* A panel over the map (hiring): side panel on wide screens, a pull-up sheet on phones. */}
-        {withPanel && (
-          <div
-            className={`absolute inset-x-0 bottom-0 z-[6] map-glass flex max-h-[70%] flex-col rounded-t-2xl border border-white/50 bg-white/55 shadow-2xl backdrop-blur-[3px] backdrop-saturate-150 sm:inset-x-auto sm:start-2 sm:top-16 sm:max-h-[calc(100%-5rem)] sm:w-96 sm:rounded-2xl ${panelOpen ? 'sm:bottom-2' : ''} ${pinMode ? 'hidden' : ''}`}
-          >
-            <div className="relative flex shrink-0 items-center">
-              <button
-                type="button"
-                onClick={() => onPanelOpenChange?.(!panelOpen)}
-                aria-expanded={panelOpen}
-                className="flex min-h-11 flex-1 items-center gap-2 ps-4 text-start"
-              >
-                <span className="absolute inset-x-0 top-1.5 mx-auto h-1 w-10 rounded-full bg-slate-300 sm:hidden" aria-hidden="true" />
-                <span className="flex-1 pt-1 font-bold">{panelTitle}</span>
-                <span className="text-slate-500">{panelOpen ? <ChevronDown className="size-5" aria-hidden="true" /> : <ChevronUp className="size-5" aria-hidden="true" />}</span>
-              </button>
-              {onPanelClose && (
-                <button type="button" onClick={onPanelClose} aria-label={t.close} title={t.close} className="grid min-h-11 min-w-11 place-items-center text-slate-500 hover:text-slate-900">
-                  <X className="size-5" aria-hidden="true" />
-                </button>
-              )}
-            </div>
-            <div className={`min-h-0 flex-1 overflow-y-auto px-2 pb-2 ${panelOpen ? '' : 'hidden'}`}>{panel}</div>
-          </div>
-        )}
-
         {/* A booked private vehicle: where it is, on its real position, and Show my vehicle. */}
         {privateCard && (
           <div
-            className={`absolute z-[5] flex items-center gap-3 rounded-2xl border border-white/50 bg-white/65 p-3 shadow-xl backdrop-blur-[3px] ${withPanel ? 'inset-x-2 top-36 sm:top-auto sm:bottom-8 sm:inset-x-auto sm:end-14 sm:w-80' : 'inset-x-2 bottom-8 sm:inset-x-auto sm:start-2 sm:w-80'}`}
+            className={`absolute z-[5] flex items-center gap-3 rounded-2xl border border-white/60 bg-white/70 p-3 shadow-xl backdrop-blur-[3px] inset-x-2 bottom-8 sm:inset-x-auto sm:start-2 sm:w-96 [@media(max-width:639px)]:end-12`}
             role="status"
           >
             <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-slate-900 text-yellow-300">
@@ -1488,7 +1579,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         {/* The ride in progress: where the taxi is in the trip, and Show my taxi. */}
         {ride && activeTrip && (
           <div
-            className={`absolute z-[5] flex items-center gap-3 rounded-2xl border border-white/50 bg-white/65 p-3 shadow-xl backdrop-blur-[3px] ${withPanel ? 'inset-x-2 top-36 sm:top-auto sm:bottom-8 sm:inset-x-auto sm:end-14 sm:w-80' : 'inset-x-2 bottom-8 sm:inset-x-auto sm:start-2 sm:w-80'}`}
+            className={`absolute z-[5] flex items-center gap-3 rounded-2xl border border-white/60 bg-white/70 p-3 shadow-xl backdrop-blur-[3px] inset-x-2 bottom-8 sm:inset-x-auto sm:start-2 sm:w-96 [@media(max-width:639px)]:end-12`}
             role="status"
           >
             <CarTaxiFront className="size-6 shrink-0 text-emerald-700" aria-hidden="true" />
@@ -1505,7 +1596,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         {/* The trip: distance, time and travel mode, floating at the bottom like a ride app. */}
         {tripInfo && !ride && (
           <div
-            className={`absolute z-[5] flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-xl backdrop-blur ${withPanel ? 'inset-x-2 top-36 sm:top-auto sm:bottom-8 sm:inset-x-auto sm:end-14 sm:w-80' : 'inset-x-2 bottom-8 sm:inset-x-auto sm:start-2 sm:w-80'}`}
+            className={`absolute z-[5] flex items-center gap-3 rounded-2xl border border-white/60 bg-white/70 p-3 shadow-xl backdrop-blur-[3px] inset-x-2 bottom-8 sm:inset-x-auto sm:start-2 sm:w-96 [@media(max-width:639px)]:end-12`}
           >
             <div className="min-w-0 flex-1" dir="ltr">
               <p className="text-lg font-black tabular-nums">

@@ -297,3 +297,28 @@ html .maplibregl-map {
   pointer-events: none;
 }
 
+/* Lost signal or a big GPS jump: fade out where it was, then fade in slowly at the new place. */
+.vehicle-marker.vanish,
+.bus-marker.vanish {
+  animation: vehicle-vanish 0.5s ease-in forwards;
+}
+.vehicle-marker.reappear,
+.bus-marker.reappear {
+  animation: vehicle-reappear 1.6s ease-out;
+}
+@keyframes vehicle-vanish {
+  to {
+    opacity: 0;
+    filter: blur(2px);
+  }
+}
+@keyframes vehicle-reappear {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+  }
+  60% {
+    filter: blur(0);
+  }
+}
+
