@@ -186,6 +186,16 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
 - **v3:** use the same rest levels for driver GPS over WebSocket, so the server knows how long to wait. Private driver becomes a provider permission per center or platform.
 - [ ] Ported
 
+## 20. Live location; vehicles on the roads; keep left; one way of moving
+
+- **v2:** `d33b4de` (with `f2ab1f6`, `250cc7b`):
+  - **Map:** GeolocateControl tracks the viewer, with no Kulhudhuffushi default (`lastSpot`, `moveToLocation` per fix).
+  - **Private vehicles:** top-down shapes, gliding (`src/core/glide.ts`), snapped to roads (`src/core/snap.ts`), keeping left (`src/core/lanes.ts`).
+  - **One way of moving at a time:** no hiring while driving.
+  - **Mobile:** the Map tab and See it on the map.
+- **v3:** do the map-matching (snap and route) on the server, so every viewer sees the same road position. Keep left for all simulated and matched vehicles. Enforce "one way of moving" in the API (a driver on duty can't book).
+- [ ] Ported
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
