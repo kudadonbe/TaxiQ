@@ -18,3 +18,4 @@ Ideas:
 - [Game mode](game-mode.md): a multiplayer taxi business game on the real map (draft, built in v2 first)
 - [How to play TaxiQ Game](how-to-play.md): the player guide (updated each phase)
 - [Product direction](product-direction.md): public service and private hire; v3 hires any land vehicle
+- [Vehicle movement rules](vehicle-movement-rules.md): speed, acceleration, turning, junctions, traffic, GPS filtering and route prediction, stopping, lights
