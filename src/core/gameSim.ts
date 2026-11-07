@@ -2,6 +2,7 @@
 // from the game's seed, each car's current plan and the game time, so the map stays in sync while the
 // database only stores plans (when a car's job changes), never positions. Pure functions; no DOM.
 
+import { isTwoWay, twoWayBetween } from './lanes'
 import { metres, nearestNode, type RoadGraph } from './route'
 
 // Game seconds per real second. 1 real minute = 6 game minutes, so a trip across town takes about
@@ -43,6 +44,7 @@ export interface CarPose {
   lat: number
   lng: number
   heading: number
+  twoWay?: boolean // the stretch of road it is on goes both ways (draw it in the left lane)
 }
 
 // What a car is doing, stored in games/{id}/cars/{n}.plan. Times are game seconds.
@@ -112,7 +114,7 @@ class Roamer {
     const p = this.g.nodes[this.from]!
     const q = this.g.nodes[this.to]!
     const f = this.edgeLen ? Math.min(1, (d - this.edgeStart) / this.edgeLen) : 0
-    return { lat: p[0] + (q[0] - p[0]) * f, lng: p[1] + (q[1] - p[1]) * f, heading: bearing(p, q) }
+    return { lat: p[0] + (q[0] - p[0]) * f, lng: p[1] + (q[1] - p[1]) * f, heading: bearing(p, q), twoWay: this.from !== this.to && isTwoWay(this.g, this.from, this.to) }
   }
 }
 
@@ -134,7 +136,7 @@ class PathRunner {
     this.v = v
   }
 
-  at(t: number): CarPose {
+  at(t: number): CarPose & { seg: [[number, number], [number, number]] } {
     const d = Math.min(this.total, Math.max(0, (t - this.t0) * this.v))
     let lo = 0
     let hi = this.cum.length - 1
@@ -151,7 +153,7 @@ class PathRunner {
     let i = lo
     while (i > 0 && metres(this.pts[i]!, this.pts[Math.min(i + 1, this.pts.length - 1)]!) === 0) i--
     const h = bearing(this.pts[i]!, this.pts[Math.min(i + 1, this.pts.length - 1)]!)
-    return { lat: a[0] + (b[0] - a[0]) * f, lng: a[1] + (b[1] - a[1]) * f, heading: h }
+    return { lat: a[0] + (b[0] - a[0]) * f, lng: a[1] + (b[1] - a[1]) * f, heading: h, seg: [a, b] as [[number, number], [number, number]] }
   }
 }
 
@@ -170,7 +172,9 @@ export class CarRunner {
   }
 
   at(t: number): CarPose {
-    return this.roam ? this.roam.at(t - this.plan.t0) : this.path!.at(t)
+    if (this.roam) return this.roam.at(t - this.plan.t0)
+    const { seg, ...pose } = this.path!.at(t)
+    return { ...pose, twoWay: twoWayBetween(this.g, seg[0], seg[1]) }
   }
 
   // Where a new job starts from: the car's pose now and the road node to route from (the junction

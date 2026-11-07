@@ -55,7 +55,9 @@ export function usePeople(fb: Fb | null, signedIn: boolean, staff: boolean, myUi
 
 // This person's own sharing: start (with who may see them), change, stop. Stops by itself after an
 // hour. While sharing, the way they move is guessed from their speed unless they pick it.
-export function useShareMe(fb: Fb | null, uid: string | null, name: string, inRide: boolean) {
+// `blocked`: the person is driving their own vehicle (they're on the map as the vehicle), so
+// sharing pauses and their records are removed; switching the vehicle off resumes it.
+export function useShareMe(fb: Fb | null, uid: string | null, name: string, inRide: boolean, blocked = false) {
   const [share, setShare] = useState<{ visibility: Visibility; until: number } | null>(null)
   const [mode, setMode] = useState<Moving>('walk')
   const [picked, setPicked] = useState<Moving | null>(null)
@@ -73,8 +75,13 @@ export function useShareMe(fb: Fb | null, uid: string | null, name: string, inRi
     void fb.deleteDoc(fb.doc(fb.db, 'presencePublic', uid)).catch(() => undefined)
   }, [fb, uid])
 
-  const visibility = share?.visibility
-  const until = share?.until
+  const visibility = blocked ? undefined : share?.visibility
+  const until = blocked ? undefined : share?.until
+  useEffect(() => {
+    if (!fb || !uid || !blocked) return
+    void fb.deleteDoc(fb.doc(fb.db, 'presence', uid)).catch(() => undefined)
+    void fb.deleteDoc(fb.doc(fb.db, 'presencePublic', uid)).catch(() => undefined)
+  }, [fb, uid, blocked])
   useEffect(() => {
     if (!fb || !uid || !visibility || !until || !('geolocation' in navigator)) return
     const speeds: number[] = []
@@ -135,7 +142,7 @@ export function useShareMe(fb: Fb | null, uid: string | null, name: string, inRi
   }, [fb, uid, visibility, until, stop])
 
   return {
-    sharing: share,
+    sharing: blocked ? null : share,
     mode: picked ?? mode,
     guessed: mode,
     picked,

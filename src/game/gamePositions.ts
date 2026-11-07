@@ -1,5 +1,6 @@
 import { defaultCar, type CarDoc } from '../core/gameEngine'
 import { CarRunner } from '../core/gameSim'
+import { inLane } from '../core/lanes'
 import { ROAD_GRAPH, type Position, type Positions } from '../positions'
 import { simNow, type Game } from './gameData'
 
@@ -22,7 +23,10 @@ export function gamePositionSource(game: Game, getCars: () => ReadonlyMap<number
         let r = runners.get(n)
         // Same plan object until the car's doc changes, so the runner keeps its progress.
         if (!r || r.plan !== plan) runners.set(n, (r = { plan, runner: new CarRunner(ROAD_GRAPH, game.seed, n, plan) }))
-        out.set(id, r.runner.at(t))
+        // Keep left on two-way roads, like real traffic in the Maldives.
+        const p = r.runner.at(t)
+        const [lat, lng] = inLane(p.lat, p.lng, p.heading, p.twoWay ?? false)
+        out.set(id, { lat, lng, heading: p.heading })
       }
       onUpdate(out)
       frame = requestAnimationFrame(tick)

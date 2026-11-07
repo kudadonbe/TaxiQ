@@ -16,6 +16,21 @@ export function ShareMe({ me }: { me: ReturnType<typeof useShareMe> }) {
   }, [])
   const left = me.sharing ? Math.max(1, Math.ceil((me.sharing.until - now) / 60_000)) : 0
 
+  // Sharing and folded: one line, with Change and Stop.
+  if (me.sharing && !open)
+    return (
+      <div className="flex items-center gap-2 text-sm">
+        <Radar className="size-4 shrink-0 text-sky-600" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate font-semibold">{t.shareOn(left)}</span>
+        <button type="button" onClick={() => setOpen(true)} className="shrink-0 rounded-lg bg-white/70 px-2 py-1 text-xs font-bold">
+          {t.shareChange}
+        </button>
+        <button type="button" onClick={me.stop} className="shrink-0 rounded-lg bg-slate-900 px-2 py-1 text-xs font-bold text-white">
+          {t.stopFollowing}
+        </button>
+      </div>
+    )
+
   if (!me.sharing && !open)
     return (
       <button type="button" onClick={() => setOpen(true)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-white/70 px-2 text-xs font-bold text-slate-800 shadow-sm">
@@ -29,7 +44,11 @@ export function ShareMe({ me }: { me: ReturnType<typeof useShareMe> }) {
         type="radio"
         name="share-visibility"
         checked={me.sharing?.visibility === v}
-        onChange={() => (me.sharing ? me.setVisibility(v) : me.start(v))}
+        onChange={() => {
+          if (me.sharing) me.setVisibility(v)
+          else me.start(v)
+          setOpen(false) // chosen: fold to one line
+        }}
         className="mt-0.5 accent-sky-600"
       />
       <span>
@@ -74,9 +93,14 @@ export function ShareMe({ me }: { me: ReturnType<typeof useShareMe> }) {
       {me.error && <p className="text-xs font-semibold text-rose-700">{me.error === 'location_denied' ? t.shareDenied : t.saveError(me.error)}</p>}
       <div className="flex gap-2">
         {me.sharing ? (
-          <button type="button" onClick={me.stop} className="min-h-9 flex-1 rounded-lg bg-slate-900 font-bold text-white">
-            {t.shareStop}
-          </button>
+          <>
+            <button type="button" onClick={() => setOpen(false)} className="min-h-9 flex-1 rounded-lg bg-white/70 font-semibold">
+              {t.close}
+            </button>
+            <button type="button" onClick={me.stop} className="min-h-9 flex-1 rounded-lg bg-slate-900 font-bold text-white">
+              {t.shareStop}
+            </button>
+          </>
         ) : (
           <button type="button" onClick={() => setOpen(false)} className="min-h-9 flex-1 rounded-lg bg-white/70 font-semibold">
             {t.cancel}

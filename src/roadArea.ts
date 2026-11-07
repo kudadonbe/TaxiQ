@@ -45,7 +45,26 @@ export const useArea = () => useSyncExternalStore(subscribeArea, getArea, getAre
 
 const NO_ROADS: RoadGraph = { nodes: [], next: [] }
 const GIVE_UP_MS = 25_000
-let moved = false
+const MOVE_AREA_M = 3_000 // moving this far loads the roads and places for the new area
+const LAST_SPOT = 'taxiq.lastSpot'
+
+// The viewer's last known spot (on this device only, rounded to about 100 m), so the map can open
+// there next time while it looks for them.
+export function lastSpot(): [number, number] | null {
+  try {
+    const v = JSON.parse(localStorage.getItem(LAST_SPOT) ?? 'null')
+    return Array.isArray(v) && v.length === 2 && v.every((n) => typeof n === 'number') ? [v[0], v[1]] : null
+  } catch {
+    return null
+  }
+}
+function rememberSpot(at: [number, number]) {
+  try {
+    localStorage.setItem(LAST_SPOT, JSON.stringify([Math.round(at[0] * 1000) / 1000, Math.round(at[1] * 1000) / 1000]))
+  } catch {
+    // Storage unavailable: the map just opens on the Maldives next time.
+  }
+}
 
 // Real roads found for the viewer's area (from the map's vector tiles, or from Overpass): the demo
 // taxis start driving on them. A bigger road network replaces a smaller one.
@@ -59,12 +78,16 @@ export function offerRoads(graph: RoadGraph, source: RoadSource) {
   set({ ...area, graph, kind: 'here', source })
 }
 
-// Move the demo area to the viewer's location (once per page load). Demo taxis only ever drive on
+// Follow the viewer: called on every GPS update. A new area (moved 3 km or more) loads its roads. Demo taxis only ever drive on
 // real roads: until roads are found for the area none are shown, and if none can be found the
 // note under the map says so.
 export function moveToLocation(at: [number, number]) {
-  if (moved) return
-  moved = true
+  rememberSpot(at)
+  // Still in the same area: only where the viewer is changes (for the house search and pins).
+  if (area.located && metres(at, area.center) < MOVE_AREA_M) {
+    setViewerSpot(at)
+    return
+  }
   if (metres(at, MAP_CENTER) < HOME_RADIUS) {
     set({ graph: ROAD_GRAPH, center: at, kind: 'home', located: true })
     return

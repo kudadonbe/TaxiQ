@@ -1,5 +1,7 @@
 import { MapPin, Plus, ShieldAlert } from 'lucide-react'
 import { Switch } from './Switch'
+import { useMyRide } from '../useRides'
+import { useMyPrivateRide } from '../privateRides'
 import { useState } from 'react'
 import { useAuth } from '../auth'
 import { useI18n } from '../i18n'
@@ -48,8 +50,14 @@ function VehicleCard({ v, onEdit, onWithdraw, onShowOnMap }: { v: Vehicle; onEdi
   const { t } = useI18n()
   const avail = useAvailableVehicle()
   const isOn = avail.availableId === v.id
-  const { role } = useAuth()
+  const { role, uid } = useAuth()
   const canTake = role === 'private' || role === 'dev'
+  // One way of moving at a time: not while you're a passenger on a ride (taxi or private).
+  const taxiRide = useMyRide(fb, uid)
+  const privateRide = useMyPrivateRide(fb, uid)
+  const inRide =
+    (!!taxiRide && (taxiRide.status === 'offering' || taxiRide.status === 'accepted')) ||
+    (!!privateRide && (privateRide.status === 'offering' || privateRide.status === 'accepted' || privateRide.status === 'onboard'))
   const [price, setPriceState] = useState({ base: v.priceBase, perKm: v.pricePerKm })
   const Icon = VEHICLE_ICONS[v.type]
   return (
@@ -79,13 +87,14 @@ function VehicleCard({ v, onEdit, onWithdraw, onShowOnMap }: { v: Vehicle; onEdi
                 <p className="font-bold">{isOn ? t.vehAvailableOn : t.vehAvailableOff}</p>
                 <p className="text-xs text-slate-600">{t.vehAvailableNote}</p>
               </div>
-              <Switch on={isOn} locked={!canTake} label={t.vehAvailable} onChange={(on) => avail.setAvailable(on ? v.id : null)} />
+              <Switch on={isOn} locked={!canTake || (inRide && !isOn)} label={t.vehAvailable} onChange={(on) => avail.setAvailable(on ? v.id : null)} />
             </div>
             {isOn && onShowOnMap && (
               <button type="button" onClick={() => onShowOnMap(v.id)} className="inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-slate-900 text-sm font-bold text-white">
                 <MapPin className="size-4" aria-hidden="true" /> {t.vehSeeOnMap}
               </button>
             )}
+            {canTake && inRide && !isOn && <p className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900">{t.vehInRide}</p>}
             {!canTake && (
               <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900">
                 <ShieldAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />

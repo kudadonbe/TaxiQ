@@ -1,4 +1,4 @@
-import { CarTaxiFront, ChevronDown, ChevronUp, Footprints, LocateFixed, MapPin, X } from 'lucide-react'
+import { CarTaxiFront, ChevronDown, ChevronUp, Footprints, Info, LocateFixed, MapPin, X } from 'lucide-react'
 import { PlaceTypeIcon } from './icons'
 import { ic } from './iconStyles'
 import type { Feature, LineString } from 'geojson'
@@ -15,11 +15,14 @@ import { loadPlaces, loadPlacesAround, metresBetween, nearestPlace, regionAt, se
 import { route as findRoute, type TravelMode } from '../core/route'
 import { driveTrip, endTrip, MAP_CENTER, ROAD_GRAPH, subscribePositions, TRIP_SPEED, tripProgress, type Positions } from '../positions'
 import { graphFromLines } from '../core/osmRoads'
-import { getArea, moveToLocation, offerRoads, useArea } from '../roadArea'
+import { getArea, lastSpot, moveToLocation, offerRoads, useArea } from '../roadArea'
 import type { Taxi } from '../types'
 import type { Person } from '../usePresence'
 import type { PublicVehicle } from '../vehicles'
 import { MOVING_ICONS, VEHICLE_ICONS } from './iconStyles'
+import { glideAt, glideState, nextGlide, turnToward, type Glide } from '../core/glide'
+import { inLane, twoWayBetween } from '../core/lanes'
+import { snapToRoad } from '../core/snap'
 import { createRoot, type Root } from 'react-dom/client'
 import { loadPlots, plotPopup, plotsGeoJSON, type Plot } from './plotLayer'
 
@@ -65,6 +68,8 @@ interface Props {
   focusVehicle?: { id: string; n: number } | null
   // The viewer, so their own vehicle is ringed and isn't offered for hire to them.
   myUid?: string | null
+  // The viewer is driving their own vehicle (Available): they can't hire, and the card says so.
+  driving?: boolean
   // A booked private vehicle: shown on its real position, with a ride card and Show my vehicle.
   privateRide?: { vehicleId: string; pickup: [number, number]; destination: [number, number]; status: 'offering' | 'accepted' | 'onboard' }
   shareControl?: ReactNode
@@ -98,6 +103,59 @@ const CAR_SVG = `<svg viewBox="0 0 20 36" width="20" height="36" aria-hidden="tr
   <rect x="3" y="2.5" width="3" height="2" rx="1" fill="#fef9c3"/>
   <rect x="14" y="2.5" width="3" height="2" rx="1" fill="#fef9c3"/>
 </svg>`
+
+// Top-down private vehicles, nose up so rotate() aims them along the road; body in currentColor.
+// Static markup with no user data, so innerHTML is safe here.
+const VEHICLE_SVGS: Record<'car' | 'van' | 'pickup' | 'motorbike' | 'ebike', string> = {
+  car: CAR_SVG.replace('fill="currentColor"', 'fill="currentColor"').replace('<rect x="3" y="2.5" width="3" height="2" rx="1" fill="#fef9c3"/>', '<rect x="3" y="2.5" width="3" height="2" rx="1" fill="#fde68a"/>'),
+  van: `<svg viewBox="0 0 22 40" width="22" height="40" aria-hidden="true">
+  <rect x="1.5" y="1.5" width="19" height="37" rx="4" fill="currentColor" stroke="#0f172a" stroke-width="1.5"/>
+  <path d="M4.5 8 Q11 5.5 17.5 8 L16.5 12.5 H5.5 Z" fill="#0f172a" opacity=".85"/>
+  <rect x="5" y="15" width="12" height="20" rx="1.5" fill="#0f172a" opacity=".18"/>
+  <rect x="3.5" y="2.5" width="3" height="2" rx="1" fill="#fde68a"/>
+  <rect x="15.5" y="2.5" width="3" height="2" rx="1" fill="#fde68a"/>
+</svg>`,
+  pickup: `<svg viewBox="0 0 22 40" width="22" height="40" aria-hidden="true">
+  <rect x="1.5" y="1.5" width="19" height="37" rx="5" fill="currentColor" stroke="#0f172a" stroke-width="1.5"/>
+  <path d="M4.5 8.5 Q11 6 17.5 8.5 L16.5 13 H5.5 Z" fill="#0f172a" opacity=".85"/>
+  <rect x="4" y="19" width="14" height="17" rx="1.5" fill="none" stroke="#0f172a" stroke-width="1.5" opacity=".7"/>
+  <line x1="4" y1="18" x2="18" y2="18" stroke="#0f172a" stroke-width="1.5"/>
+  <rect x="3.5" y="2.5" width="3" height="2" rx="1" fill="#fde68a"/>
+  <rect x="15.5" y="2.5" width="3" height="2" rx="1" fill="#fde68a"/>
+</svg>`,
+  motorbike: `<svg viewBox="0 0 16 34" width="16" height="34" aria-hidden="true">
+  <rect x="6.5" y="1" width="3" height="7" rx="1.5" fill="#0f172a"/>
+  <rect x="6.5" y="26" width="3" height="7" rx="1.5" fill="#0f172a"/>
+  <line x1="2" y1="9" x2="14" y2="9" stroke="#0f172a" stroke-width="1.8" stroke-linecap="round"/>
+  <rect x="5" y="8" width="6" height="19" rx="3" fill="currentColor" stroke="#0f172a" stroke-width="1.2"/>
+  <circle cx="8" cy="16" r="3.6" fill="#0f172a" opacity=".85"/>
+  <circle cx="8" cy="2" r="1" fill="#fde68a"/>
+</svg>`,
+  ebike: `<svg viewBox="0 0 14 32" width="14" height="32" aria-hidden="true">
+  <rect x="5.5" y="1" width="3" height="6" rx="1.5" fill="#0f172a"/>
+  <rect x="5.5" y="25" width="3" height="6" rx="1.5" fill="#0f172a"/>
+  <line x1="1.5" y1="8" x2="12.5" y2="8" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round"/>
+  <rect x="4.5" y="7" width="5" height="19" rx="2.5" fill="currentColor" stroke="#0f172a" stroke-width="1.1"/>
+  <rect x="5.5" y="17" width="3" height="5" rx=".8" fill="#22c55e"/>
+  <circle cx="7" cy="13.5" r="3" fill="#0f172a" opacity=".85"/>
+</svg>`,
+}
+
+// The vehicle's colour from what the owner typed (English or Dhivehi), else a dark grey.
+const COLOURS: [RegExp, string][] = [
+  [/red|ރަތް/i, '#dc2626'],
+  [/blue|ނޫ/i, '#2563eb'],
+  [/green|ފެހި/i, '#16a34a'],
+  [/white|ހުދު/i, '#f8fafc'],
+  [/black|ކަޅު/i, '#1e293b'],
+  [/silver|grey|gray|ރިހި/i, '#94a3b8'],
+  [/yellow|ރީނދޫ/i, '#facc15'],
+  [/orange|ތެޔޮކުލަ/i, '#f97316'],
+  [/brown|ދޮން/i, '#92400e'],
+  [/purple|ވައިލެޓް/i, '#7c3aed'],
+  [/pink|ފިޔާތޮށި/i, '#ec4899'],
+]
+const vehicleColour = (c: string) => COLOURS.find(([r]) => r.test(c))?.[1] ?? '#475569'
 
 interface MarkerParts {
   root: HTMLDivElement
@@ -134,6 +192,9 @@ const ROADS_SOURCE = 'ofm-roads'
 const ROADS_LAYER = 'ofm-roads-read'
 const DRIVABLE_CLASSES = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'minor', 'service', 'busway']
 
+// The whole Maldives, while the map looks for the viewer the first time.
+const MALDIVES: [number, number] = [3.2, 73.22]
+
 const OSM_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   sources: {
@@ -151,11 +212,12 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
 // Live map of taxis, on MapLibre: rotate (two fingers / right-drag), tilt, pinch zoom, compass and
 // "my location" like Google Maps. Markers are driven imperatively so 60fps position updates don't
 // re-render React.
-export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, activeTrip, onHireFrom, people = [], vehicles = [], onHireVehicle, focusVehicle = null, myUid = null, privateRide, shareControl }: Props) {
+export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, activeTrip, onHireFrom, people = [], vehicles = [], onHireVehicle, focusVehicle = null, myUid = null, privateRide, shareControl, driving = false }: Props) {
   const { lang, t, driverName } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const map = useRef<MlMap | null>(null)
   const [ready, setReady] = useState(false)
+  const [locationOff, setLocationOff] = useState(false) // the viewer blocked location
   const markers = useRef(new Map<string, { marker: Marker; parts: MarkerParts; onMap: boolean }>())
   const positions = useRef<Positions>(new Map())
   const pins = useRef<Marker[]>([])
@@ -196,6 +258,10 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   const area = useArea()
   const graph = followsViewer ? area.graph : ROAD_GRAPH
   const followRef = useRef(followsViewer) // fixed for the life of this map
+  const graphRef = useRef(graph) // the roads, for keeping vehicles on them (read in the animation loop)
+  useEffect(() => {
+    graphRef.current = graph
+  })
   // Places for search, labels and pin names: the viewer's area (e.g. Malé) on the real app's map;
   // the game map stays on Kulhudhuffushi.
   const placesKey = followsViewer ? (regionAt(area.center)?.id ?? 'home') : 'home'
@@ -206,8 +272,10 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     const m = new maplibregl.Map({
       container: box.current!,
       style: OSM_STYLE,
-      center: ll(MAP_CENTER),
-      zoom: 16,
+      // Real-app map: open where the viewer was last (or the whole Maldives) and look for them at
+      // once; never assume Kulhudhuffushi. The game map stays on its island.
+      center: ll(followRef.current ? (lastSpot() ?? MALDIVES) : MAP_CENTER),
+      zoom: followRef.current ? (lastSpot() ? 15 : 5.5) : 16,
       minZoom: 1,
       maxZoom: 22,
       maxPitch: 60,
@@ -218,19 +286,29 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       },
     })
     m.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true, showZoom: true }), 'top-right')
-    // The viewer's own location: a blue dot with heading, asked only when they press the button.
-    m.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: true }), 'top-right')
-    m.on('load', () => setReady(true))
-    m.on('dragstart', () => followRefFn.current(null))
-    // Open where the viewer is: ask for their location once, then move the map and the demo taxis
-    // there. If they say no, the map stays on Kulhudhuffushi.
-    if (followRef.current && 'geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (p) => void moveToLocation([p.coords.latitude, p.coords.longitude]),
-        () => {},
-        { enableHighAccuracy: false, timeout: 10_000, maximumAge: 10 * 60_000 },
-      )
+    // The viewer's own location: a blue dot that follows every GPS change (at least every 10 s), and
+    // the map follows it until they drag it; the button re-centres and follows again.
+    const geo = new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 }, trackUserLocation: true })
+    m.addControl(geo, 'top-right')
+    if (followRef.current) {
+      geo.on('geolocate', (e) => {
+        setLocationOff(false)
+        moveToLocation([e.coords.latitude, e.coords.longitude])
+      })
+      geo.on('error', (e) => {
+        if (e.code !== 1) return // a timeout or no fix: keep looking
+        // Location blocked: show Kulhudhuffushi, where the demo data is, and say so.
+        setLocationOff(true)
+        m.flyTo({ center: ll(MAP_CENTER), zoom: 15 })
+      })
     }
+    m.on('load', () => {
+      setReady(true)
+      if (followRef.current) geo.trigger() // look for the viewer straight away
+      // Start the credits folded (the i button opens them), so they don't cover the map on a phone.
+      box.current?.querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show')
+    })
+    m.on('dragstart', () => followRefFn.current(null))
     map.current = m
     const all = markers.current
     return () => {
@@ -648,7 +726,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
 
   // People sharing their position: a round icon for how they move; staff also see the name.
   // Built with DOM text; the icon is rendered by React into the marker.
-  const peopleMarkers = useRef(new Map<string, { marker: Marker; root: Root; label: HTMLSpanElement; mode: string }>())
+  const peopleMarkers = useRef(new Map<string, { marker: Marker; root: Root; label: HTMLSpanElement; mode: string; glide: Glide | null; lastReport: number | null; atKey: string }>())
   const peopleKey = JSON.stringify(people)
   useEffect(() => {
     const m = map.current
@@ -667,10 +745,16 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         label.className = 'person-marker-label'
         el.append(icon, label)
         const root = createRoot(icon)
-        entry = { marker: new maplibregl.Marker({ element: el }).setLngLat(ll(p.at)).addTo(m), root, label, mode: '' }
+        entry = { marker: new maplibregl.Marker({ element: el }).setLngLat(ll(p.at)).addTo(m), root, label, mode: '', glide: null, lastReport: null, atKey: '' }
         peopleMarkers.current.set(p.id, entry)
       }
-      entry.marker.setLngLat(ll(p.at))
+      const pKey = p.at.join(',')
+      if (pKey !== entry.atKey) {
+        const now = performance.now()
+        entry.glide = nextGlide(entry.glide, p.at, now, entry.lastReport)
+        entry.lastReport = now
+        entry.atKey = pKey
+      }
       entry.label.textContent = p.name ?? ''
       const pel = entry.marker.getElement()
       pel.style.opacity = p.level && p.level !== 'active' ? '0.6' : '1'
@@ -691,9 +775,13 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     }
   }, [peopleKey, ready])
 
-  // Private vehicles for hire: a dark rounded marker with the vehicle-type icon and its price. Tap
-  // for its type, owner's first name and price. Built with DOM text.
-  const vehicleMarkers = useRef(new Map<string, { marker: Marker; root: Root; price: HTMLSpanElement; type: string }>())
+  // Private vehicles for hire: a top-down vehicle (car, van, pickup, motorbike, e-bike) in its own
+  // colour, with an upright price label. Between the owner's reports it glides at a steady speed and
+  // turns to face its way (src/core/glide.ts), so it drives rather than jumps. Tap for its type,
+  // owner's first name and price. Text goes in with textContent only.
+  const vehicleMarkers = useRef(
+    new Map<string, { marker: Marker; shape: HTMLDivElement; price: HTMLSpanElement; type: string; glide: Glide | null; lastReport: number | null; atKey: string; shownHeading: number; onRoad: boolean }>(),
+  )
   const vehiclesKey = JSON.stringify(vehicles)
   const vLabels = useRef({ type: (x: string) => x, price: (b: number, k: number) => `${b} ${k}`, hire: '', follow: '', unfollow: '', level: (l: string) => l })
   const hireVehicleRef = useRef(onHireVehicle)
@@ -715,19 +803,37 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         const el = document.createElement('button')
         el.type = 'button'
         el.className = 'vehicle-marker'
-        const icon = document.createElement('span')
-        icon.className = 'vehicle-marker-icon'
+        const shape = document.createElement('div')
+        shape.className = 'vehicle-shape'
         const price = document.createElement('span')
         price.className = 'vehicle-marker-price'
-        el.append(icon, price)
-        const root = createRoot(icon)
-        const marker = new maplibregl.Marker({ element: el }).setLngLat(ll(v.at)).addTo(m)
-        entry = { marker, root, price, type: '' }
+        el.append(shape, price)
+        const marker = new maplibregl.Marker({ element: el, rotationAlignment: 'viewport', pitchAlignment: 'viewport' }).setLngLat(ll(v.at)).addTo(m)
+        entry = { marker, shape, price, type: '', glide: null, lastReport: null, atKey: '', shownHeading: v.heading || 0, onRoad: false }
         vehicleMarkers.current.set(v.id, entry)
       }
       const e = entry
-      e.marker.setLngLat(ll(v.at))
-      if (following.current === `v:${v.id}`) m.setCenter(ll(v.at))
+      // A new report: glide on to it from where it is shown now.
+      const atKey = v.at.join(',')
+      if (atKey !== e.atKey) {
+        const now = performance.now()
+        // Keep it on the road: snap the fix to the nearest road (or parking aisle), and drive there
+        // along the roads, unless that is far longer than a straight hop (a GPS jump).
+        const g = graphRef.current
+        const snapped = snapToRoad(g, v.at)
+        const target = snapped ? snapped.at : v.at
+        let roadPath: [number, number][] | undefined
+        if (e.glide && snapped) {
+          const from = glideAt(e.glide, now)
+          const r = findRoute(g, from, target, 'taxi')
+          if (r && r.metres <= metresBetween(from, target) * 2.5 + 60) roadPath = r.path
+        }
+        e.glide = nextGlide(e.glide, target, now, e.lastReport, snapped ? null : v.heading, roadPath)
+        e.onRoad = !!snapped
+        e.lastReport = now
+        e.atKey = atKey
+      }
+      e.shape.style.color = vehicleColour(v.colour)
       e.price.textContent = vLabels.current.price(v.priceBase, v.pricePerKm)
       const vel = e.marker.getElement()
       vel.classList.toggle('mine', !!myUidRef.current && v.ownerUid === myUidRef.current)
@@ -735,8 +841,8 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       vel.title = v.level !== 'active' ? vLabels.current.level(v.level) : ''
       if (e.type !== v.type) {
         e.type = v.type
-        const Icon = VEHICLE_ICONS[v.type]
-        e.root.render(<Icon className="size-4" aria-hidden="true" />)
+        e.shape.innerHTML = VEHICLE_SVGS[v.type] // static markup, no user data
+        e.shape.dataset.type = v.type
       }
       e.marker.getElement().onclick = (ev) => {
         ev.stopPropagation()
@@ -776,11 +882,39 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     for (const [id, entry] of vehicleMarkers.current) {
       if (seen.has(id)) continue
       entry.marker.remove()
-      const root = entry.root
-      setTimeout(() => root.unmount())
       vehicleMarkers.current.delete(id)
     }
   }, [vehiclesKey, ready])
+
+  // Every frame: move each private vehicle (and each person sharing) along its glide, turn it toward
+  // its heading (relative to the map's rotation), and keep a followed vehicle in the middle.
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready) return
+    let frame = 0
+    let last = performance.now()
+    const tick = (now: number) => {
+      const dt = Math.min(100, now - last)
+      last = now
+      const bearingNow = m.getBearing()
+      for (const [id, e] of vehicleMarkers.current) {
+        if (!e.glide) continue
+        // Along its glide, facing the stretch it's on, and in the left lane of two-way roads.
+        const st = glideState(e.glide, now)
+        const at = e.onRoad ? inLane(st.at[0], st.at[1], st.heading, twoWayBetween(graphRef.current, st.a, st.b)) : st.at
+        e.marker.setLngLat(ll(at))
+        e.shownHeading = turnToward(e.shownHeading, st.heading, dt)
+        e.shape.style.transform = `rotate(${e.shownHeading - bearingNow}deg)`
+        if (following.current === `v:${id}`) m.setCenter(ll(at))
+      }
+      for (const e of peopleMarkers.current.values()) {
+        if (e.glide) e.marker.setLngLat(ll(glideAt(e.glide, now)))
+      }
+      frame = requestAnimationFrame(tick)
+    }
+    frame = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame)
+  }, [ready])
 
   // The booked private vehicle's card: minutes to the pickup (or to the destination once on board)
   // at town speed, from its live position.
@@ -821,14 +955,6 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [focusKey, vehiclesKey, ready])
 
-  // When the viewer's location arrives, fly there (the demo taxis restart on the roads there).
-  const areaKey = followsViewer && area.located ? area.center.join(',') : ''
-  useEffect(() => {
-    const m = map.current
-    if (!m || !areaKey) return
-    const [lat, lng] = areaKey.split(',').map(Number)
-    m.flyTo({ center: [lng!, lat!], zoom: 15, essential: true })
-  }, [areaKey, ready])
 
   // The trip: route along the roads (taxi follows one-way streets; walking doesn't), drawn with a
   // white casing like a ride app, start and end pins, distance and time. If a point is far from
@@ -931,6 +1057,8 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
 
   const note = followsViewer ? (area.kind === 'here' ? t.mapDemoHere : area.kind === 'loading' ? t.mapDemoLoading : area.kind === 'none' ? t.mapDemoNone : t.mapPlaceholder) : null
   const withPanel = fullscreen && !!panel
+  // The map key starts open on wide screens and folded on phones.
+  const [wide] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 640px)').matches)
   const legend = (
       <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 text-xs ${fullscreen ? '' : 'px-1 sm:text-sm'}`}>
         <span className="flex items-center gap-1.5">
@@ -992,9 +1120,24 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
                 )}
               </div>
             )}
+            {locationOff && <p className="text-xs font-semibold text-amber-800">{t.locationOff}</p>}
+            {driving && (
+              <p className="flex items-center gap-2 text-sm font-semibold text-emerald-800" role="status">
+                <CarTaxiFront className="size-4 shrink-0" aria-hidden="true" /> {t.drivingNote}
+              </p>
+            )}
             {shareControl}
-            {legend}
-            {note && <p className="line-clamp-2 text-[11px] leading-snug text-amber-800">{note}</p>}
+            <details className="group" open={wide}>
+              <summary className="cursor-pointer list-none text-xs font-semibold text-slate-600 [&::-webkit-details-marker]:hidden">
+                <span className="inline-flex items-center gap-1">
+                  <Info className="size-3.5" aria-hidden="true" /> {t.mapKey}
+                </span>
+              </summary>
+              <div className="mt-1 space-y-1">
+                {legend}
+                {note && <p className="text-[11px] leading-snug text-amber-800">{note}</p>}
+              </div>
+            </details>
           </div>
         )}
 

@@ -5,6 +5,7 @@
 // the TaxiQ server, authenticated with eFaas) that calls `onUpdate` with the same shape.
 // The map only depends on this interface.
 
+import { inLane, isTwoWay, twoWayBetween } from './core/lanes'
 import { metres as metresBetween, nearestNode, type RoadGraph } from './core/route'
 import { getArea, subscribeArea } from './roadArea'
 
@@ -108,7 +109,9 @@ function step(s: Sim, dt: number): Position {
   const target = s.from === s.to ? s.heading : bearing(s.g, s.from, s.to)
   const diff = ((target - s.heading + 540) % 360) - 180
   s.heading = (s.heading + diff * Math.min(1, dt * 6) + 360) % 360
-  return { lat: p[0] + (q[0] - p[0]) * f, lng: p[1] + (q[1] - p[1]) * f, heading: s.heading }
+  // Keep left: in the left lane on a two-way road, in the middle of a one-way road.
+  const [lat, lng] = inLane(p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f, target, s.from !== s.to && isTwoWay(s.g, s.from, s.to))
+  return { lat, lng, heading: s.heading }
 }
 
 // A demo taxi on a job: it drives this route (to the pickup, then the destination) at TRIP_SPEED
@@ -143,7 +146,7 @@ export function tripProgress(id: string) {
   return { done, total, pickupAt: r.pickupAt, rest: r.path.slice(i + 1) }
 }
 
-function along(r: Run, now: number, last: Position | undefined): Position {
+function along(g: RoadGraph, r: Run, now: number, last: Position | undefined): Position {
   const total = r.cum[r.cum.length - 1]!
   const d = Math.min(total, ((now - r.start) / 1000) * TRIP_SPEED)
   let i = 0
@@ -154,7 +157,9 @@ function along(r: Run, now: number, last: Position | undefined): Position {
   const f = seg ? Math.min(1, (d - r.cum[i]!) / seg) : 0
   const k = Math.cos((p[0] * Math.PI) / 180)
   const heading = seg ? ((Math.atan2((q[1] - p[1]) * k, q[0] - p[0]) * 180) / Math.PI + 360) % 360 : (last?.heading ?? 0)
-  return { lat: p[0] + (q[0] - p[0]) * f, lng: p[1] + (q[1] - p[1]) * f, heading }
+  // Keep left on two-way roads (the trip's first and last stretch, to a house, count as two-way).
+  const [lat, lng] = seg ? inLane(p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f, heading, twoWayBetween(g, p, q)) : [p[0], p[1]]
+  return { lat, lng, heading }
 }
 
 // Demo taxis drive on the roads of the current area (src/roadArea.ts): Kulhudhuffushi, or the
@@ -179,7 +184,7 @@ export function subscribePositions(ids: readonly string[], onUpdate: (p: Positio
       const s = sims[k]!
       const run = runs.get(s.id)
       if (run) {
-        out.set(s.id, along(run, now, last.get(s.id)))
+        out.set(s.id, along(s.g, run, now, last.get(s.id)))
         onJob.add(s.id)
         continue
       }

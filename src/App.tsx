@@ -24,6 +24,7 @@ import { useLiveQueue } from './useLiveQueue'
 import { useLocalQueue } from './useQueue'
 import { useMyRide, usePublicTaxis } from './useRides'
 import { usePeople, useShareMe } from './usePresence'
+import { useAvailableVehicle } from './availability'
 import { ShareMe } from './components/ShareMe'
 import { validateCall } from './validate'
 
@@ -130,7 +131,11 @@ export default function App() {
   // People showing themselves on the map (opt-in). Drivers and centers see names; others an icon.
   const seesNames = signedIn && (role === 'admin' || role === 'operator' || role === 'dev' || role === 'driver')
   const people = usePeople(auth.fb, signedIn && !DEMO_HOST, seesNames, auth.uid ?? null)
-  const shareMe = useShareMe(auth.fb, signedIn && !DEMO_HOST ? (auth.uid ?? null) : null, auth.name ?? '', myRide?.status === 'accepted')
+  // One way of moving at a time: while your vehicle is Available you're on the map as the vehicle,
+  // so Show me pauses and you can't hire. Switching it off (park and walk) is fine.
+  const { availableId } = useAvailableVehicle()
+  const driving = !!availableId
+  const shareMe = useShareMe(auth.fb, signedIn && !DEMO_HOST ? (auth.uid ?? null) : null, auth.name ?? '', myRide?.status === 'accepted', driving)
   const vehicles = usePublicVehicles(auth.fb, signedIn && !DEMO_HOST)
   // Booking a private vehicle: the vehicle tapped on the map, and this passenger's booking.
   const [chosenVehicle, setChosenVehicle] = useState<PublicVehicle | null>(null)
@@ -140,7 +145,7 @@ export default function App() {
   const [closedPrivate, setClosedPrivate] = useState<number | null>(null)
   const privateLive = !!myPrivate && myPrivate.createdAt !== closedPrivate && (myPrivate.status === 'offering' || myPrivate.status === 'accepted' || myPrivate.status === 'onboard' || myPrivate.status === 'done' || myPrivate.status === 'declined')
   const privateMode = !!chosenVehicle || privateLive
-  const shareControl = signedIn && !DEMO_HOST ? <ShareMe me={shareMe} /> : undefined
+  const shareControl = signedIn && !DEMO_HOST && !driving ? <ShareMe me={shareMe} /> : undefined
   const rideInProgress = !!myRide && myRide.createdAt !== closedRide && (myRide.status === 'offering' || myRide.status === 'accepted')
   const [hirePickup, setHirePickup] = useState<[number, number] | undefined>()
   const [pinMode, setPinMode] = useState<'pickup' | 'destination' | null>(null)
@@ -393,12 +398,16 @@ export default function App() {
               vehicles={vehicles}
               focusVehicle={focusVehicle}
               myUid={auth.uid ?? null}
-              onHireVehicle={(v) => {
-                setChosenVehicle(v)
-                setChosen(null)
-                setHireShown(true)
-                setHireOpen(true)
-              }}
+              onHireVehicle={
+                driving
+                  ? undefined
+                  : (v) => {
+                      setChosenVehicle(v)
+                      setChosen(null)
+                      setHireShown(true)
+                      setHireOpen(true)
+                    }
+              }
               privateRide={
                 privateLive && myPrivate && (myPrivate.status === 'offering' || myPrivate.status === 'accepted' || myPrivate.status === 'onboard')
                   ? { vehicleId: myPrivate.vehicleId, pickup: myPrivate.pickupAt, destination: myPrivate.destinationAt ?? myPrivate.pickupAt, status: myPrivate.status }
@@ -408,11 +417,16 @@ export default function App() {
               taxis={hireMapTaxis}
               interested={EMPTY}
               pickupAt={hireTrip ? undefined : hirePickup}
-              onPickTaxi={(id) => {
-                setChosen(id)
-                setHireShown(true)
-                setHireOpen(true)
-              }}
+              onPickTaxi={
+                driving
+                  ? undefined
+                  : (id) => {
+                      setChosen(id)
+                      setHireShown(true)
+                      setHireOpen(true)
+                    }
+              }
+              driving={driving}
               trip={
                 demoRide?.status === 'accepted'
                   ? { from: demoRide.pickupAt, to: demoRide.destinationAt }
@@ -438,7 +452,7 @@ export default function App() {
                 setChosen(null)
                 if (myRide) setClosedRide(myRide.createdAt)
               }}
-              onHireFrom={(at, placeName) => {
+              onHireFrom={driving ? undefined : (at, placeName) => {
                 setHireFrom({ at, name: placeName, n: Date.now() })
                 setChosen(null)
                 setHireShown(true)
