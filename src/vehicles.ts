@@ -35,6 +35,7 @@ export interface Vehicle extends VehicleDetails {
 }
 export interface PublicVehicle {
   id: string
+  ownerUid: string
   type: VehicleType
   colour: string
   seats: number
@@ -145,7 +146,7 @@ export function usePublicVehicles(fb: Fb | null, signedIn: boolean): PublicVehic
       const type = typeOf(x.type)
       const at = Array.isArray(x.at) && x.at.length === 2 && x.at.every((n: unknown) => typeof n === 'number') ? ([x.at[0], x.at[1]] as [number, number]) : null
       if (!type || !at) return null
-      return { id, type, colour: str(x.colour, 24), seats: num(x.seats), firstName: str(x.firstName, 40), priceBase: num(x.priceBase), pricePerKm: num(x.pricePerKm), at, heading: num(x.heading), updatedAt: ms(x.updatedAt) }
+      return { id, ownerUid: str(x.ownerUid, 128), type, colour: str(x.colour, 24), seats: num(x.seats), firstName: str(x.firstName, 40), priceBase: num(x.priceBase), pricePerKm: num(x.pricePerKm), at, heading: num(x.heading), updatedAt: ms(x.updatedAt) }
     },
     [],
   )
@@ -187,7 +188,7 @@ export function useAvailability(fb: Fb | null, v: Vehicle | null, firstName: str
   const [on, setOn] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const id = on && v && v.status === 'approved' ? v.id : null
-  const shape = v ? JSON.stringify({ type: v.type, colour: v.colour, seats: v.seats, priceBase: v.priceBase, pricePerKm: v.pricePerKm }) : ''
+  const shape = v ? JSON.stringify({ ownerUid: v.ownerUid, type: v.type, colour: v.colour, seats: v.seats, priceBase: v.priceBase, pricePerKm: v.pricePerKm }) : ''
   useEffect(() => {
     if (!fb || !id || !('geolocation' in navigator)) return
     let sent: { lat: number; lng: number; t: number } | null = null

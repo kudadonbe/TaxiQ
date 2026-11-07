@@ -198,13 +198,61 @@ service cloud.firestore {
           : isStaff());
       allow update, delete: if false;
     }
+    // Booking a private vehicle (one at a time per passenger: privateRides/{passengerUid}). Only the
+    // passenger, the vehicle's owner and staff see it. Only an approved vehicle on the map can be
+    // booked. The owner accepts or declines, then marks picked up and done; the passenger can cancel.
+    function rideKeys() {
+      return ['uid', 'name', 'phone', 'vehicleId', 'ownerUid', 'ownerFirstName', 'ownerPhone', 'pickup', 'pickupAt', 'destination', 'destinationAt',
+        'note', 'price', 'status', 'createdAt', 'updatedAt'];
+    }
+    match /privateRides/{uid} {
+      allow read: if isStaff() || (signedIn() && (uid == request.auth.uid || resource.data.ownerUid == request.auth.uid));
+      allow create, update: if signedIn() && request.resource.data.keys().hasOnly(rideKeys()) && (
+        // The passenger books (or books again, replacing a finished one).
+        (uid == request.auth.uid
+          && (resource == null || resource.data.status in ['declined', 'cancelled', 'done'])
+          && request.resource.data.uid == uid
+          && request.resource.data.status == 'offering'
+          && str(request.resource.data.name, 80)
+          && request.resource.data.phone is string && request.resource.data.phone.matches('^[0-9]{7}$')
+          && str(request.resource.data.pickup, 120) && request.resource.data.pickup.size() > 0
+          && str(request.resource.data.destination, 120) && str(request.resource.data.note, 120)
+          && request.resource.data.pickupAt is list && request.resource.data.pickupAt.size() == 2
+          && (request.resource.data.destinationAt == null || (request.resource.data.destinationAt is list && request.resource.data.destinationAt.size() == 2))
+          && request.resource.data.price is number && request.resource.data.price >= 0 && request.resource.data.price <= 100000
+          && request.resource.data.ownerUid == get(/databases/$(database)/documents/vehicles/$(request.resource.data.vehicleId)).data.ownerUid
+          && get(/databases/$(database)/documents/vehicles/$(request.resource.data.vehicleId)).data.status == 'approved'
+          && exists(/databases/$(database)/documents/publicVehicles/$(request.resource.data.vehicleId))
+          && request.resource.data.ownerUid != request.auth.uid
+          && request.resource.data.ownerFirstName == '' && request.resource.data.ownerPhone == ''
+          && request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time)
+        // The passenger cancels before the trip starts.
+        || (resource != null && uid == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+          && resource.data.status in ['offering', 'accepted'] && request.resource.data.status == 'cancelled'
+          && request.resource.data.updatedAt == request.time)
+        // The owner answers and moves the trip on: offering -> accepted (with their name and phone)
+        // or declined; accepted -> onboard; onboard -> done.
+        || (resource != null && resource.data.ownerUid == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'ownerFirstName', 'ownerPhone', 'updatedAt'])
+          && request.resource.data.updatedAt == request.time
+          && ((resource.data.status == 'offering' && request.resource.data.status == 'accepted'
+                && str(request.resource.data.ownerFirstName, 40)
+                && request.resource.data.ownerPhone is string && request.resource.data.ownerPhone.matches('^[0-9]{7}$'))
+            || (resource.data.status == 'offering' && request.resource.data.status == 'declined')
+            || (resource.data.status == 'accepted' && request.resource.data.status == 'onboard')
+            || (resource.data.status == 'onboard' && request.resource.data.status == 'done'))));
+      allow delete: if false;
+    }
+
     // An approved vehicle on the map while its owner has it available: no phone number.
     match /publicVehicles/{vehicleId} {
       allow read: if signedIn();
       allow create, update: if signedIn()
         && get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.ownerUid == request.auth.uid
         && get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.status == 'approved'
-        && request.resource.data.keys().hasOnly(['type', 'colour', 'seats', 'firstName', 'priceBase', 'pricePerKm', 'at', 'heading', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['ownerUid', 'type', 'colour', 'seats', 'firstName', 'priceBase', 'pricePerKm', 'at', 'heading', 'updatedAt'])
+        && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.type in ['car', 'van', 'pickup', 'motorbike', 'ebike']
         && str(request.resource.data.firstName, 40)
         && request.resource.data.at is list && request.resource.data.at.size() == 2

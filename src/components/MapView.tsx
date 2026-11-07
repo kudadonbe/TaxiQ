@@ -60,6 +60,9 @@ interface Props {
   people?: Person[]
   // Approved private vehicles whose owner has them available.
   vehicles?: PublicVehicle[]
+  onHireVehicle?: (v: PublicVehicle) => void
+  // A booked private vehicle: shown on its real position, with a ride card and Show my vehicle.
+  privateRide?: { vehicleId: string; pickup: [number, number]; destination: [number, number]; status: 'offering' | 'accepted' | 'onboard' }
   shareControl?: ReactNode
 }
 
@@ -144,7 +147,7 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
 // Live map of taxis, on MapLibre: rotate (two fingers / right-drag), tilt, pinch zoom, compass and
 // "my location" like Google Maps. Markers are driven imperatively so 60fps position updates don't
 // re-render React.
-export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, activeTrip, onHireFrom, people = [], vehicles = [], shareControl }: Props) {
+export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, activeTrip, onHireFrom, people = [], vehicles = [], onHireVehicle, privateRide, shareControl }: Props) {
   const { lang, t, driverName } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const map = useRef<MlMap | null>(null)
@@ -685,10 +688,12 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   // for its type, owner's first name and price. Built with DOM text.
   const vehicleMarkers = useRef(new Map<string, { marker: Marker; root: Root; price: HTMLSpanElement; type: string }>())
   const vehiclesKey = JSON.stringify(vehicles)
-  const vLabels = useRef({ type: (x: string) => x, price: (b: number, k: number) => `${b} ${k}`, soon: '' })
+  const vLabels = useRef({ type: (x: string) => x, price: (b: number, k: number) => `${b} ${k}`, hire: '', follow: '', unfollow: '' })
+  const hireVehicleRef = useRef(onHireVehicle)
   useEffect(() => {
-    vLabels.current = { type: (x) => t.vehTypes[x as keyof typeof t.vehTypes] ?? x, price: t.vehPrice, soon: t.vehHireSoon }
-  }, [t])
+    vLabels.current = { type: (x) => t.vehTypes[x as keyof typeof t.vehTypes] ?? x, price: t.vehPrice, hire: t.privHire, follow: t.menuFollow, unfollow: t.menuUnfollow }
+    hireVehicleRef.current = onHireVehicle
+  })
   useEffect(() => {
     const m = map.current
     if (!m || !ready) return
@@ -713,6 +718,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       }
       const e = entry
       e.marker.setLngLat(ll(v.at))
+      if (following.current === `v:${v.id}`) m.setCenter(ll(v.at))
       e.price.textContent = vLabels.current.price(v.priceBase, v.pricePerKm)
       if (e.type !== v.type) {
         e.type = v.type
@@ -731,11 +737,23 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         price.className = 'taxi-menu-note'
         price.style.color = '#065f46'
         price.textContent = `${v.colour ? `${v.colour} · ` : ''}${vLabels.current.price(v.priceBase, v.pricePerKm)}`
-        const soon = document.createElement('p')
-        soon.className = 'taxi-menu-note'
-        soon.style.color = '#475569'
-        soon.textContent = vLabels.current.soon
-        box.append(title, price, soon)
+        box.append(title, price)
+        const button = (text: string, kind: 'primary' | 'plain', onClick: () => void) => {
+          const b = document.createElement('button')
+          b.type = 'button'
+          b.className = `taxi-menu-button ${kind}`
+          b.textContent = text
+          b.onclick = (x) => {
+            x.stopPropagation()
+            popup.current?.remove()
+            onClick()
+          }
+          box.append(b)
+        }
+        if (hireVehicleRef.current) button(vLabels.current.hire, 'primary', () => hireVehicleRef.current?.(v))
+        const fid = `v:${v.id}`
+        const isFollowed = following.current === fid
+        button(isFollowed ? vLabels.current.unfollow : vLabels.current.follow, 'plain', () => followRefFn.current(isFollowed ? null : fid))
         const p = new maplibregl.Popup({ closeButton: false, offset: 20, className: 'taxi-menu', maxWidth: '16rem' }).setDOMContent(box)
         e.marker.setPopup(p)
         if (!p.isOpen()) e.marker.togglePopup()
@@ -750,6 +768,29 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       vehicleMarkers.current.delete(id)
     }
   }, [vehiclesKey, ready])
+
+  // The booked private vehicle's card: minutes to the pickup (or to the destination once on board)
+  // at town speed, from its live position.
+  const bookedVehicle = privateRide && privateRide.status !== 'offering' ? vehicles.find((v) => v.id === privateRide.vehicleId) : undefined
+  const privateCard = (() => {
+    if (!privateRide || !bookedVehicle) return null
+    const target = privateRide.status === 'onboard' ? privateRide.destination : privateRide.pickup
+    const minutes = Math.max(1, Math.ceil(metresBetween(bookedVehicle.at, target) / (20 / 3.6) / 60))
+    const show = () => {
+      const m = map.current
+      if (!m) return
+      const pts = [bookedVehicle.at, target]
+      m.fitBounds(
+        [
+          [Math.min(pts[0]![1], pts[1]![1]), Math.min(pts[0]![0], pts[1]![0])],
+          [Math.max(pts[0]![1], pts[1]![1]), Math.max(pts[0]![0], pts[1]![0])],
+        ],
+        { padding: { top: 140, bottom: 160, left: 40, right: 60 }, maxZoom: 17, duration: 700 },
+      )
+      follow(`v:${bookedVehicle.id}`)
+    }
+    return { text: privateRide.status === 'onboard' ? t.privRiding(minutes) : t.privComing(minutes), Icon: VEHICLE_ICONS[bookedVehicle.type], show }
+  })()
 
   // When the viewer's location arrives, fly there (the demo taxis restart on the roads there).
   const areaKey = followsViewer && area.located ? area.center.join(',') : ''
@@ -901,7 +942,9 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
             {followId && (
               <div className="flex items-center gap-2 text-sm" role="status">
                 <LocateFixed className="size-4 shrink-0 text-sky-600" aria-hidden="true" />
-                <span className="min-w-0 flex-1 truncate font-semibold">{t.followingTaxi(taxis.find((x) => x.id === followId)?.taxiNo ?? '')}</span>
+                <span className="min-w-0 flex-1 truncate font-semibold">
+                  {followId.startsWith('v:') ? t.followingVehicle(t.vehTypes[vehicles.find((x) => `v:${x.id}` === followId)?.type ?? 'car']) : t.followingTaxi(taxis.find((x) => x.id === followId)?.taxiNo ?? '')}
+                </span>
                 <button type="button" onClick={() => follow(null)} className="shrink-0 rounded-lg bg-slate-900 px-2 py-1 text-xs font-bold text-white">
                   {t.stopFollowing}
                 </button>
@@ -975,6 +1018,22 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
               )}
             </div>
             <div className={`min-h-0 flex-1 overflow-y-auto px-2 pb-2 ${panelOpen ? '' : 'hidden'}`}>{panel}</div>
+          </div>
+        )}
+
+        {/* A booked private vehicle: where it is, on its real position, and Show my vehicle. */}
+        {privateCard && (
+          <div
+            className={`absolute z-[5] flex items-center gap-3 rounded-2xl border border-white/50 bg-white/65 p-3 shadow-xl backdrop-blur-[3px] ${withPanel ? 'inset-x-2 top-36 sm:top-auto sm:bottom-8 sm:inset-x-auto sm:end-14 sm:w-80' : 'inset-x-2 bottom-8 sm:inset-x-auto sm:start-2 sm:w-80'}`}
+            role="status"
+          >
+            <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-slate-900 text-yellow-300">
+              <privateCard.Icon className="size-4" aria-hidden="true" />
+            </span>
+            <p className="min-w-0 flex-1 font-black">{privateCard.text}</p>
+            <button type="button" onClick={privateCard.show} className="inline-flex min-h-10 items-center gap-1 rounded-xl bg-slate-900 px-3 text-sm font-bold text-white">
+              <LocateFixed className="size-4" aria-hidden="true" /> <span className="hidden sm:inline">{t.showMyVehicle}</span>
+            </button>
           </div>
         )}
 

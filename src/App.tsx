@@ -1,4 +1,4 @@
-import { ArrowUpDown, Car, Eye, Gamepad2, MapPin, Pencil } from 'lucide-react'
+import { ArrowUpDown, Car, CarTaxiFront, Eye, Gamepad2, Hand, Languages, ListOrdered, LogIn, LogOut, Map as MapIcon, MapPin, Pencil, Settings2, Undo2, type LucideIcon } from 'lucide-react'
 import { ic } from './components/iconStyles'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from './auth'
@@ -12,7 +12,10 @@ import { RequestsPanel } from './components/RequestsPanel'
 import { QueueChangesLog, ReorderPanel } from './components/ReorderPanel'
 import { TranslationEditor } from './components/TranslationEditor'
 import { ManagementView } from './components/ManagementView'
-import { usePublicVehicles } from './vehicles'
+import { usePublicVehicles, type PublicVehicle } from './vehicles'
+import { useMyPrivateRide } from './privateRides'
+import { PrivateHirePanel } from './components/PrivateHirePanel'
+import { IncomingRides } from './components/IncomingRides'
 import { PeoplePanel } from './components/PeoplePanel'
 import { useI18n } from './i18n'
 import { asMapTaxi } from './rides'
@@ -44,6 +47,17 @@ type Mode = 'demo' | 'staff' | 'driver' | 'public' | 'dev'
 type View = 'queue' | 'map' | 'admin' | 'driver' | 'hire' | 'game' | 'vehicles'
 
 const EMPTY = new Set<string>()
+
+// Each tab's icon (phones show the icon with a small label; wide screens the icon and the name).
+const TAB_ICONS: Record<View, (l: Record<View, string>) => { Icon: LucideIcon; label: string }> = {
+  queue: (l) => ({ Icon: ListOrdered, label: l.queue }),
+  map: (l) => ({ Icon: MapIcon, label: l.map }),
+  admin: (l) => ({ Icon: Settings2, label: l.admin }),
+  driver: (l) => ({ Icon: CarTaxiFront, label: l.driver }),
+  hire: (l) => ({ Icon: Hand, label: l.hire }),
+  vehicles: (l) => ({ Icon: Car, label: l.vehicles }),
+  game: (l) => ({ Icon: Gamepad2, label: l.game }),
+}
 
 const VIEW_AS = ['dev', 'admin', 'operator', 'driver', 'citizen'] as const
 type ViewAs = (typeof VIEW_AS)[number]
@@ -118,6 +132,12 @@ export default function App() {
   const people = usePeople(auth.fb, signedIn && !DEMO_HOST, seesNames, auth.uid ?? null)
   const shareMe = useShareMe(auth.fb, signedIn && !DEMO_HOST ? (auth.uid ?? null) : null, auth.name ?? '', myRide?.status === 'accepted')
   const vehicles = usePublicVehicles(auth.fb, signedIn && !DEMO_HOST)
+  // Booking a private vehicle: the vehicle tapped on the map, and this passenger's booking.
+  const [chosenVehicle, setChosenVehicle] = useState<PublicVehicle | null>(null)
+  const myPrivate = useMyPrivateRide(auth.fb, signedIn && !DEMO_HOST ? (auth.uid ?? null) : null)
+  const [closedPrivate, setClosedPrivate] = useState<number | null>(null)
+  const privateLive = !!myPrivate && myPrivate.createdAt !== closedPrivate && (myPrivate.status === 'offering' || myPrivate.status === 'accepted' || myPrivate.status === 'onboard' || myPrivate.status === 'done' || myPrivate.status === 'declined')
+  const privateMode = !!chosenVehicle || privateLive
   const shareControl = signedIn && !DEMO_HOST ? <ShareMe me={shareMe} /> : undefined
   const rideInProgress = !!myRide && myRide.createdAt !== closedRide && (myRide.status === 'offering' || myRide.status === 'accepted')
   const [hirePickup, setHirePickup] = useState<[number, number] | undefined>()
@@ -168,6 +188,7 @@ export default function App() {
   return (
     <div className={`bg-slate-100 text-slate-900 ${fullMap ? 'flex h-dvh flex-col overflow-hidden' : 'min-h-dvh'}`}>
       {editingTranslations && canTranslate && <TranslationEditor onClose={() => setEditingTranslations(false)} />}
+      {signedIn && !DEMO_HOST && <IncomingRides />}
       <header className="sticky top-0 z-[1200] border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-4 py-2 sm:py-3">
           <h1 className="flex shrink-0 items-center gap-2 text-xl font-black tracking-tight" dir="ltr">
@@ -184,9 +205,12 @@ export default function App() {
                   type="button"
                   onClick={undo}
                   disabled={!canUndo || callInProgress}
-                  className="min-h-10 rounded-lg px-3 font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+                  aria-label={t.undo}
+                  title={t.undo}
+                  className="inline-flex min-h-10 min-w-10 items-center justify-center gap-1 rounded-lg px-2 font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40 sm:px-3"
                 >
-                  {t.undo}
+                  <Undo2 className="size-4" aria-hidden="true" />
+                  <span className="hidden sm:inline">{t.undo}</span>
                 </button>
               </>
             )}
@@ -223,22 +247,27 @@ export default function App() {
               type="button"
               onClick={toggleLang}
               lang={lang === 'en' ? 'dv' : 'en'}
-              className="min-h-10 rounded-lg border border-slate-200 px-3 font-medium text-slate-700 hover:bg-slate-100"
+              aria-label={t.switchTo}
+              title={t.switchTo}
+              className="inline-flex min-h-10 min-w-10 items-center justify-center gap-1 rounded-lg border border-slate-200 px-2 font-medium text-slate-700 hover:bg-slate-100 sm:px-3"
             >
-              {t.switchTo}
+              <Languages className="size-4" aria-hidden="true" />
+              <span className="hidden sm:inline">{t.switchTo}</span>
             </button>
             {!DEMO_HOST &&
               (signedIn ? (
-                <button type="button" onClick={auth.signOut} title={auth.email ?? ''} className="min-h-10 rounded-lg px-2 font-medium text-slate-700 hover:bg-slate-100">
-                  {t.signOut}
+                <button type="button" onClick={auth.signOut} title={auth.email ?? ''} aria-label={t.signOut} className="inline-flex min-h-10 min-w-10 items-center justify-center gap-1 rounded-lg px-2 font-medium text-slate-700 hover:bg-slate-100">
+                  <LogOut className="size-4" aria-hidden="true" />
+                  <span className="hidden sm:inline">{t.signOut}</span>
                 </button>
               ) : (
                 <button
                   type="button"
                   onClick={auth.signIn}
                   disabled={auth.status === 'loading'}
-                  className="min-h-10 rounded-lg bg-slate-900 px-3 font-semibold text-white hover:bg-slate-700 disabled:opacity-40"
+                  className="inline-flex min-h-10 items-center gap-1 rounded-lg bg-slate-900 px-3 font-semibold text-white hover:bg-slate-700 disabled:opacity-40"
                 >
+                  <LogIn className="size-4" aria-hidden="true" />
                   {t.signIn}
                 </button>
               ))}
@@ -246,28 +275,26 @@ export default function App() {
         </div>
 
         {tabs.length > 0 && (
-          <nav className={`mx-auto grid max-w-5xl gap-1 px-4 pb-2 text-sm sm:flex ${({ 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4', 5: 'grid-cols-5', 6: 'grid-cols-6' } as Record<number, string>)[tabs.length] ?? 'grid-cols-3'}`} aria-label={t.nav}>
+          <nav className={`mx-auto grid max-w-5xl gap-1 px-4 pb-2 text-sm sm:flex ${({ 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4', 5: 'grid-cols-5', 6: 'grid-cols-6', 7: 'grid-cols-7' } as Record<number, string>)[tabs.length] ?? 'grid-cols-3'}`} aria-label={t.nav}>
             {tabs.map((v) => (
               <button
                 key={v}
                 type="button"
                 onClick={() => setView(v)}
                 aria-current={view === v ? 'page' : undefined}
-                className={`min-h-10 rounded-lg px-3 font-semibold ${view === v ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                aria-label={TAB_ICONS[v]({ queue: t.queue, map: t.map, admin: t.admin, driver: t.driver, hire: t.hireTab, vehicles: t.vehTab, game: t.gameTab }).label}
+                className={`relative min-h-12 min-w-0 rounded-lg px-1 font-semibold sm:min-h-10 sm:px-3 ${view === v ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
               >
-                {{ queue: t.queue, map: t.map, admin: t.admin, driver: t.driver, hire: t.hireTab, vehicles: (
-                    <span className="inline-flex items-center gap-1">
-                      <Car className="size-4" aria-hidden="true" />
-                      {t.vehTab}
+                {(() => {
+                  const { Icon, label } = TAB_ICONS[v]({ queue: t.queue, map: t.map, admin: t.admin, driver: t.driver, hire: t.hireTab, vehicles: t.vehTab, game: t.gameTab })
+                  return (
+                    <span className="flex flex-col items-center gap-0.5 sm:flex-row sm:gap-1.5">
+                      <Icon className="size-5 sm:size-4" aria-hidden="true" />
+                      <span className="max-w-full truncate text-[10px] leading-tight sm:text-sm">{label}</span>
                     </span>
-                  ),
-                  game: (
-                    <span className="inline-flex items-center gap-1">
-                      <Gamepad2 className="size-4" aria-hidden="true" />
-                      {t.gameTab}
-                    </span>
-                  ) }[v]}
-                {v === 'queue' && <span className="ms-1 tabular-nums opacity-70 sm:hidden">({queue.length})</span>}
+                  )
+                })()}
+                {v === 'queue' && <span className="absolute end-1 top-0.5 text-[10px] tabular-nums opacity-70 sm:hidden">{queue.length}</span>}
               </button>
             ))}
           </nav>
@@ -355,6 +382,17 @@ export default function App() {
               fullscreen
               people={people}
               vehicles={vehicles}
+              onHireVehicle={(v) => {
+                setChosenVehicle(v)
+                setChosen(null)
+                setHireShown(true)
+                setHireOpen(true)
+              }}
+              privateRide={
+                privateLive && myPrivate && (myPrivate.status === 'offering' || myPrivate.status === 'accepted' || myPrivate.status === 'onboard')
+                  ? { vehicleId: myPrivate.vehicleId, pickup: myPrivate.pickupAt, destination: myPrivate.destinationAt ?? myPrivate.pickupAt, status: myPrivate.status }
+                  : undefined
+              }
               shareControl={shareControl}
               taxis={hireMapTaxis}
               interested={EMPTY}
@@ -364,7 +402,13 @@ export default function App() {
                 setHireShown(true)
                 setHireOpen(true)
               }}
-              trip={demoRide?.status === 'accepted' ? { from: demoRide.pickupAt, to: demoRide.destinationAt } : (acceptedTrip ?? hireTrip)}
+              trip={
+                demoRide?.status === 'accepted'
+                  ? { from: demoRide.pickupAt, to: demoRide.destinationAt }
+                  : privateLive && myPrivate && myPrivate.destinationAt && (myPrivate.status === 'accepted' || myPrivate.status === 'onboard')
+                    ? { from: myPrivate.pickupAt, to: myPrivate.destinationAt }
+                    : (acceptedTrip ?? hireTrip)
+              }
               activeTrip={
                 demoRide?.status === 'accepted'
                   ? { taxiId: demoRide.taxiId, pickup: demoRide.pickupAt, destination: demoRide.destinationAt }
@@ -372,10 +416,12 @@ export default function App() {
                   ? { taxiId: myRide.acceptedBy, pickup: myRide.pickupAt, destination: myRide.destinationAt ?? myRide.pickupAt }
                   : undefined
               }
-              panelTitle={t.hire}
+              panelTitle={privateMode ? t.privTitle : t.hire}
               panelOpen={hireOpen}
               onPanelOpenChange={setHireOpen}
               onPanelClose={() => {
+                setChosenVehicle(null)
+                if (myPrivate) setClosedPrivate(myPrivate.createdAt)
                 setHireShown(false)
                 setHireOpen(false)
                 setChosen(null)
@@ -398,7 +444,26 @@ export default function App() {
                 setHireOpen(true)
               }}
               panel={
-                (hireShown || rideInProgress || pinMode || demoRide) && (
+                (hireShown || rideInProgress || pinMode || demoRide || privateLive) &&
+                (privateMode ? (
+                  <PrivateHirePanel
+                    key={`${chosenVehicle?.id ?? ''}-${hireFrom?.n ?? 0}`}
+                    vehicle={chosenVehicle}
+                    ride={privateLive ? myPrivate : null}
+                    initialPickup={hireFrom ?? undefined}
+                    onTrip={setHireTrip}
+                    onPinRequest={(kind, apply) => {
+                      pinApply.current = apply
+                      setPinMode(kind)
+                    }}
+                    onClose={() => {
+                      setChosenVehicle(null)
+                      if (myPrivate) setClosedPrivate(myPrivate.createdAt)
+                      setHireShown(false)
+                      setHireOpen(false)
+                    }}
+                  />
+                ) : (
                 <HirePanel
                   key={hireFrom?.n ?? 0}
                   initialPickup={hireFrom ?? undefined}
@@ -423,7 +488,7 @@ export default function App() {
                     setPinMode(kind)
                   }}
                 />
-                )
+                ))
               }
             />
           </Suspense>
