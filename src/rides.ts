@@ -40,6 +40,7 @@ export interface RideRequest {
   price: number | null // MVR, the total, fixed from the start (null: no fare table yet)
   km: number | null // road distance it was priced on
   arrivedAt: number // ms, when the driver tapped Arrived
+  size: 'small' | 'large' // the taxi asked for: up to 5 seats (any taxi), or 7-10 seats only
   createdAt: number // ms
 }
 
@@ -49,6 +50,7 @@ export interface PublicTaxi {
   name: string
   nameDv: string
   suspended: boolean
+  seats: number
 }
 
 const s = (x: unknown, max = 120) => (typeof x === 'string' ? x.slice(0, max) : '')
@@ -77,6 +79,7 @@ export function parseRequest(data: Record<string, unknown> | undefined): RideReq
     price: typeof data.price === 'number' ? data.price : null,
     km: typeof data.km === 'number' ? data.km : null,
     arrivedAt: ms(data.arrivedAt),
+    size: data.size === 'large' ? 'large' : 'small',
     createdAt: ms(data.createdAt),
   }
 }
@@ -84,7 +87,8 @@ export function parseRequest(data: Record<string, unknown> | undefined): RideReq
 export function parsePublicTaxi(id: string, data: Record<string, unknown>): PublicTaxi | null {
   const taxiNo = s(data.taxiNo, 4)
   if (!/^[1-9]\d{0,3}$/.test(taxiNo)) return null
-  return { id, taxiNo, name: s(data.name, 60), nameDv: s(data.nameDv, 60), suspended: data.suspended === true }
+  const seats = typeof data.seats === 'number' && data.seats >= 1 && data.seats <= 15 ? data.seats : 4
+  return { id, taxiNo, name: s(data.name, 60), nameDv: s(data.nameDv, 60), suspended: data.suspended === true, seats }
 }
 
 // Public taxis in the shape the map wants (no phone numbers).
@@ -95,19 +99,22 @@ export function asMapTaxi(p: PublicTaxi): Taxi {
     taxiReg: '',
     driver: { id: p.id, name: p.name, nameDv: p.nameDv, phone: '' },
     suspended: p.suspended ? { reason: 'other', note: '', at: 0 } : undefined,
+    seats: p.seats,
   }
 }
 
-// Next taxi to offer to: the first in queue order that hasn't been offered yet and isn't suspended.
-export function nextTaxi(order: string[], skipped: string[], suspended: ReadonlySet<string>): string | null {
-  return order.find((id) => !skipped.includes(id) && !suspended.has(id)) ?? null
+// Next taxi to offer to: the first in queue order that hasn't been offered yet and isn't suspended
+// (for a 7-10 seat trip, only 7-10 seat taxis).
+export function nextTaxi(order: string[], skipped: string[], suspended: ReadonlySet<string>, large: ReadonlySet<string> | null = null): string | null {
+  return order.find((id) => !skipped.includes(id) && !suspended.has(id) && (!large || large.has(id))) ?? null
 }
 
 async function readOrderAndSuspended(fb: Fb) {
   const [state, pub] = await Promise.all([fb.getDoc(fb.doc(fb.db, 'queue', 'state')), fb.getDocs(fb.collection(fb.db, 'publicTaxis'))])
   const order = Array.isArray(state.data()?.order) ? (state.data()!.order as unknown[]).filter((x): x is string => typeof x === 'string') : []
   const suspended = new Set(pub.docs.filter((d) => d.data().suspended === true).map((d) => d.id))
-  return { order, suspended }
+  const large = new Set(pub.docs.filter((d) => typeof d.data().seats === 'number' && d.data().seats >= 7).map((d) => d.id))
+  return { order, suspended, large }
 }
 
 export interface NewRide {
@@ -121,13 +128,14 @@ export interface NewRide {
   taxiId?: string // a specific taxi; otherwise the queue
   price: number | null // the total, from the fare table and the road distance
   km: number | null
+  size: 'small' | 'large'
 }
 
 // Passenger: create (or replace) their request.
 export async function requestRide(fb: Fb, uid: string, ride: NewRide) {
-  const { order, suspended } = await readOrderAndSuspended(fb)
+  const { order, suspended, large } = await readOrderAndSuspended(fb)
   const direct = !!ride.taxiId
-  const offerTo = direct ? ride.taxiId! : nextTaxi(order, [], suspended)
+  const offerTo = direct ? ride.taxiId! : nextTaxi(order, [], suspended, ride.size === 'large' ? large : null)
   const data: Record<string, unknown> = {
     uid,
     name: ride.name.slice(0, 80),
@@ -143,6 +151,7 @@ export async function requestRide(fb: Fb, uid: string, ride: NewRide) {
     acceptedBy: null,
     price: ride.price,
     km: ride.km,
+    size: ride.size,
     createdAt: fb.serverTimestamp(),
   }
   if (ride.pickupAt) data.pickupAt = ride.pickupAt
@@ -153,13 +162,13 @@ export async function requestRide(fb: Fb, uid: string, ride: NewRide) {
 // Anyone involved: move the offer on (declined, or waited OFFER_SECONDS). The rules re-check
 // everything, including the server-side timeout.
 export async function moveOn(fb: Fb, uid: string) {
-  const { order, suspended } = await readOrderAndSuspended(fb)
+  const { order, suspended, large } = await readOrderAndSuspended(fb)
   const ref = fb.doc(fb.db, 'requests', uid)
   await fb.runTransaction(fb.db, async (tx) => {
     const r = parseRequest((await tx.get(ref)).data())
     if (!r || !(r.status === 'offering' || r.status === 'interest' || r.status === 'confirmed') || !r.offerTo) return
     const skipped = [...r.skipped, r.offerTo]
-    const next = r.mode === 'queue' ? nextTaxi(order, skipped, suspended) : null
+    const next = r.mode === 'queue' ? nextTaxi(order, skipped, suspended, r.size === 'large' ? large : null) : null
     tx.update(ref, { skipped, offerTo: next, offerAt: fb.serverTimestamp(), status: next ? 'offering' : 'expired' })
   })
 }

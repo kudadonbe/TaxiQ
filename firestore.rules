@@ -121,7 +121,8 @@ service cloud.firestore {
     match /taxis/{taxiId} {
       allow read: if isStaff() || (isDriver() && taxiId == myTaxi());
       allow create, update: if isAdmin()
-        && request.resource.data.keys().hasOnly(['taxiNo', 'taxiReg', 'driver', 'suspended'])
+        && request.resource.data.keys().hasOnly(['taxiNo', 'taxiReg', 'driver', 'suspended', 'seats'])
+        && (!('seats' in request.resource.data) || (request.resource.data.seats is int && request.resource.data.seats >= 1 && request.resource.data.seats <= 15))
         && str(request.resource.data.taxiNo, 4)
         && str(request.resource.data.taxiReg, 7)
         && request.resource.data.driver is map
@@ -330,7 +331,8 @@ service cloud.firestore {
     match /publicTaxis/{taxiId} {
       allow read: if true;
       allow create, update: if isAdmin()
-        && request.resource.data.keys().hasOnly(['taxiNo', 'name', 'nameDv', 'suspended'])
+        && request.resource.data.keys().hasOnly(['taxiNo', 'name', 'nameDv', 'suspended', 'seats'])
+        && (!('seats' in request.resource.data) || (request.resource.data.seats is int && request.resource.data.seats >= 1 && request.resource.data.seats <= 15))
         && str(request.resource.data.taxiNo, 4)
         && str(request.resource.data.name, 60)
         && str(request.resource.data.nameDv, 60)
@@ -376,7 +378,8 @@ service cloud.firestore {
       }
       function validShape() {
         return next().keys().hasOnly(['uid', 'name', 'mode', 'pickup', 'pickupAt', 'destination', 'destinationAt', 'phone', 'note',
-            'status', 'offerTo', 'offerAt', 'skipped', 'acceptedBy', 'price', 'km', 'arrivedAt', 'createdAt'])
+            'status', 'offerTo', 'offerAt', 'skipped', 'acceptedBy', 'price', 'km', 'arrivedAt', 'size', 'createdAt'])
+          && next().get('size', 'small') in ['small', 'large']
           && next().uid == uid
           && str(next().name, 80)
           && next().mode in ['queue', 'direct']
@@ -402,7 +405,7 @@ service cloud.firestore {
           && next().createdAt == request.time
           && next().skipped.size() == 0
           && next().acceptedBy == null
-          && (next().status == 'expired' || next().offerTo in queueOrder());
+          && (next().status == 'expired' || (next().offerTo in queueOrder() && (next().mode == 'direct' || fitsSize())));
       }
       function sameTrip() {
         return next().uid == prev().uid && next().name == prev().name && next().mode == prev().mode
@@ -411,7 +414,13 @@ service cloud.firestore {
           && next().createdAt == prev().createdAt
           && next().get('pickupAt', null) == prev().get('pickupAt', null)
           // The total price is fixed from the start.
-          && next().get('price', null) == prev().get('price', null) && next().get('km', null) == prev().get('km', null);
+          && next().get('price', null) == prev().get('price', null) && next().get('km', null) == prev().get('km', null)
+          && next().get('size', 'small') == prev().get('size', 'small');
+      }
+      // A 7-10 seat trip is offered only to a 7-10 seat taxi.
+      function fitsSize() {
+        return next().get('size', 'small') == 'small'
+          || get(/databases/$(database)/documents/publicTaxis/$(next().offerTo)).data.get('seats', 4) >= 7;
       }
       // After booking: the same trip, taxi and booking; only the step (and arrivedAt) change.
       function sameBooking() {
@@ -443,7 +452,7 @@ service cloud.firestore {
           && (
             (next().status == 'expired' && next().offerTo == null)
             || (prev().mode == 'queue' && next().status == 'offering'
-                && next().offerTo in queueOrder() && !(next().offerTo in next().skipped))
+                && next().offerTo in queueOrder() && !(next().offerTo in next().skipped) && fitsSize())
           );
       }
 

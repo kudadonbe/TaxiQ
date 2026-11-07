@@ -146,7 +146,7 @@ const seed2 = await fetch(`${BASE}:commit`, { method: 'POST', headers: { Authori
   write('publicVehicles/v8', { ownerUid: 'f', type: 'car', colour: '', seats: 4, firstName: 'F', priceBase: 25, pricePerKm: 5, at: [4.17, 73.5], heading: 0, updatedAt: new Date() }),
   write('roles/f@test.example', { role: 'private' }),
   write('queue/state', { order: ['t1', 't2'], interested: [] }),
-  write('taxis/t1', { taxiNo: '34', taxiReg: 'A1', driver: { name: 'D' } }),
+  write('taxis/t1', { taxiNo: '34', taxiReg: 'A1', driver: { name: 'D', nameDv: '', phone: '7770004' } }),
   write('taxis/t2', { taxiNo: '35', taxiReg: 'A2', driver: { name: 'E' } }),
   write('roles/drv@test.example', { role: 'driver', taxiId: 't1' }),
 ] }) })
@@ -190,6 +190,12 @@ await fetch(`${BASE}:commit`, { method: 'POST', headers: { Authorization: 'Beare
 await expect('an admin sets the taxi fare', 'adm', [write('config/fares', { base: 20, perKm: 5, minimum: 25, updatedBy: 'adm@test.example', updatedAt: NOW })], true)
 await expect('an operator cannot set the fare', 'op', [write('config/fares', { base: 1, perKm: 0, minimum: 0, updatedBy: 'op@test.example', updatedAt: NOW })], false)
 await canRead('a passenger reads the fare', 'p', 'config/fares', true)
+// 7-10 seat trips: only to a 7-10 seat taxi (t1 has 4 seats, t2 has 8).
+await fetch(`${BASE}:commit`, { method: 'POST', headers: { Authorization: 'Bearer owner', 'Content-Type': 'application/json' }, body: JSON.stringify({ writes: [write('publicTaxis/t1', { taxiNo: '34', name: 'D', nameDv: '', suspended: false, seats: 4 }), write('publicTaxis/t2', { taxiNo: '35', name: 'E', nameDv: '', suspended: false, seats: 8 })] }) })
+await expect('a 7-10 seat trip cannot go to a small taxi', 'q', [write('requests/q', req({ uid: 'q', size: 'large', offerTo: 't1' }))], false)
+await expect('a 7-10 seat trip goes to a 7-10 seat taxi', 'q', [write('requests/q', req({ uid: 'q', size: 'large', offerTo: 't2' }))], true)
+await expect('an admin sets a taxi\'s seats', 'adm', [write('taxis/t1', { seats: 7 }, { merge: true })], true)
+await expect('seats must be 1 to 15', 'adm', [write('taxis/t1', { seats: 40 }, { merge: true })], false)
 // Recorded voice messages: admins record them, everyone signed in plays them.
 const clip = (o = {}) => ({ data: 'AAAA', mime: 'audio/webm;codecs=opus', by: 'adm@test.example', updatedAt: NOW, ...o })
 await expect('an admin saves a Dhivehi clip for a new trip', 'adm', [write('voiceClips/tripNew-dv', clip())], true)

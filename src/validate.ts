@@ -9,6 +9,7 @@ export interface TaxiInput {
   name: string
   nameDv: string
   phone: string
+  seats: string // passenger seats, 1-15
 }
 
 export type Field = keyof TaxiInput
@@ -20,6 +21,7 @@ const rules: Record<Field, RegExp> = {
   name: /^[A-Za-z][A-Za-z .'-]{0,59}$/,
   nameDv: /^[ހ-޿][ހ-޿ ]{0,59}$/, // Thaana block only
   phone: /^[0-9X]{7}$/, // Maldives 7-digit number (X allowed for masked demo data)
+  seats: /^([1-9]|1[0-5])$/, // passenger seats, 1-15
 }
 
 export function normalize(input: TaxiInput): TaxiInput {
@@ -29,6 +31,7 @@ export function normalize(input: TaxiInput): TaxiInput {
     name: input.name.trim().replace(/\s+/g, ' '),
     nameDv: input.nameDv.trim().replace(/\s+/g, ' '),
     phone: input.phone.trim(),
+    seats: input.seats.trim(),
   }
 }
 
@@ -56,6 +59,7 @@ export function parseStoredTaxi(value: unknown): Taxi | null {
     name: str(d.name),
     nameDv: str(d.nameDv),
     phone: str(d.phone),
+    seats: typeof v.seats === 'number' ? String(v.seats) : '4', // older records: 4
   }
   if (Object.keys(validate(input, [])).length) return null
   const taxi = toTaxi(str(v.id), input)
@@ -96,5 +100,5 @@ export function validateCall(call: CallInfo): Partial<Record<CallField, 'format'
 export const hasCallInfo = (c: CallInfo) => !!(c.pickup.trim() || c.destination.trim() || c.phone.trim() || c.note.trim())
 
 export function toTaxi(id: string, i: TaxiInput): Taxi {
-  return { id, taxiNo: i.taxiNo, taxiReg: i.taxiReg, driver: { id, name: i.name, nameDv: i.nameDv, phone: i.phone } }
+  return { id, taxiNo: i.taxiNo, taxiReg: i.taxiReg, driver: { id, name: i.name, nameDv: i.nameDv, phone: i.phone }, seats: Number(i.seats) || 4 }
 }

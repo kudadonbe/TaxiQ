@@ -109,7 +109,7 @@ export default function App() {
   const mapTaxis = useMemo(() => publicTaxis.map(asMapTaxi), [publicTaxis])
   // The demo site has no live service: hiring there (demo rides only) uses the local demo taxis.
   const hireTaxis = useMemo(
-    () => (DEMO_HOST ? q.queue.map((x) => ({ id: x.id, taxiNo: x.taxiNo, name: x.driver.name, nameDv: x.driver.nameDv, suspended: !!x.suspended })) : publicTaxis),
+    () => (DEMO_HOST ? q.queue.map((x) => ({ id: x.id, taxiNo: x.taxiNo, name: x.driver.name, nameDv: x.driver.nameDv, suspended: !!x.suspended, seats: x.seats ?? 4 })) : publicTaxis),
     [q.queue, publicTaxis],
   )
   const hireMapTaxis = DEMO_HOST ? q.queue : mapTaxis
@@ -572,7 +572,7 @@ export default function App() {
             taxis={
               <div className="space-y-4">
                 {live && canAdmin && <TaxiFaresPanel />}
-                <AdminPanel taxis={queue} onRegister={q.register} onRemove={q.remove} onSuspend={q.suspend} onLift={q.lift} />
+                <AdminPanel taxis={queue} onRegister={q.register} onRemove={q.remove} onSuspend={q.suspend} onLift={q.lift} onSeats={q.setSeats} />
               </div>
             }
             vehicles={live ? <Suspense fallback={<p className="text-sm text-slate-500">{t.loading}</p>}><VehiclesAdmin /></Suspense> : undefined}

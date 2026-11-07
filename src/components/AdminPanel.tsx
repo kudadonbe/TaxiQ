@@ -1,20 +1,21 @@
 import { useState, type FormEvent } from 'react'
 import { initialTaxis } from '../data/taxis'
 import { useI18n } from '../i18n'
-import type { SuspendReason, Taxi } from '../types'
+import { seatsOf, type SuspendReason, type Taxi } from '../types'
 import { isFreeText, normalize, SUSPEND_REASONS, validate, type Field, type FieldError, type TaxiInput } from '../validate'
 import { Plate } from './Plate'
 
 // The sample drivers that ship with the app (shown with a Demo badge).
 const demoIds = new Set(initialTaxis.map((t) => t.id))
 
-const empty: TaxiInput = { taxiNo: '', taxiReg: '', name: '', nameDv: '', phone: '' }
+const empty: TaxiInput = { taxiNo: '', taxiReg: '', name: '', nameDv: '', phone: '', seats: '4' }
 const fields: { key: Field; inputMode?: 'numeric'; dir?: 'ltr' | 'rtl' }[] = [
   { key: 'taxiNo', inputMode: 'numeric', dir: 'ltr' },
   { key: 'taxiReg', dir: 'ltr' },
   { key: 'name', dir: 'ltr' },
   { key: 'nameDv', dir: 'rtl' },
   { key: 'phone', inputMode: 'numeric', dir: 'ltr' },
+  { key: 'seats', inputMode: 'numeric', dir: 'ltr' },
 ]
 
 interface Props {
@@ -23,9 +24,10 @@ interface Props {
   onRemove: (id: string) => void
   onSuspend: (id: string, reason: SuspendReason, note: string) => void
   onLift: (id: string) => void
+  onSeats?: (id: string, seats: number) => void
 }
 
-export function AdminPanel({ taxis, onRegister, onRemove, onSuspend, onLift }: Props) {
+export function AdminPanel({ taxis, onRegister, onRemove, onSuspend, onLift, onSeats }: Props) {
   const { t, driverName } = useI18n()
   const [form, setForm] = useState<TaxiInput>(empty)
   const [errors, setErrors] = useState<Partial<Record<Field, FieldError>>>({})
@@ -131,7 +133,23 @@ export function AdminPanel({ taxis, onRegister, onRemove, onSuspend, onLift }: P
                   </span>
                 </div>
 
-                <div className="mt-2 flex flex-wrap justify-end gap-2">
+                <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+                  {onSeats && (
+                    <label className="me-auto flex items-center gap-1 text-sm text-slate-600">
+                      {t.seatsShort}
+                      <select
+                        value={seatsOf(taxi)}
+                        onChange={(e) => onSeats(taxi.id, Number(e.target.value))}
+                        className="min-h-10 rounded-lg border border-slate-300 bg-white px-2 text-base tabular-nums"
+                      >
+                        {Array.from({ length: 15 }, (_, i) => i + 1).map((n) => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                   {taxi.suspended ? (
                     <button
                       type="button"

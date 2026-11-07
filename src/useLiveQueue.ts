@@ -133,9 +133,9 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
       const batch = fb.writeBatch(fb.db)
       let writes = 0
       for (const t of taxis.values()) {
-        const want = { taxiNo: t.taxiNo, name: t.driver.name, nameDv: t.driver.nameDv, suspended: !!t.suspended }
+        const want = { taxiNo: t.taxiNo, name: t.driver.name, nameDv: t.driver.nameDv, suspended: !!t.suspended, seats: t.seats ?? 4 }
         const cur = have.get(t.id)
-        if (!cur || cur.taxiNo !== want.taxiNo || cur.name !== want.name || cur.nameDv !== want.nameDv || cur.suspended !== want.suspended) {
+        if (!cur || cur.taxiNo !== want.taxiNo || cur.name !== want.name || cur.nameDv !== want.nameDv || cur.suspended !== want.suspended || cur.seats !== want.seats) {
           batch.set(fb.doc(fb.db, 'publicTaxis', t.id), want)
           writes++
         }
@@ -250,6 +250,10 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
     adminWrite(fb.updateDoc(fb.doc(fb.db, 'taxis', id), { suspended: fb.deleteField() }))
   }
 
+  const setSeats = (id: string, seats: number) => {
+    if (!fb || !Number.isInteger(seats) || seats < 1 || seats > 15) return
+    adminWrite(fb.updateDoc(fb.doc(fb.db, 'taxis', id), { seats }))
+  }
   const register = (input: TaxiInput) => {
     if (!fb) return
     const ref = fb.doc(fb.collection(fb.db, 'taxis'))
@@ -308,6 +312,7 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
     suspend,
     lift,
     register,
+    setSeats,
     remove,
     reset: null,
     seedDemo: taxis.size ? null : seedDemo,

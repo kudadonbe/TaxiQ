@@ -20,8 +20,13 @@ export interface Taxi {
   taxiNo: string
   taxiReg: string
   driver: Driver
+  // Passenger seats (1-15). 7 or more is a 7-10 seat taxi, with its own official fares in Greater
+  // Malé (src/core/zoneFares.ts). Older records have none: 4.
+  seats?: number
   suspended?: Suspension
 }
+export const seatsOf = (t: Pick<Taxi, 'seats'>) => t.seats ?? 4
+export const isLargeTaxi = (t: Pick<Taxi, 'seats'>) => seatsOf(t) >= 7
 
 // Passenger details for a call. Held in memory only (never written to localStorage): it is personal
 // data and there is no authenticated backend yet.

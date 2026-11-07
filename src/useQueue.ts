@@ -56,6 +56,8 @@ export interface QueueApi {
   suspend: (id: string, reason: SuspendReason, note: string) => void
   lift: (id: string) => void
   register: (input: TaxiInput) => void
+  // Admin: a taxi's passenger seats (7 or more: a 7-10 seat taxi).
+  setSeats: (id: string, seats: number) => void
   remove: (id: string) => void
   reset: (() => void) | null // demo only
   seedDemo: (() => void) | null // live only, empty database
@@ -192,6 +194,10 @@ export function useLocalQueue(): QueueApi {
     )
   }
 
+  const setSeats = (id: string, seats: number) => {
+    if (!Number.isInteger(seats) || seats < 1 || seats > 15) return
+    setQueue(queue.map((t) => (t.id === id ? { ...t, seats } : t)))
+  }
   // Admin: a newly registered taxi joins the back of the rank. Input must already be validated.
   const register = (input: TaxiInput) => {
     setQueue([...queue, toTaxi(crypto.randomUUID(), input)])
@@ -247,6 +253,7 @@ export function useLocalQueue(): QueueApi {
     suspend,
     lift,
     register,
+    setSeats,
     remove,
     reset,
   }

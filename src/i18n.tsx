@@ -169,6 +169,10 @@ const strings = {
     closeProblem: 'Close',
     officialFare: 'Official Greater Malé fare (Ministry of Transport, 20 May 2024): drivers may not charge more.',
     fareGreaterMale: 'In Greater Malé (Malé, the airport, Hulhumalé Phase 1 and 2) the government sets the fare by zone, and the app uses it: MVR 30 within a zone, Malé to Hulhumalé Phase 1 MVR 85, Phase 2 MVR 100, the airport to Malé MVR 70. This table is for trips anywhere else.',
+    seatsShort: 'Seats',
+    seatsNeeded: 'How many seats?',
+    seatsSmall: 'Up to 5 seats',
+    seatsLarge: '7-10 seats',
     fareTitle: 'Taxi fare',
     fareExample: (n: number) => `A 2 km trip costs MVR ${n} now. Passengers see the total before they send a trip; it is fixed once booked.`,
     fareBase: 'Trip price (MVR)',
@@ -260,6 +264,7 @@ const strings = {
       name: 'Driver name (English)',
       nameDv: 'Driver name (Dhivehi)',
       phone: 'Phone',
+      seats: 'Passenger seats',
     },
     hints: {
       taxiNo: 'e.g. 34',
@@ -267,6 +272,7 @@ const strings = {
       name: 'Letters only',
       nameDv: 'Thaana only',
       phone: '7 digits',
+      seats: '1 to 15. 7 or more is a 7-10 seat taxi (its own fares in Greater Malé)',
     },
     errors: {
       required: 'Required',
@@ -710,6 +716,10 @@ const strings = {
     closeProblem: 'ބަންދުކުރޭ',
     officialFare: 'މާލެ އަވަށުގެ ރަސްމީ އަގު (ޓްރާންސްޕޯޓް މިނިސްޓްރީ، 20 މޭ 2024): މިއަށްވުރެ ގިނައިން ނުނެގޭނެ.',
     fareGreaterMale: 'މާލެ، އެއާޕޯޓް، ހުޅުމާލެ ފޭސް 1 އަދި 2 ގައި ސަރުކާރުން ސަރަހައްދުން ކަނޑައަޅާ އަގު އެޕުން ބޭނުންކުރާނެ: ސަރަހައްދެއްގެ ތެރޭ ރ. 30، މާލެއިން ހުޅުމާލެ ފޭސް 1 އަށް ރ. 85، ފޭސް 2 އަށް ރ. 100، އެއާޕޯޓުން މާލެއަށް ރ. 70. މި ޓޭބަލަކީ އެހެން ހުރިހާ ތަނެއްގެ ދަތުރުތަކަށް.',
+    seatsShort: 'ގޮނޑި',
+    seatsNeeded: 'ގޮނޑި ކިހާވަރެއް؟',
+    seatsSmall: '5 ގޮނޑިއަށް',
+    seatsLarge: '7-10 ގޮނޑި',
     fareTitle: 'ޓެކްސީ އަގު',
     fareExample: (n: number) => `2 ކިލޯމީޓަރުގެ ދަތުރަކަށް މިހާރު ރ. ${n}. ދަތުރު ފޮނުވުމުގެ ކުރިން ފަސިންޖަރަށް ޖުމްލަ އަގު ފެނޭނެ؛ ބުކްކުރުމުން އަގު ބަދަލެއް ނުވާނެ.`,
     fareBase: 'ދަތުރެއްގެ އަގު (ރ.)',
@@ -801,6 +811,7 @@ const strings = {
       name: 'ޑްރައިވަރުގެ ނަން (އިނގިރޭސިން)',
       nameDv: 'ޑްރައިވަރުގެ ނަން (ދިވެހިން)',
       phone: 'ފޯނު',
+      seats: 'ފަސިންޖަރުންގެ ގޮނޑި',
     },
     hints: {
       taxiNo: 'މިސާލު: 34',
@@ -808,6 +819,7 @@ const strings = {
       name: 'އިނގިރޭސި އަކުރު',
       nameDv: 'ތާނަ އަކުރު',
       phone: '7 ޑިޖިޓް',
+      seats: '1 އިން 15 އަށް. 7 ނުވަތަ އެއަށްވުރެ ގިނަނަމަ 7-10 ގޮނޑީގެ ޓެކްސީ (މާލޭގައި އޭގެ އަގު ތަފާތު)',
     },
     errors: {
       required: 'ލިޔުން ލާޒިމް',

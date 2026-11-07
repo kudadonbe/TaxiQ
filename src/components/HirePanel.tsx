@@ -53,6 +53,8 @@ export interface DemoRide {
 export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPinRequest, initialPickup, demoAllowed = false, demoRide = null, onDemoRide, onEndDemo, onOpenPrivate, tripMetres = null }: Props) {
   // Open trip: by taxi (the taxi queue) or private hire (the private queue).
   const [by, setBy] = useState<'taxi' | 'private'>('taxi')
+  // Open trip by taxi: up to 5 seats (any taxi) or 7-10 seats (only 7-10 seat taxis, their fares).
+  const [wantSize, setSize] = useState<'small' | 'large'>('small')
   const { fb, uid, name, status, signIn } = useAuth()
   const { lang, t } = useI18n()
   const ride = useMyRide(fb, uid)
@@ -116,7 +118,8 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
   // The total, fixed from the start: the center's fare for the road distance (both places picked).
   const km = pickupAt && destinationAt && tripMetres ? Math.round(tripMetres / 100) / 10 : null
   // In Greater Malé the government's flat fare by zone; elsewhere the center's fare table.
-  const official = pickupAt && destinationAt ? zoneFare(pickupAt, destinationAt) : null
+  const size: 'small' | 'large' = chosenTaxi && !chosenTaxi.suspended ? (chosenTaxi.seats >= 7 ? 'large' : 'small') : wantSize
+  const official = pickupAt && destinationAt ? zoneFare(pickupAt, destinationAt, size) : null
   const price = official ?? (fares && km !== null ? taxiFare(fares, km * 1000) : null)
   const privateOpen = by === 'private' && !(chosenTaxi && !chosenTaxi.suspended) && onOpenPrivate !== undefined
   const valid =
@@ -126,7 +129,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
     if (!fb || !uid || busy) return
     setBusy(true)
     setError(null)
-    requestRide(fb, uid, { name: name ?? '', pickup, pickupAt, destination, destinationAt, phone, note, taxiId, price, km })
+    requestRide(fb, uid, { name: name ?? '', pickup, pickupAt, destination, destinationAt, phone, note, taxiId, price, km, size })
       .catch((e: { code?: string }) => setError(e.code ?? 'error'))
       .finally(() => setBusy(false))
   }
@@ -139,7 +142,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
     setNote(ride.note)
     if (!fb || !uid) return
     setBusy(true)
-    requestRide(fb, uid, { name: name ?? '', pickup: ride.pickup, pickupAt: ride.pickupAt, destination: ride.destination, destinationAt: ride.destinationAt, phone: ride.phone, note: ride.note, taxiId, price: ride.price, km: ride.km })
+    requestRide(fb, uid, { name: name ?? '', pickup: ride.pickup, pickupAt: ride.pickupAt, destination: ride.destination, destinationAt: ride.destinationAt, phone: ride.phone, note: ride.note, taxiId, price: ride.price, km: ride.km, size: ride.size })
       .catch((e: { code?: string }) => setError(e.code ?? 'error'))
       .finally(() => setBusy(false))
   }
@@ -386,6 +389,15 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
           </div>
           {by === 'private' && !onOpenPrivate && <p className="text-xs font-semibold text-amber-800">{t.noPrivateNow}</p>}
           {by === 'private' && onOpenPrivate && !pickupAt && <p className="text-xs text-amber-800">{t.privNeedsPin}</p>}
+        </div>
+      )}
+      {!demo && !privateOpen && !(chosenTaxi && !chosenTaxi.suspended) && (
+        <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1" role="group" aria-label={t.seatsNeeded}>
+          {(['small', 'large'] as const).map((x) => (
+            <button key={x} type="button" aria-pressed={wantSize === x} onClick={() => setSize(x)} className={`min-h-10 rounded-lg text-sm font-semibold ${wantSize === x ? 'bg-white shadow' : 'text-slate-600'}`}>
+              {x === 'small' ? t.seatsSmall : t.seatsLarge}
+            </button>
+          ))}
         </div>
       )}
       {!demo && !privateOpen && (
