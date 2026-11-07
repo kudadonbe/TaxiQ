@@ -157,6 +157,18 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
   - Demo rides become a per-center "test mode".
 - [ ] Ported
 
+## 17. Show me on the map; private vehicles for hire
+
+- **v2:** `640b3dd`:
+  - **Show me on the map:** opt-in location sharing (`src/core/presence.ts`, `src/usePresence.ts`), with a staff copy that has the name and a nameless public copy; the way of moving is guessed from speed; it stops after 1 hour.
+  - **Private vehicles:** `src/vehicles.ts`, the My vehicles tab, Management → Vehicles, an append-only log and map markers. The owner sets the price; any operator approves.
+- **v3:**
+  - vehicles become the general "vehicle" with a type and a provider (center or private);
+  - documents with expiry dates and eFaas identity;
+  - live positions on the server (WebSocket);
+  - private-hire booking (part 2) and payments.
+- [ ] Ported
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
