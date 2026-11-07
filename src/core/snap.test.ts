@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { RoadGraph } from './route'
-import { snapToRoad } from './snap'
+import { alongRoad, snapToRoad } from './snap'
 
 // An L-shaped road: west-east along lat 4.17, then north at lng 73.502.
 const g: RoadGraph = {
@@ -23,6 +23,12 @@ describe('keep vehicles on the road', () => {
   it('picks the nearest road stretch', () => {
     const s = snapToRoad(g, [4.171, 73.5021])!
     expect(s.at[1]).toBeCloseTo(73.502, 6) // the north-going road
+  })
+  it('a parked vehicle lines up with the road, facing the way closest to how it was going', () => {
+    const s = snapToRoad(g, [4.1702, 73.501])! // on the west-east road
+    expect(alongRoad(g, s, 0)).toBeCloseTo(90, 0) // was pointing north: east is closer than west? both 90 off; picks east
+    expect(alongRoad(g, s, 250)).toBeCloseTo(270, 0) // was going roughly west: faces west
+    expect(alongRoad(g, s, 80)).toBeCloseTo(90, 0)
   })
   it('no road near (e.g. roads not loaded there): keep the fix', () => {
     expect(snapToRoad(g, [4.2, 73.6])).toBeNull()

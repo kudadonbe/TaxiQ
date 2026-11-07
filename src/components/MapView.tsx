@@ -23,7 +23,7 @@ import { useLiveBuses, type Bus } from '../buses'
 import { MOVING_ICONS, VEHICLE_ICONS } from './iconStyles'
 import { glideAt, glideState, nextGlide, turnToward, type Glide } from '../core/glide'
 import { inLane, twoWayBetween } from '../core/lanes'
-import { snapToRoad } from '../core/snap'
+import { alongRoad, snapToRoad } from '../core/snap'
 import { createRoot, type Root } from 'react-dom/client'
 import { loadPlots, plotPopup, plotsGeoJSON, type Plot } from './plotLayer'
 
@@ -828,7 +828,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   // turns to face its way (src/core/glide.ts), so it drives rather than jumps. Tap for its type,
   // owner's first name and price. Text goes in with textContent only.
   const vehicleMarkers = useRef(
-    new Map<string, { marker: Marker; shape: HTMLDivElement; price: HTMLSpanElement; type: string; glide: Glide | null; lastReport: number | null; atKey: string; shownHeading: number; onRoad: boolean }>(),
+    new Map<string, { marker: Marker; shape: HTMLDivElement; price: HTMLSpanElement; type: string; glide: Glide | null; lastReport: number | null; atKey: string; shownHeading: number; onRoad: boolean; roadHeading: number | null }>(),
   )
   const vehiclesKey = JSON.stringify(vehicles)
   const vLabels = useRef({ type: (x: string) => x, price: (b: number, k: number) => `${b} ${k}`, hire: '', follow: '', unfollow: '', level: (l: string) => l })
@@ -857,7 +857,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         price.className = 'vehicle-marker-price'
         el.append(shape, price)
         const marker = new maplibregl.Marker({ element: el, rotationAlignment: 'viewport', pitchAlignment: 'viewport' }).setLngLat(ll(v.at)).addTo(m)
-        entry = { marker, shape, price, type: '', glide: null, lastReport: null, atKey: '', shownHeading: v.heading || 0, onRoad: false }
+        entry = { marker, shape, price, type: '', glide: null, lastReport: null, atKey: '', shownHeading: v.heading || 0, onRoad: false, roadHeading: null }
         vehicleMarkers.current.set(v.id, entry)
       }
       const e = entry
@@ -878,6 +878,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         }
         e.glide = nextGlide(e.glide, target, now, e.lastReport, snapped ? null : v.heading, roadPath)
         e.onRoad = !!snapped
+        e.roadHeading = snapped ? alongRoad(g, snapped, e.glide.path.length >= 2 ? e.glide.heading : e.shownHeading) : null
         e.lastReport = now
         e.atKey = atKey
       }
@@ -963,7 +964,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         price.className = 'vehicle-marker-price bus-route'
         el.append(shape, price)
         const marker = new maplibregl.Marker({ element: el, rotationAlignment: 'viewport', pitchAlignment: 'viewport' }).setLngLat(ll(b.at)).addTo(m)
-        e = { marker, shape, price, type: 'bus', glide: null, lastReport: null, atKey: '', shownHeading: 0, onRoad: false }
+        e = { marker, shape, price, type: 'bus', glide: null, lastReport: null, atKey: '', shownHeading: 0, onRoad: false, roadHeading: null }
         vehicleMarkers.current.set(key, e)
       }
       const entry = e
@@ -981,6 +982,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         }
         entry.glide = nextGlide(entry.glide, target, now, entry.lastReport, null, roadPath)
         entry.onRoad = !!snapped
+        entry.roadHeading = snapped ? alongRoad(g, snapped, entry.glide.path.length >= 2 ? entry.glide.heading : entry.shownHeading) : null
         entry.lastReport = now
         entry.atKey = atKey
       }
@@ -1039,9 +1041,12 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         if (!e.glide) continue
         // Along its glide, facing the stretch it's on, and in the left lane of two-way roads.
         const st = glideState(e.glide, now)
-        const at = e.onRoad ? inLane(st.at[0], st.at[1], st.heading, twoWayBetween(graphRef.current, st.a, st.b)) : st.at
+        // Moving: face along the stretch it's driving. Stopped: line up with its road (never across it).
+        const moving = e.glide.path.length >= 2 && now < e.glide.start + e.glide.dur
+        const heading = moving || e.roadHeading === null ? st.heading : e.roadHeading
+        const at = e.onRoad ? inLane(st.at[0], st.at[1], heading, moving ? twoWayBetween(graphRef.current, st.a, st.b) : true) : st.at
         e.marker.setLngLat(ll(at))
-        e.shownHeading = turnToward(e.shownHeading, st.heading, dt)
+        e.shownHeading = turnToward(e.shownHeading, heading, dt)
         e.shape.style.transform = `rotate(${e.shownHeading - bearingNow}deg) scale(${realScale(m, e.type.split(':')[0] as SizedVehicle)})`
         if (following.current === (id.startsWith('b:') ? id : `v:${id}`)) m.setCenter(ll(at))
       }

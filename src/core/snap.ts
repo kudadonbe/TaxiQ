@@ -76,3 +76,17 @@ export function snapToRoad(g: RoadGraph, p: readonly [number, number], maxM = 15
     }
   return best
 }
+
+// The way the road goes at a snapped point (degrees clockwise from north), picking whichever of its
+// two directions is closest to `wanted` (how the vehicle was going), so a parked vehicle lines up
+// with the road instead of sitting across it.
+export function alongRoad(g: RoadGraph, s: Snapped, wanted: number): number {
+  const a = g.nodes[s.i]!
+  const b = g.nodes[s.j]!
+  const k = Math.cos((((a[0] + b[0]) / 2) * Math.PI) / 180)
+  const road = ((Math.atan2((b[1] - a[1]) * k, b[0] - a[0]) * 180) / Math.PI + 360) % 360
+  const back = (road + 180) % 360
+  const off = (h: number) => Math.abs(((h - wanted + 540) % 360) - 180)
+  return off(road) <= off(back) ? road : back
+}
+
