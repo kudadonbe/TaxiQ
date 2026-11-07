@@ -31,6 +31,7 @@ export function TaxiFaresPanel() {
     <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
       <h3 className="font-bold">{t.fareTitle}</h3>
       <p className="text-sm text-slate-600">{current ? t.fareExample(taxiFare(current, 2000)) : t.fareNotSet}</p>
+      <p className="rounded-lg bg-sky-50 p-2 text-sm text-sky-900">{t.fareGreaterMale}</p>
       <div className="grid gap-3 sm:grid-cols-3">
         {field('base', t.fareBase)}
         {field('perKm', t.farePerKm)}

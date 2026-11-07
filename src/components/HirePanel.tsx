@@ -5,6 +5,7 @@ import { useAuth } from '../auth'
 import { useI18n } from '../i18n'
 import { bookOffer, cancelRide, finishRide, moveOn, problemRide, requestRide, type PublicTaxi } from '../rides'
 import { taxiFare, CONFIRM_FINISH_MINUTES } from '../core/taxiFare'
+import { zoneFare } from '../core/zoneFares'
 import { useFareTable } from '../taxiFares'
 import { secondsLeft } from '../core/openTrip'
 import { announce } from '../announce'
@@ -114,7 +115,9 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
   const chosenTaxi = chosen ? byId.get(chosen) : undefined
   // The total, fixed from the start: the center's fare for the road distance (both places picked).
   const km = pickupAt && destinationAt && tripMetres ? Math.round(tripMetres / 100) / 10 : null
-  const price = fares && km !== null ? taxiFare(fares, km * 1000) : null
+  // In Greater Malé the government's flat fare by zone; elsewhere the center's fare table.
+  const official = pickupAt && destinationAt ? zoneFare(pickupAt, destinationAt) : null
+  const price = official ?? (fares && km !== null ? taxiFare(fares, km * 1000) : null)
   const privateOpen = by === 'private' && !(chosenTaxi && !chosenTaxi.suspended) && onOpenPrivate !== undefined
   const valid =
     pickup.trim().length > 0 && isFreeText(pickup.trim()) && isFreeText(destination.trim()) && isFreeText(note.trim()) && /^\d{7}$/.test(phone.trim())
@@ -388,10 +391,13 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
       {!demo && !privateOpen && (
         <p className="rounded-lg bg-white/70 p-2 text-sm">
           {price !== null ? (
-            <span className="text-lg font-black">
-              {t.tripTotal(price)} <span className="text-sm font-normal text-slate-500">· {km} km</span>
-            </span>
-          ) : !fares ? (
+            <>
+              <span className="text-lg font-black">
+                {t.tripTotal(price)} {km !== null && <span className="text-sm font-normal text-slate-500">· {km} km</span>}
+              </span>
+              {official !== null && <span className="block text-xs text-slate-600">{t.officialFare}</span>}
+            </>
+          ) : !fares && pickupAt && destinationAt ? (
             t.fareNotSet
           ) : (
             t.pickBothForPrice
@@ -417,7 +423,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
       ) : (
       <button
         type="button"
-        disabled={!valid || busy || (privateOpen ? !onOpenPrivate || !pickupAt || !destinationAt : !!fares && price === null)}
+        disabled={!valid || busy || (privateOpen ? !onOpenPrivate || !pickupAt || !destinationAt : (!!fares || official !== null) && price === null)}
         onClick={() => {
           if (privateOpen) {
             if (!onOpenPrivate || !pickupAt) return
