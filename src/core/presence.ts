@@ -1,3 +1,5 @@
+import { isFresh, type BeatLevel } from './heartbeat'
+
 // Citizens showing themselves on the map (opt-in). Pure helpers: how someone is moving, guessed from
 // their GPS speed, and when a shared position is too old to show.
 
@@ -33,4 +35,5 @@ export function speedBetween(a: { lat: number; lng: number; t: number }, b: { la
 }
 
 // Show a shared position only while it is fresh and within its hour.
-export const isLive = (p: { updatedAt: number; expiresAt: number }, now: number) => now - p.updatedAt < STALE_MS && now < p.expiresAt
+// Fresh for its heartbeat level (src/core/heartbeat.ts), and within its hour.
+export const isLive = (p: { updatedAt: number; expiresAt: number; level?: BeatLevel }, now: number) => isFresh(p, now) && now < p.expiresAt

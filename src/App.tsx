@@ -59,7 +59,7 @@ const TAB_ICONS: Record<View, (l: Record<View, string>) => { Icon: LucideIcon; l
   game: (l) => ({ Icon: Gamepad2, label: l.game }),
 }
 
-const VIEW_AS = ['dev', 'admin', 'operator', 'driver', 'citizen'] as const
+const VIEW_AS = ['dev', 'admin', 'operator', 'driver', 'private', 'citizen'] as const
 type ViewAs = (typeof VIEW_AS)[number]
 const VIEW_AS_KEY = 'taxiq.viewAs'
 

@@ -2,7 +2,8 @@ import { Plus } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '../auth'
 import { useI18n } from '../i18n'
-import { applyVehicle, DEFAULT_SEATS, setPrice, useAvailability, useMyVehicles, vehicleErrors, VEHICLE_TYPES, withdrawVehicle, type Vehicle, type VehicleDetails, type VehicleType } from '../vehicles'
+import { useAvailableVehicle } from '../availability'
+import { applyVehicle, DEFAULT_SEATS, setPrice, useMyVehicles, vehicleErrors, VEHICLE_TYPES, withdrawVehicle, type Vehicle, type VehicleDetails, type VehicleType } from '../vehicles'
 import { VEHICLE_ICONS } from './iconStyles'
 
 const STATUS_CLASS: Record<Vehicle['status'], string> = {
@@ -35,16 +36,19 @@ export function MyVehicles() {
       {editing && <VehicleForm key={editing === 'new' ? 'new' : editing.id} me={me} existing={editing === 'new' ? undefined : editing} onDone={() => setEditing(null)} />}
       {mine.length === 0 && !editing && <p className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">{t.vehNone}</p>}
       {mine.map((v) => (
-        <VehicleCard key={v.id} v={v} firstName={(name ?? '').split(' ')[0] ?? ''} onEdit={() => setEditing(v)} onWithdraw={() => void withdrawVehicle(fb, v, me.email)} />
+        <VehicleCard key={v.id} v={v} onEdit={() => setEditing(v)} onWithdraw={() => void withdrawVehicle(fb, v, me.email)} />
       ))}
     </div>
   )
 }
 
-function VehicleCard({ v, firstName, onEdit, onWithdraw }: { v: Vehicle; firstName: string; onEdit: () => void; onWithdraw: () => void }) {
+function VehicleCard({ v, onEdit, onWithdraw }: { v: Vehicle; onEdit: () => void; onWithdraw: () => void }) {
   const { fb } = useAuth()
   const { t } = useI18n()
-  const avail = useAvailability(fb, v, firstName)
+  const avail = useAvailableVehicle()
+  const isOn = avail.availableId === v.id
+  const { role } = useAuth()
+  const canTake = role === 'private' || role === 'dev'
   const [price, setPriceState] = useState({ base: v.priceBase, perKm: v.pricePerKm })
   const Icon = VEHICLE_ICONS[v.type]
   return (
@@ -70,12 +74,13 @@ function VehicleCard({ v, firstName, onEdit, onWithdraw }: { v: Vehicle; firstNa
         <>
           <label className="flex items-center justify-between gap-2 rounded-lg bg-emerald-50 p-3">
             <span>
-              <span className="block font-bold">{avail.on ? t.vehAvailableOn : t.vehAvailableOff}</span>
+              <span className="block font-bold">{isOn ? t.vehAvailableOn : t.vehAvailableOff}</span>
               <span className="block text-xs text-slate-600">{t.vehAvailableNote}</span>
             </span>
-            <input type="checkbox" checked={avail.on} onChange={(e) => avail.setOn(e.target.checked)} className="size-6 accent-emerald-600" aria-label={t.vehAvailable} />
+            <input type="checkbox" checked={isOn} disabled={!canTake} onChange={(e) => avail.setAvailable(e.target.checked ? v.id : null)} className="size-6 accent-emerald-600" aria-label={t.vehAvailable} />
           </label>
-          {avail.error && <p className="text-xs font-semibold text-rose-700">{avail.error === 'location_denied' ? t.shareDenied : t.saveError(avail.error)}</p>}
+          {!canTake && <p className="text-sm font-semibold text-amber-800">{t.vehNeedsRole}</p>}
+          {isOn && avail.error && <p className="text-xs font-semibold text-rose-700">{avail.error === 'location_denied' ? t.shareDenied : t.saveError(avail.error)}</p>}
           <div className="flex flex-wrap items-end gap-2">
             <label className="block">
               <span className="text-xs font-medium">{t.vehPriceBase}</span>

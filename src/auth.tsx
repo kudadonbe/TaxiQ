@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 // staff entry in Firestore roles/{email} (admin or operator). Without one the app stays in demo mode.
 // (MDS exception: the standard requires eFaas; see SECURITY.md.)
 
-export type Role = 'admin' | 'operator' | 'driver' | 'dev'
+export type Role = 'admin' | 'operator' | 'driver' | 'private' | 'dev'
 
 type Fb = typeof import('./firebase')
 

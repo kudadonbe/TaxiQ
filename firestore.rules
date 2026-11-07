@@ -60,7 +60,7 @@ service cloud.firestore {
       allow create, update: if isAdmin()
         && (!touchesDev() || role() == 'dev')
         && request.resource.data.keys().hasOnly(['role', 'taxiId', 'addedBy', 'addedAt'])
-        && request.resource.data.role in ['admin', 'operator', 'driver', 'dev']
+        && request.resource.data.role in ['admin', 'operator', 'driver', 'private', 'dev']
         && (request.resource.data.role != 'driver' || str(request.resource.data.taxiId, 40))
         && userEmail == userEmail.lower();
       // Nobody removes their own entry (avoids locking everyone out).
@@ -77,13 +77,14 @@ service cloud.firestore {
       return d.at is list && d.at.size() == 2 && d.at[0] is number && d.at[1] is number
         && d.mode in ['walk', 'run', 'bike', 'ebike', 'motorbike', 'taxi']
         && d.modeAuto is bool
+        && d.get('level', 'active') in ['active', 'rest', 'nap', 'sleep']
         && d.updatedAt == request.time
         && d.expiresAt is timestamp && d.expiresAt <= request.time + duration.value(61, 'm');
     }
     match /presence/{uid} {
       allow read: if isStaff() || isDriver() || (signedIn() && uid == request.auth.uid);
       allow create, update: if signedIn() && uid == request.auth.uid
-        && request.resource.data.keys().hasOnly(['name', 'at', 'mode', 'modeAuto', 'visibility', 'updatedAt', 'expiresAt'])
+        && request.resource.data.keys().hasOnly(['name', 'at', 'mode', 'modeAuto', 'level', 'visibility', 'updatedAt', 'expiresAt'])
         && str(request.resource.data.name, 80)
         && request.resource.data.visibility in ['staff', 'public']
         && presenceShape(request.resource.data);
@@ -92,7 +93,7 @@ service cloud.firestore {
     match /presencePublic/{uid} {
       allow read: if signedIn();
       allow create, update: if signedIn() && uid == request.auth.uid
-        && request.resource.data.keys().hasOnly(['at', 'mode', 'modeAuto', 'updatedAt', 'expiresAt'])
+        && request.resource.data.keys().hasOnly(['at', 'mode', 'modeAuto', 'level', 'updatedAt', 'expiresAt'])
         && presenceShape(request.resource.data);
       allow delete: if signedIn() && uid == request.auth.uid;
     }
@@ -236,7 +237,7 @@ service cloud.firestore {
         || (resource != null && resource.data.ownerUid == request.auth.uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'ownerFirstName', 'ownerPhone', 'updatedAt'])
           && request.resource.data.updatedAt == request.time
-          && ((resource.data.status == 'offering' && request.resource.data.status == 'accepted'
+          && ((resource.data.status == 'offering' && request.resource.data.status == 'accepted' && role() in ['private', 'dev']
                 && str(request.resource.data.ownerFirstName, 40)
                 && request.resource.data.ownerPhone is string && request.resource.data.ownerPhone.matches('^[0-9]{7}$'))
             || (resource.data.status == 'offering' && request.resource.data.status == 'declined')
@@ -251,8 +252,11 @@ service cloud.firestore {
       allow create, update: if signedIn()
         && get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.ownerUid == request.auth.uid
         && get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.status == 'approved'
-        && request.resource.data.keys().hasOnly(['ownerUid', 'type', 'colour', 'seats', 'firstName', 'priceBase', 'pricePerKm', 'at', 'heading', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['ownerUid', 'type', 'colour', 'seats', 'firstName', 'priceBase', 'pricePerKm', 'at', 'heading', 'level', 'updatedAt'])
+        && request.resource.data.get('level', 'active') in ['active', 'rest', 'nap', 'sleep']
         && request.resource.data.ownerUid == request.auth.uid
+        // Two checks: the person has the Private driver role, and the vehicle is approved.
+        && role() in ['private', 'dev']
         && request.resource.data.type in ['car', 'van', 'pickup', 'motorbike', 'ebike']
         && str(request.resource.data.firstName, 40)
         && request.resource.data.at is list && request.resource.data.at.size() == 2

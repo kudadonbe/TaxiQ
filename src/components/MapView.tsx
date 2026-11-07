@@ -668,6 +668,9 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       }
       entry.marker.setLngLat(ll(p.at))
       entry.label.textContent = p.name ?? ''
+      const pel = entry.marker.getElement()
+      pel.style.opacity = p.level && p.level !== 'active' ? '0.6' : '1'
+      pel.title = p.level && p.level !== 'active' ? vLabels.current.level(p.level) : ''
       entry.label.style.display = p.name ? '' : 'none'
       if (entry.mode !== p.mode) {
         entry.mode = p.mode
@@ -688,10 +691,10 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   // for its type, owner's first name and price. Built with DOM text.
   const vehicleMarkers = useRef(new Map<string, { marker: Marker; root: Root; price: HTMLSpanElement; type: string }>())
   const vehiclesKey = JSON.stringify(vehicles)
-  const vLabels = useRef({ type: (x: string) => x, price: (b: number, k: number) => `${b} ${k}`, hire: '', follow: '', unfollow: '' })
+  const vLabels = useRef({ type: (x: string) => x, price: (b: number, k: number) => `${b} ${k}`, hire: '', follow: '', unfollow: '', level: (l: string) => l })
   const hireVehicleRef = useRef(onHireVehicle)
   useEffect(() => {
-    vLabels.current = { type: (x) => t.vehTypes[x as keyof typeof t.vehTypes] ?? x, price: t.vehPrice, hire: t.privHire, follow: t.menuFollow, unfollow: t.menuUnfollow }
+    vLabels.current = { type: (x) => t.vehTypes[x as keyof typeof t.vehTypes] ?? x, price: t.vehPrice, hire: t.privHire, follow: t.menuFollow, unfollow: t.menuUnfollow, level: (l) => t.beatLevels[l as keyof typeof t.beatLevels] ?? l }
     hireVehicleRef.current = onHireVehicle
   })
   useEffect(() => {
@@ -720,6 +723,9 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       e.marker.setLngLat(ll(v.at))
       if (following.current === `v:${v.id}`) m.setCenter(ll(v.at))
       e.price.textContent = vLabels.current.price(v.priceBase, v.pricePerKm)
+      const vel = e.marker.getElement()
+      vel.style.opacity = v.level !== 'active' ? '0.7' : '1'
+      vel.title = v.level !== 'active' ? vLabels.current.level(v.level) : ''
       if (e.type !== v.type) {
         e.type = v.type
         const Icon = VEHICLE_ICONS[v.type]

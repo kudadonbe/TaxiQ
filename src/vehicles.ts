@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { BEAT_MS, beatLevel, isFresh, WAKE_METRES, type BeatLevel } from './core/heartbeat'
 
 // Private vehicles for hire (people and companies, not a center's queue). See firestore.rules:
 //   vehicles/{id}        the application and record (owner and staff read; has the phone number)
@@ -45,6 +46,7 @@ export interface PublicVehicle {
   at: [number, number]
   heading: number
   updatedAt: number
+  level: BeatLevel
 }
 export interface LogEntry {
   id: string
@@ -131,7 +133,6 @@ export const useVehicleLog = (fb: Fb | null, staff: boolean) =>
     [],
   )
 
-const STALE = 2 * 60_000
 export function usePublicVehicles(fb: Fb | null, signedIn: boolean): PublicVehicle[] {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -146,12 +147,12 @@ export function usePublicVehicles(fb: Fb | null, signedIn: boolean): PublicVehic
       const type = typeOf(x.type)
       const at = Array.isArray(x.at) && x.at.length === 2 && x.at.every((n: unknown) => typeof n === 'number') ? ([x.at[0], x.at[1]] as [number, number]) : null
       if (!type || !at) return null
-      return { id, ownerUid: str(x.ownerUid, 128), type, colour: str(x.colour, 24), seats: num(x.seats), firstName: str(x.firstName, 40), priceBase: num(x.priceBase), pricePerKm: num(x.pricePerKm), at, heading: num(x.heading), updatedAt: ms(x.updatedAt) }
+      return { id, ownerUid: str(x.ownerUid, 128), type, colour: str(x.colour, 24), seats: num(x.seats), firstName: str(x.firstName, 40), priceBase: num(x.priceBase), pricePerKm: num(x.pricePerKm), at, heading: num(x.heading), level: (['active', 'rest', 'nap', 'sleep'] as const).find((l) => l === x.level) ?? 'active', updatedAt: ms(x.updatedAt) }
     },
     [],
   )
-  // Only vehicles whose owner's device has updated lately (app open, available).
-  return list.filter((v) => now - v.updatedAt < STALE)
+  // Only vehicles whose owner's device is still checking in at its rest level (app open, available).
+  return list.filter((v) => isFresh(v, now))
 }
 
 async function log(fb: Fb, vehicleId: string, ownerUid: string, action: string, by: string, reason = '') {
@@ -182,32 +183,51 @@ export async function decideVehicle(fb: Fb, v: Vehicle, status: 'approved' | 're
   if (status !== 'approved') await fb.deleteDoc(fb.doc(fb.db, 'publicVehicles', v.id)).catch(() => undefined)
 }
 
-// The owner makes an approved vehicle available: their device puts it on the map (every 10 s or
-// 15 m) until they stop. Stopping removes it from the map.
+// While `v` (an approved vehicle) is given, the owner's device puts it on the map (every 10 s or
+// 15 m). Given null, it comes off the map. Used once for the whole app (src/availability.tsx).
 export function useAvailability(fb: Fb | null, v: Vehicle | null, firstName: string) {
-  const [on, setOn] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const id = on && v && v.status === 'approved' ? v.id : null
+  const id = v && v.status === 'approved' ? v.id : null
   const shape = v ? JSON.stringify({ ownerUid: v.ownerUid, type: v.type, colour: v.colour, seats: v.seats, priceBase: v.priceBase, pricePerKm: v.pricePerKm }) : ''
   useEffect(() => {
     if (!fb || !id || !('geolocation' in navigator)) return
-    let sent: { lat: number; lng: number; t: number } | null = null
     const ref = fb.doc(fb.db, 'publicVehicles', id)
+    // Heartbeat with rest levels (src/core/heartbeat.ts): moving, send often; parked, step down to
+    // Rest, Nap and (at night) Sleep; moving again wakes it to Active.
+    let last: { lat: number; lng: number; heading: number } | null = null
+    let movedAt = Date.now()
+    let movedFrom: { lat: number; lng: number } | null = null
+    let sentAt = 0
+    const send = () => {
+      if (!last) return
+      sentAt = Date.now()
+      const level = beatLevel(Date.now() - movedAt, new Date().getHours())
+      fb.setDoc(ref, { ...JSON.parse(shape), firstName: firstName.slice(0, 40), at: [last.lat, last.lng], heading: last.heading, level, updatedAt: fb.serverTimestamp() }).catch((e: { code?: string }) => setError(e.code ?? 'error'))
+    }
+    const beat = setInterval(() => {
+      const level = beatLevel(Date.now() - movedAt, new Date().getHours())
+      if (Date.now() - sentAt >= BEAT_MS[level]) send()
+    }, 5_000)
     const watch = navigator.geolocation.watchPosition(
       (p) => {
-        const fix = { lat: p.coords.latitude, lng: p.coords.longitude, t: p.timestamp }
-        const moved = sent ? Math.hypot((fix.lat - sent.lat) * 111_320, (fix.lng - sent.lng) * 111_320) : Infinity
-        if (sent && fix.t - sent.t < 10_000 && moved < 15) return
-        sent = fix
-        fb.setDoc(ref, { ...JSON.parse(shape), firstName: firstName.slice(0, 40), at: [fix.lat, fix.lng], heading: p.coords.heading ?? 0, updatedAt: fb.serverTimestamp() }).catch((e: { code?: string }) => setError(e.code ?? 'error'))
+        last = { lat: p.coords.latitude, lng: p.coords.longitude, heading: p.coords.heading ?? 0 }
+        const d = movedFrom ? Math.hypot((last.lat - movedFrom.lat) * 111_320, (last.lng - movedFrom.lng) * 111_320) : Infinity
+        setError(null)
+        if (d >= WAKE_METRES) {
+          movedFrom = { lat: last.lat, lng: last.lng }
+          movedAt = Date.now()
+          if (Date.now() - sentAt >= BEAT_MS.active) send() // moving: wake to Active
+        }
+        if (!sentAt) send()
       },
       (e) => setError(e.code === e.PERMISSION_DENIED ? 'location_denied' : 'location_error'),
       { enableHighAccuracy: true, maximumAge: 5_000, timeout: 20_000 },
     )
     return () => {
+      clearInterval(beat)
       navigator.geolocation.clearWatch(watch)
       void fb.deleteDoc(ref).catch(() => undefined)
     }
   }, [fb, id, shape, firstName])
-  return { on: !!id, error, setOn }
+  return { on: !!id, error }
 }

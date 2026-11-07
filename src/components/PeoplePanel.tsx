@@ -8,7 +8,7 @@ import type { Taxi } from '../types'
 // profiles in users/{uid} are written by each person on sign-in. The rules check every change.
 
 type RoleOrCitizen = Role | 'citizen'
-const FILTERS: (RoleOrCitizen | 'all' | 'online')[] = ['all', 'online', 'citizen', 'driver', 'operator', 'admin', 'dev']
+const FILTERS: (RoleOrCitizen | 'all' | 'online')[] = ['all', 'online', 'citizen', 'driver', 'private', 'operator', 'admin', 'dev']
 // Seen within this long counts as online now (the app sends a heartbeat every minute).
 const ONLINE_MS = 150_000
 const emailRule = /^[a-z0-9._%+-]{1,64}@[a-z0-9.-]{1,190}\.[a-z]{2,}$/
@@ -62,7 +62,7 @@ export function PeoplePanel({ taxis }: { taxis: Taxi[] }) {
           const m = new Map<string, { role: Role; taxiId?: string }>()
           for (const d of snap.docs) {
             const r = d.data().role
-            if (r === 'admin' || r === 'operator' || r === 'driver' || r === 'dev')
+            if (r === 'admin' || r === 'operator' || r === 'driver' || r === 'private' || r === 'dev')
               m.set(d.id, { role: r, taxiId: typeof d.data().taxiId === 'string' ? d.data().taxiId : undefined })
           }
           setRoles(m)
@@ -115,12 +115,13 @@ export function PeoplePanel({ taxis }: { taxis: Taxi[] }) {
     p.then(() => setEditing(null)).catch((e: { code?: string }) => setError(e.code ?? 'error'))
   }
 
-  const roleOptions = (current: RoleOrCitizen): RoleOrCitizen[] => ['citizen', 'operator', 'driver', 'admin', ...(isDev || current === 'dev' ? (['dev'] as const) : [])]
+  const roleOptions = (current: RoleOrCitizen): RoleOrCitizen[] => ['citizen', 'operator', 'driver', 'private', 'admin', ...(isDev || current === 'dev' ? (['dev'] as const) : [])]
   const roleLabel = (r: RoleOrCitizen) => (r === 'citizen' ? t.citizen : t.roles[r])
   const badge: Record<RoleOrCitizen, string> = {
     citizen: 'bg-slate-100 text-slate-700',
     operator: 'bg-sky-100 text-sky-800',
     driver: 'bg-yellow-300 text-slate-900',
+    private: 'bg-emerald-100 text-emerald-900',
     admin: 'bg-slate-900 text-white',
     dev: 'bg-violet-600 text-white',
   }

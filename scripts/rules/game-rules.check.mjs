@@ -102,7 +102,7 @@ await canRead('a signed-in member of the public cannot read the copy with the na
 await canRead('a signed-in member of the public can read the nameless public copy', 'c', 'presencePublic/b', true)
 await canRead('the person reads their own copy', 'b', 'presence/b', true)
 // Private vehicles for hire
-const seed = await fetch(`${BASE}:commit`, { method: 'POST', headers: { Authorization: 'Bearer owner', 'Content-Type': 'application/json' }, body: JSON.stringify({ writes: [write('roles/op@test.example', { role: 'operator' })] }) })
+const seed = await fetch(`${BASE}:commit`, { method: 'POST', headers: { Authorization: 'Bearer owner', 'Content-Type': 'application/json' }, body: JSON.stringify({ writes: [write('roles/op@test.example', { role: 'operator' }), write('roles/b@test.example', { role: 'private' }), write('vehicles/v9', { ownerUid: 'e', ownerName: 'E', kind: 'private', type: 'car', reg: 'E1', colour: '', seats: 4, priceBase: 25, pricePerKm: 5, phone: '7770001', note: '', status: 'approved', reason: '', decidedBy: 'op@test.example', decidedAt: new Date(), createdAt: new Date(), updatedAt: new Date() })] }) })
 if (!seed.ok) { fails++; console.log('FAIL  could not set up a test operator') }
 const veh = (o = {}) => ({ ownerUid: 'b', ownerName: 'B', kind: 'private', type: 'motorbike', reg: 'P1234', colour: 'red', seats: 1, priceBase: 25, pricePerKm: 5, phone: '7771234', note: '', status: 'pending', reason: '', decidedBy: null, decidedAt: null, createdAt: NOW, updatedAt: NOW, ...o })
 await expect('a citizen applies to offer their motorbike for hire', 'b', [write('vehicles/v1', veh())], true)
@@ -114,6 +114,7 @@ await expect('an operator approves it', 'op', [write('vehicles/v1', { status: 'a
 await expect('the approval is logged', 'op', [write('vehicleLog/l1', { vehicleId: 'v1', ownerUid: 'b', action: 'approved', by: 'op@test.example', reason: '', at: NOW })], true)
 await expect('nobody can change the log', 'op', [write('vehicleLog/l1', { vehicleId: 'v1', ownerUid: 'b', action: 'rejected', by: 'op@test.example', reason: 'x', at: NOW })], false)
 await expect('once approved, the owner shows it on the map', 'b', [write('publicVehicles/v1', { ownerUid: 'b', type: 'motorbike', colour: 'red', seats: 1, firstName: 'B', priceBase: 25, pricePerKm: 5, at: [4.17, 73.5], heading: 0, updatedAt: NOW })], true)
+await expect('an approved vehicle whose owner lacks the Private driver role cannot go on the map', 'e', [write('publicVehicles/v9', { ownerUid: 'e', type: 'car', colour: '', seats: 4, firstName: 'E', priceBase: 25, pricePerKm: 5, at: [4.17, 73.5], heading: 0, updatedAt: NOW })], false)
 await expect('the map copy cannot carry a phone number', 'b', [write('publicVehicles/v1', { ownerUid: 'b', type: 'motorbike', colour: 'red', seats: 1, firstName: 'B', priceBase: 25, pricePerKm: 5, at: [4.17, 73.5], heading: 0, updatedAt: NOW, phone: '7771234' })], false)
 await expect('the owner changes their price once approved', 'b', [write('vehicles/v1', { priceBase: 30, updatedAt: NOW }, { merge: true })], true)
 await expect('but not the registration once approved', 'b', [write('vehicles/v1', { reg: 'P9999', updatedAt: NOW }, { merge: true })], false)
