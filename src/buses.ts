@@ -72,8 +72,15 @@ export function useLiveBuses(enabled: boolean): Bus[] {
     let stopped = false
     const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
     void (async () => {
-      const routes = await loadBusRoutes()
+      let routes = await loadBusRoutes()
       while (!stopped) {
+        // No route list (RTL's server didn't answer, or the network dropped): try again in 20 s.
+        // Never loop without waiting (that would freeze the page).
+        if (!routes.length) {
+          await wait(20_000)
+          if (!stopped) routes = await loadBusRoutes()
+          continue
+        }
         if (document.visibilityState === 'visible') {
           const seen = new Map<string, Bus>()
           for (const route of routes) {

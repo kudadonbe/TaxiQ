@@ -226,6 +226,14 @@ function routeLineFor(route: BusRoute, g: RoadGraph): RouteLine | null {
   let cache = routeLines.get(g)
   if (!cache) routeLines.set(g, (cache = new Map()))
   if (cache.has(route.code)) return cache.get(route.code)!
+  // Only on a road map that covers the route (e.g. not Kulhudhuffushi's roads while looking at
+  // Malé): otherwise no route line, and the bus is shown where its GPS says.
+  const first = route.stops[0]!.at
+  const last = route.stops[route.stops.length - 1]!.at
+  if (!snapToRoad(g, first, 300) || !snapToRoad(g, last, 300)) {
+    cache.set(route.code, null)
+    return null
+  }
   const pts: [number, number][] = []
   for (let i = 1; i < route.stops.length; i++) {
     const a = route.stops[i - 1]!.at
@@ -396,7 +404,23 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   const placesKey = followsViewer ? (regionAt(area.center)?.id ?? 'home') : 'home'
   // Live RTL buses: only on the real app's map, in the Greater Malé area, while Buses is on.
   const [showBuses, setShowBuses] = useState(true)
-  const liveBuses = useLiveBuses(followsViewer && placesKey === 'male' && showBuses)
+  // RTL buses: wherever the map is looking in Greater Malé (or the viewer is there).
+  const [viewRegion, setViewRegion] = useState<string | null>(null)
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready) return
+    const look = () => {
+      const c = m.getCenter()
+      setViewRegion(regionAt([c.lat, c.lng])?.id ?? null)
+    }
+    look()
+    m.on('moveend', look)
+    return () => {
+      m.off('moveend', look)
+    }
+  }, [ready])
+  const busArea = followsViewer && (placesKey === 'male' || viewRegion === 'male')
+  const liveBuses = useLiveBuses(busArea && showBuses)
   const placesHere = () => (followRef.current ? loadPlacesAround(getArea().center) : loadPlaces())
 
   // Create the map once.
@@ -1435,7 +1459,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
           <input type="checkbox" checked={showPlots} onChange={(e) => setShowPlots(e.target.checked)} className="size-4 accent-emerald-600" />
           {t.plotMap}
         </label>
-        {followsViewer && placesKey === 'male' && (
+        {busArea && (
           <label className="flex min-h-8 cursor-pointer items-center gap-1.5 font-medium">
             <input type="checkbox" checked={showBuses} onChange={(e) => setShowBuses(e.target.checked)} className="size-4 accent-emerald-600" />
             {t.busesToggle}
