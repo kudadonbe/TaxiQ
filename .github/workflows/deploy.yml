@@ -1,0 +1,72 @@
+# Deploy TaxiQ to Firebase on every merge (push) to v2: the same as `pnpm release` (site, Firestore
+# rules and indexes together, so they never disagree), but only after every check passes.
+# Needs the repository secret FIREBASE_SERVICE_ACCOUNT: a JSON key for a least-privilege service
+# account (see SECURITY.md, "Automatic deploy"). Also runs by hand from the Actions tab.
+name: Deploy to Firebase
+
+on:
+  push:
+    branches: [v2]
+  workflow_dispatch:
+
+# One deploy at a time; a newer push waits for the running one instead of cancelling it mid-deploy.
+concurrency:
+  group: deploy-v2
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Type check, lint, tests, rules checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4 # version from package.json "packageManager"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec tsc -b
+      - run: pnpm lint
+      - run: pnpm test
+      # The Firestore rules checks run in the emulator (needs Java and the Firebase CLI).
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: npm install --global firebase-tools@13.35.1
+      - run: pnpm test:rules
+
+  deploy:
+    name: Build and deploy (site, rules, indexes)
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: npm install --global firebase-tools@13.35.1
+      - name: Deploy to Firebase
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
+            echo "::error::The FIREBASE_SERVICE_ACCOUNT secret is not set (see SECURITY.md, Automatic deploy)."
+            exit 1
+          fi
+          key="$RUNNER_TEMP/firebase-key.json"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$key"
+          export GOOGLE_APPLICATION_CREDENTIALS="$key"
+          firebase deploy --only hosting,firestore:rules,firestore:indexes --project kd-taxiq --non-interactive
+          rm -f "$key"

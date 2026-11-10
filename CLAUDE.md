@@ -31,6 +31,8 @@ pnpm release   # build, then deploy hosting + rules + indexes together
 
 `pnpm build` is the type-check gate, since `tsc -b` runs before the Vite build. **Which deploy:** a rules-only fix is `pnpm rules`, a code-only change is `pnpm deploy`, and code that needs new rules, indexes or data is `pnpm release`, so the site and the rules never disagree. New indexes take a few minutes to build; until then their queries fail with `failed-precondition`. Tag each release (`git tag -a v2.x.0`, annotated) after bumping `version` in `package.json`.
 
+**Automatic deploy:** `.github/workflows/deploy.yml` runs on every push to `v2` (and by hand from the Actions tab): type check, lint, unit tests and the rules checks in the emulator; only if all pass, it builds and deploys hosting, rules and indexes together (like `pnpm release`) with the `FIREBASE_SERVICE_ACCOUNT` secret. So merging a pull request into `v2` is the release; `pnpm release` from a machine still works. GitHub Pages still serves the committed `docs/`, so commit the build for the Pages copy to update.
+
 ## Architecture
 
 - There is no backend and no router. `src/main.tsx` wraps `App.tsx` in `I18nProvider`. `App` switches between three views with a local `view` state: the queue, `MapView` and `AdminPanel`. `MapView` is lazy-loaded, so Leaflet only downloads when the Map tab opens.
