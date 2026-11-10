@@ -237,6 +237,17 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
   - Voice clips in object storage instead of Firestore documents.
 - [ ] Ported
 
+## 24. Fares by zone, seats, buses, centers, My account, linked vehicles, deploy scripts
+
+- Official Greater Malé zone fares (`src/core/zoneFares.ts`), `274ffb0`. v3: keep `FARES` as server config.
+- Taxi seats and 7-10 seat trips with their own fare (`seatsOf`, `fitsSize()`), `fd9f793`.
+- RTL buses wherever the map looks in Greater Malé; retry the route list, `af62042`. v3: fetch the feed once on the server.
+- Multiple taxi centers (`src/centers.ts`, `centerId` on queues, taxis, dispatches, fares, requests, roles), `1a100e8`. v3: the rules helpers (`staffOf`, `adminOf`, `isPlatform`) become server checks.
+- My account, readiness checklist (`src/core/readiness.ts`) and 90-day activity log (`src/activity.ts`, TTL on `expireAt`), `1a100e8`.
+- One vehicle as private hire and a center taxi, one at a time (`linkAsTaxi`, `freeTaxi()`), `1a100e8`. v3: enforce "one at a time" on the server.
+- Deploy scripts `pnpm rules` and `pnpm release`, `79dfcce`, `74cfd86`.
+- [ ] Ported
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
