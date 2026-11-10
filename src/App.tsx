@@ -13,6 +13,7 @@ import { QueueChangesLog, ReorderPanel } from './components/ReorderPanel'
 import { TranslationEditor } from './components/TranslationEditor'
 import { ManagementView } from './components/ManagementView'
 import { usePublicVehicles, type PublicVehicle } from './vehicles'
+import { usePublicServices } from './services'
 import { movePrivateOn, openPrivate, useMyPrivateRide } from './privateRides'
 import { privateQueue, timedOut } from './core/openTrip'
 import { PrivateHirePanel } from './components/PrivateHirePanel'
@@ -173,6 +174,9 @@ export default function App() {
   const driving = !!availableId
   const shareMe = useShareMe(auth.fb, signedIn && !DEMO_HOST ? (auth.uid ?? null) : null, auth.name ?? '', !!riding, driving)
   const vehicles = usePublicVehicles(auth.fb, signedIn && !DEMO_HOST)
+  // Services for drivers (mechanics, tyres, towing...) on the full-screen maps, for anyone signed in.
+  const servicesLive = usePublicServices(auth.fb, signedIn && !DEMO_HOST)
+  const services = signedIn && !DEMO_HOST ? servicesLive : undefined
   // Recorded voice messages (Management -> Voice messages), kept in memory to play.
   useVoiceClips(auth.fb, signedIn && !DEMO_HOST)
   // Booking a private vehicle: the vehicle tapped on the map, and this passenger's booking.
@@ -489,6 +493,7 @@ export default function App() {
               fullscreen
               people={people}
               vehicles={vehicles}
+              services={services}
               focusVehicle={focusVehicle}
               myUid={auth.uid ?? null}
               onHireVehicle={
@@ -647,9 +652,9 @@ export default function App() {
         <main className="relative isolate min-h-0 flex-1">
           <Suspense fallback={<p className="p-4 text-sm text-slate-500">{t.loading}</p>}>
             {mode === 'driver' ? (
-              <MapView fullscreen people={people} vehicles={vehicles} shareControl={shareControl} taxis={mapTaxis} interested={EMPTY} pickupAt={undefined} />
+              <MapView fullscreen people={people} vehicles={vehicles} services={services} shareControl={shareControl} taxis={mapTaxis} interested={EMPTY} pickupAt={undefined} />
             ) : (
-              <MapView fullscreen people={people} vehicles={vehicles} shareControl={shareControl} taxis={queue} interested={interested} pickupAt={call.pickupAt} trip={call.pickupAt && call.destinationAt ? { from: call.pickupAt, to: call.destinationAt } : undefined} />
+              <MapView fullscreen people={people} vehicles={vehicles} services={services} shareControl={shareControl} taxis={queue} interested={interested} pickupAt={call.pickupAt} trip={call.pickupAt && call.destinationAt ? { from: call.pickupAt, to: call.destinationAt } : undefined} />
             )}
           </Suspense>
         </main>

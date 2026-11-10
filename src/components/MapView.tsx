@@ -1,4 +1,4 @@
-import { CarTaxiFront, Footprints, Hand, Info, LocateFixed, MapPin, Radar, X } from 'lucide-react'
+import { CarTaxiFront, Footprints, Hand, Info, LifeBuoy, LocateFixed, MapPin, Phone, Radar, Route as RouteIcon, X } from 'lucide-react'
 import { PlaceTypeIcon } from './icons'
 import { ic } from './iconStyles'
 import type { Feature, LineString } from 'geojson'
@@ -20,7 +20,9 @@ import type { Taxi } from '../types'
 import type { Person } from '../usePresence'
 import type { PublicVehicle, Rider } from '../vehicles'
 import { useLiveBuses, type Bus, type BusRoute } from '../buses'
-import { MOVING_ICONS, VEHICLE_ICONS } from './iconStyles'
+import { MOVING_ICONS, SERVICE_ICONS, VEHICLE_ICONS } from './iconStyles'
+import type { PublicService } from '../services'
+import { nearestHelp, SERVICE_KINDS, todayHours, type ServiceKind } from '../core/services'
 import { bearing, coastGlide, glideAt, glideSpeed, glideState, nextGlide, turnAhead, turnToward, type Glide } from '../core/glide'
 import { indicator, leanDegrees } from '../core/drive'
 import { inLane, twoWayBetween } from '../core/lanes'
@@ -81,6 +83,9 @@ interface Props {
   // A booked private vehicle: shown on its real position, with a ride card and Show my vehicle.
   privateRide?: { vehicleId: string; pickup: [number, number]; destination: [number, number]; status: 'offering' | 'accepted' | 'onboard' }
   shareControl?: ReactNode
+  // Services for drivers (mechanics, tyres, towing...): approved fixed places and mobile helpers
+  // who are Available. Given (even empty), the map shows the Services layer and Help near me.
+  services?: PublicService[]
 }
 
 // A small round-cornered button in the map's tool row (opens one panel).
@@ -100,6 +105,55 @@ function ToolButton({ active, onClick, label, children }: { active: boolean; onC
 // One short status line over the map.
 function Chip({ children }: { children: ReactNode }) {
   return <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-white/60 bg-white/70 px-3 py-1.5 text-sm shadow backdrop-blur-[3px]">{children}</div>
+}
+
+const NO_SERVICES: PublicService[] = []
+
+// A service's card on the map: its kinds, open now (with today's hours) or available now, the price
+// note, Call and Route.
+function ServiceCard({ s, metres, distance, onRoute }: { s: PublicService; metres: number | null; distance: (m: number) => string; onRoute?: () => void }) {
+  const { t } = useI18n()
+  const [now] = useState(() => new Date())
+  const today = s.mode === 'fixed' ? todayHours(s.hours, now) : null
+  const phone = s.phone.replace(/\D/g, '')
+  return (
+    <div className="space-y-2">
+      <ul className="flex flex-wrap gap-1">
+        {s.kinds.map((k) => {
+          const Icon = SERVICE_ICONS[k]
+          return (
+            <li key={k} className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-1 text-xs font-semibold">
+              <Icon className="size-3.5" aria-hidden="true" /> {t.svcKinds[k]}
+            </li>
+          )
+        })}
+      </ul>
+      <p className="text-sm">
+        <span className={`font-bold ${s.openNow ? 'text-emerald-700' : 'text-rose-700'}`}>{s.mode === 'mobile' ? t.svcAvailableNow : s.openNow ? t.svcOpenNow : t.svcClosedNow}</span>
+        {s.mode === 'fixed' && (
+          <span className="text-slate-600">
+            {' · '}
+            {today ? t.svcToday(today.open, today.close) : t.svcClosedToday}
+          </span>
+        )}
+        {metres !== null && <span className="text-slate-600 tabular-nums"> · {distance(metres)}</span>}
+      </p>
+      {s.priceNote && <p className="text-sm text-slate-700">{s.priceNote}</p>}
+      <div className="flex gap-2">
+        {phone && (
+          <a href={`tel:${phone}`} className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 text-sm font-bold text-white">
+            <Phone className="size-4" aria-hidden="true" /> {t.svcCall} <span dir="ltr">{phone}</span>
+          </a>
+        )}
+        {onRoute && (
+          <button type="button" onClick={onRoute} className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-3 text-sm font-bold text-white">
+            <RouteIcon className="size-4" aria-hidden="true" /> {t.svcRoute}
+          </button>
+        )}
+      </div>
+      {!onRoute && <p className="text-xs text-slate-500">{t.svcNeedSpot}</p>}
+    </div>
+  )
 }
 
 // Pin for a searched place. Static markup, no user data.
@@ -337,12 +391,15 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
 // Live map of taxis, on MapLibre: rotate (two fingers / right-drag), tilt, pinch zoom, compass and
 // "my location" like Google Maps. Markers are driven imperatively so 60fps position updates don't
 // re-render React.
-export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, activeTrip, onHireFrom, people = [], vehicles = [], buses: busesProp, onHireVehicle, focusVehicle = null, myUid = null, privateRide, shareControl, driving = false, onTripMetres }: Props) {
+export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, activeTrip, onHireFrom, people = [], vehicles = [], buses: busesProp, onHireVehicle, focusVehicle = null, myUid = null, privateRide, shareControl, driving = false, onTripMetres, services: servicesProp }: Props) {
   const { lang, t, driverName } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const map = useRef<MlMap | null>(null)
   const [ready, setReady] = useState(false)
   const [locationOff, setLocationOff] = useState(false) // the viewer blocked location
+  // Where the viewer is (the map's own location fixes), rounded to about 10 m: for Help near me and
+  // routes to a service. Null until located (and on the game map).
+  const [mySpot, setMySpot] = useState<[number, number] | null>(null)
   // Headlights from dusk to dawn (18:00–06:00 by the viewer's own clock).
   const [night, setNight] = useState(() => {
     const h = new Date().getHours()
@@ -450,6 +507,8 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       geo.on('geolocate', (e) => {
         setLocationOff(false)
         moveToLocation([e.coords.latitude, e.coords.longitude])
+        const at: [number, number] = [Math.round(e.coords.latitude * 1e4) / 1e4, Math.round(e.coords.longitude * 1e4) / 1e4]
+        setMySpot((x) => (x && x[0] === at[0] && x[1] === at[1] ? x : at))
       })
       geo.on('error', (e) => {
         if (e.code !== 1) return // a timeout or no fix: keep looking
@@ -1069,6 +1128,59 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     }
   }, [vehiclesKey, ready])
 
+  // Services for drivers: a round marker with an icon for its first kind; a fixed place that is
+  // closed now is faded, a resting mobile helper a little. Tap for its card (one panel, below).
+  // The icon is rendered by React into the marker; the name goes in as an attribute, never HTML.
+  const services = servicesProp ?? NO_SERVICES
+  const [showServices, setShowServices] = useState(true)
+  const serviceMarkers = useRef(new Map<string, { marker: Marker; root: Root; kind: string }>())
+  const openServiceRef = useRef<(id: string) => void>(() => {})
+  const servicesKey = showServices ? JSON.stringify(services) : '[]'
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready) return
+    const list = JSON.parse(servicesKey) as PublicService[]
+    const seen = new Set<string>()
+    for (const sv of list) {
+      seen.add(sv.id)
+      let entry = serviceMarkers.current.get(sv.id)
+      if (!entry) {
+        const el = document.createElement('button')
+        el.type = 'button'
+        el.className = 'service-marker'
+        const icon = document.createElement('span')
+        icon.className = 'service-marker-icon'
+        el.append(icon)
+        el.onclick = (ev) => {
+          ev.stopPropagation()
+          openServiceRef.current(sv.id)
+        }
+        entry = { marker: new maplibregl.Marker({ element: el }).setLngLat(ll(sv.at)).addTo(m), root: createRoot(icon), kind: '' }
+        serviceMarkers.current.set(sv.id, entry)
+      }
+      entry.marker.setLngLat(ll(sv.at))
+      const el = entry.marker.getElement()
+      el.setAttribute('aria-label', lang === 'dv' && sv.nameDv ? sv.nameDv : sv.name)
+      el.style.opacity = !sv.openNow ? '0.45' : sv.mode === 'mobile' && sv.level !== 'active' ? '0.75' : '1'
+      el.classList.toggle('mobile', sv.mode === 'mobile')
+      const kind = sv.kinds[0] ?? 'mechanic'
+      if (entry.kind !== kind) {
+        entry.kind = kind
+        const Icon = SERVICE_ICONS[kind]
+        entry.root.render(<Icon className="size-4" aria-hidden="true" />)
+      }
+    }
+    for (const [id, entry] of serviceMarkers.current) {
+      if (seen.has(id)) continue
+      entry.marker.remove()
+      const root = entry.root
+      setTimeout(() => root.unmount())
+      serviceMarkers.current.delete(id)
+    }
+  }, [servicesKey, ready, lang])
+  // A route from the viewer to a service (Route on its card), drawn with the trip machinery below.
+  const [svcTrip, setSvcTrip] = useState<{ from: [number, number]; to: [number, number]; name: string } | null>(null)
+
   // MTCC RTL buses (live GPS, src/buses.ts): a top-down bus in its route's colour with the route
   // number, gliding and kept on the road like private vehicles. Tap for the route and plate.
   const buses = busesProp ?? liveBuses
@@ -1322,10 +1434,11 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   // The trip: route along the roads (taxi follows one-way streets; walking doesn't), drawn with a
   // white casing like a ride app, start and end pins, distance and time. If a point is far from
   // any road (another island), a dashed straight line is drawn instead.
-  const tripKey = trip ? JSON.stringify(trip) : ''
+  const shownTrip = trip ? { from: trip.from, to: trip.to, name: '' } : svcTrip
+  const tripKey = shownTrip ? JSON.stringify(shownTrip) : ''
   const planned = useMemo(() => {
     if (!tripKey) return null
-    const { from, to } = JSON.parse(tripKey) as { from: [number, number]; to: [number, number] }
+    const { from, to, name } = JSON.parse(tripKey) as { from: [number, number]; to: [number, number]; name: string }
     // Both ends need a road within 300 m (else another island: a dashed straight line). If one-way
     // streets leave no way for a vehicle, still show the way along the roads, never over buildings.
     const near = (p: [number, number]) => !!snapToRoad(graph, p, 300)
@@ -1334,13 +1447,16 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     return {
       from,
       to,
+      name,
       path: r?.path ?? [from, to],
       info: { metres: r?.metres ?? straight, seconds: r?.seconds ?? straight / (mode === 'walk' ? 1.25 : 5.6), onRoad: !!r },
     }
   }, [tripKey, mode, graph])
   const tripInfo = planned?.info ?? null
   // Report the road distance by taxi (the price is worked out from it), on the roads only.
-  const taxiMetres = planned && mode === 'taxi' && planned.info.onRoad ? Math.round(planned.info.metres) : planned ? undefined : null
+  // Only the hire or call trip has a price; a route to a service doesn't.
+  const hirePlanned = trip ? planned : null
+  const taxiMetres = hirePlanned && mode === 'taxi' && hirePlanned.info.onRoad ? Math.round(hirePlanned.info.metres) : hirePlanned ? undefined : null
   useEffect(() => {
     if (taxiMetres !== undefined) onTripMetres?.(taxiMetres)
   }, [taxiMetres, onTripMetres])
@@ -1361,13 +1477,14 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       src.setData(empty)
       return
     }
-    const { from, to, path } = planned
+    const { from, to, path, name } = planned
     src.setData({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: path.map(ll) } })
     m.setPaintProperty('trip-line', 'line-dasharray', mode === 'walk' || !planned.info.onRoad ? [0.6, 1.6] : [1, 0])
     m.setPaintProperty('trip-line', 'line-color', mode === 'walk' ? '#0f766e' : '#2563eb')
+    // A route to a service: from you to the service (its name, as text).
     for (const [at, colour, label] of [
-      [from, '#059669', t.pickupPin],
-      [to, '#e11d48', t.destination],
+      [from, '#059669', name ? t.youAreHere : t.pickupPin],
+      [to, name ? '#d97706' : '#e11d48', name || t.destination],
     ] as const) {
       const el = document.createElement('div')
       el.className = 'flex flex-col items-center'
@@ -1383,7 +1500,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     const b = new maplibregl.LngLatBounds()
     path.forEach((p) => b.extend(ll(p)))
     m.fitBounds(b, { padding: { top: 90, bottom: 110, left: 50, right: 70 }, maxZoom: 18, duration: 800 })
-  }, [planned, mode, ready, t.pickupPin, t.destination])
+  }, [planned, mode, ready, t.pickupPin, t.destination, t.youAreHere])
 
   const target = selected?.p ?? (pickupAt ? [pickupAt] : null)
   const targetKey = target ? JSON.stringify(target) : ''
@@ -1427,9 +1544,30 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
 
   const note = followsViewer ? (area.kind === 'here' ? t.mapDemoHere : area.kind === 'loading' ? t.mapDemoLoading : area.kind === 'none' ? t.mapDemoNone : t.mapPlaceholder) : null
   // At most one panel open at a time: the map key, Show me, or the hire form (App controls that one).
-  const [openPanel, setOpenPanel] = useState<'key' | 'share' | null>(null)
-  const active: 'key' | 'share' | 'hire' | null = pinMode ? null : panel && panelOpen ? 'hire' : openPanel
-  const toggle = (which: 'key' | 'share' | 'hire') => {
+  const [openPanel, setOpenPanel] = useState<'key' | 'share' | 'help' | 'service' | null>(null)
+  const [svcId, setSvcId] = useState<string | null>(null)
+  const [helpKind, setHelpKind] = useState<ServiceKind | null>(null)
+  const svc = svcId ? services.find((x) => x.id === svcId) : undefined
+  const shown = openPanel === 'service' && !svc ? null : openPanel // the helper went off the map
+  const active: 'key' | 'share' | 'help' | 'service' | 'hire' | null = pinMode ? null : panel && panelOpen ? 'hire' : shown
+  // Open a service's card (from its marker or Help near me), folding the hire form away.
+  const openService = (id: string) => {
+    setSvcId(id)
+    setOpenPanel('service')
+    if (panel && panelOpen) onPanelOpenChange?.(false)
+  }
+  useEffect(() => {
+    openServiceRef.current = openService
+  })
+  const svcName = (x: PublicService) => (lang === 'dv' && x.nameDv ? x.nameDv : x.name)
+  const distance = (metres: number) => (metres < 1000 ? t.svcMetres(String(Math.round(metres))) : t.svcKm((metres / 1000).toFixed(1)))
+  const help = mySpot ? nearestHelp(services, mySpot, helpKind) : []
+  const routeTo = (x: PublicService) => {
+    if (!mySpot) return
+    setMode('taxi')
+    setSvcTrip({ from: mySpot, to: x.at, name: svcName(x) })
+  }
+  const toggle = (which: 'key' | 'share' | 'help' | 'hire') => {
     if (active === which) return closeActive()
     if (which === 'hire') {
       setOpenPanel(null)
@@ -1463,6 +1601,12 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
           <label className="flex min-h-8 cursor-pointer items-center gap-1.5 font-medium">
             <input type="checkbox" checked={showBuses} onChange={(e) => setShowBuses(e.target.checked)} className="size-4 accent-emerald-600" />
             {t.busesToggle}
+          </label>
+        )}
+        {servicesProp && (
+          <label className="flex min-h-8 cursor-pointer items-center gap-1.5 font-medium">
+            <input type="checkbox" checked={showServices} onChange={(e) => setShowServices(e.target.checked)} className="size-4 accent-emerald-600" />
+            {t.svcLayer}
           </label>
         )}
       </div>
@@ -1500,6 +1644,11 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
               {panel && (
                 <ToolButton active={active === 'hire'} onClick={() => toggle('hire')} label={panelTitle ?? ''}>
                   <Hand className="size-4 text-emerald-700" aria-hidden="true" />
+                </ToolButton>
+              )}
+              {servicesProp && (
+                <ToolButton active={active === 'help'} onClick={() => toggle('help')} label={t.svcHelpNear}>
+                  <LifeBuoy className="size-4 text-amber-600" aria-hidden="true" />
                 </ToolButton>
               )}
             </div>
@@ -1543,7 +1692,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
             {active && (
               <div className="map-glass pointer-events-auto flex min-h-0 flex-col rounded-2xl border border-white/60 bg-white/70 shadow-xl backdrop-blur-[3px] backdrop-saturate-150">
                 <div className="flex shrink-0 items-center gap-2 ps-4">
-                  <p className="min-w-0 flex-1 truncate py-2.5 font-bold">{active === 'key' ? t.mapKey : active === 'share' ? t.shareMe : panelTitle}</p>
+                  <p className="min-w-0 flex-1 truncate py-2.5 font-bold">{active === 'key' ? t.mapKey : active === 'share' ? t.shareMe : active === 'help' ? t.svcHelpNear : active === 'service' && svc ? svcName(svc) : panelTitle}</p>
                   {active === 'hire' && onPanelClose && (
                     <button type="button" onClick={onPanelClose} className="min-h-9 rounded-lg px-2 text-xs font-bold text-red-700 hover:bg-red-50">
                       {t.cancel}
@@ -1561,6 +1710,60 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
                     </div>
                   )}
                   {active === 'share' && shareControl}
+                  {active === 'help' && (
+                    <div className="space-y-2">
+                      <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1" role="group" aria-label={t.svcKindsLabel}>
+                        {[null, ...SERVICE_KINDS].map((k) => {
+                          const Icon = k ? SERVICE_ICONS[k] : LifeBuoy
+                          return (
+                            <button key={k ?? 'all'} type="button" aria-pressed={helpKind === k} onClick={() => setHelpKind(k)} className={`inline-flex min-h-10 shrink-0 items-center gap-1 rounded-full px-3 text-xs font-semibold ${helpKind === k ? 'bg-slate-900 text-white' : 'bg-white/80 text-slate-700'}`}>
+                              <Icon className="size-4" aria-hidden="true" /> {k ? t.svcKinds[k] : t.svcAllKinds}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      {!mySpot ? (
+                        <p className="text-sm text-slate-600">{t.svcNeedSpot}</p>
+                      ) : help.length === 0 ? (
+                        <p className="text-sm text-slate-600">{t.svcNoneNear}</p>
+                      ) : (
+                        <ul className="space-y-1">
+                          {help.map((x) => {
+                            const Icon = SERVICE_ICONS[x.kinds[0] ?? 'mechanic']
+                            return (
+                              <li key={x.id}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    map.current?.flyTo({ center: ll(x.at), zoom: Math.max(16, map.current.getZoom()), duration: 600 })
+                                    openService(x.id)
+                                  }}
+                                  className="flex min-h-11 w-full items-center gap-2 rounded-lg bg-white/70 px-2 text-start"
+                                >
+                                  <span className="grid size-8 shrink-0 place-items-center rounded-full bg-amber-600 text-white">
+                                    <Icon className="size-4" aria-hidden="true" />
+                                  </span>
+                                  <span className="min-w-0 flex-1">
+                                    <span className="block truncate text-sm font-bold">{svcName(x)}</span>
+                                    <span className="block truncate text-xs text-slate-600">{x.kinds.map((k) => t.svcKinds[k]).join(', ')}</span>
+                                  </span>
+                                  <span className="shrink-0 text-sm text-slate-600 tabular-nums">{distance(x.metres)}</span>
+                                </button>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                  {active === 'service' && svc && (
+                    <ServiceCard
+                      s={svc}
+                      metres={mySpot ? metresBetween(mySpot, svc.at) : null}
+                      distance={distance}
+                      onRoute={mySpot ? () => routeTo(svc) : undefined}
+                    />
+                  )}
                   {active === 'hire' && panel}
                 </div>
               </div>
@@ -1641,6 +1844,11 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
                 {!tripInfo.onRoad && ` · ${t.straightLine}`}
               </p>
             </div>
+            {!trip && svcTrip && (
+              <button type="button" onClick={() => setSvcTrip(null)} aria-label={t.close} title={t.close} className="order-last grid min-h-10 min-w-10 shrink-0 place-items-center rounded-lg text-slate-500 hover:text-slate-900">
+                <X className="size-5" aria-hidden="true" />
+              </button>
+            )}
             <div className="flex rounded-xl bg-slate-100 p-1" role="group" aria-label={t.travelMode}>
               {(['taxi', 'walk'] as const).map((x) => (
                 <button
