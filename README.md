@@ -22,6 +22,9 @@ v2 has **no server of its own**: the browser and the Firebase rules (`firestore.
 
 - **Accounts and roles:** Google sign-in (an MDS exception to eFaas, see `SECURITY.md`); roles admin, operator, driver, Private driver and developer, or none (citizen). Management → Users lists everyone who has signed in, who's online, and changes roles. Developers have a **View as** switch.
 - **Taxi center:** the queue (answer, Assign, Undo, Reopen, suspend, lift); reorder and shuffle with a reason, logged; register, suspend and remove taxis; call details, the dispatch log and Share pickup.
+- **Several taxi centers:** each with its own queue, taxis, fares, requests and staff; platform admins create centers, center admins run theirs.
+- **My account:** who you are, a **Can I take rides?** checklist, your bookings, trips and a 90-day activity log; admins see any person's and can fix stuck rides.
+- **One vehicle, two roles:** a private vehicle can also run as a center taxi, one at a time.
 - **Hiring a center taxi:** offered down the queue, or to one tapped taxi; the driver accepts on the Driver screen.
 - **Private vehicles:** offer a car, van, pickup, motorbike or e-bike; any operator approves it, with a log; the Private driver role plus an approved vehicle is needed to take rides. **Available** puts it on the map from the owner's GPS, with a heartbeat that rests while parked (Active, Rest, Nap, Sleep at night).
 - **Booking a private vehicle:** tap it, book; the owner accepts, then marks Picked up and Trip done; the passenger watches it on its real position.
@@ -48,7 +51,7 @@ v2 has **no server of its own**: the browser and the Firebase rules (`firestore.
 
 ### Planned for v3 (a server)
 
-eFaas login and identity checks, driver documents and permits, real driver GPS over a live connection, push notifications, payments, a server-run game and ledger, per-center management, and hiring any land vehicle. See `plans/v2-features-to-port.md` on the `v3` branch.
+eFaas login and identity checks, driver documents and permits, real driver GPS over a live connection, push notifications, payments, a server-run game and ledger, and hiring any land vehicle. See `plans/v2-features-to-port.md` on the `v3` branch.
 
 ## Develop
 
@@ -59,11 +62,14 @@ pnpm build    # type-check + production build to docs/ (published by GitHub Page
 pnpm lint
 pnpm test        # unit tests (Vitest)
 pnpm test:rules  # Firestore rules checks on the local emulator (needs Java)
+pnpm deploy      # site only
+pnpm rules       # Firestore rules + indexes only
+pnpm release     # site + rules + indexes together (use when code needs new rules)
 ```
 
 The live site keeps its data in Firebase (Firestore, Singapore), and access is enforced by `firestore.rules`. The GitHub Pages copy is a demo that keeps everything in the browser. See [SECURITY.md](SECURITY.md).
 
-Live at **https://kd-taxiq.web.app** (Firebase Hosting, `pnpm deploy`) and https://kudadonbe.github.io/TaxiQ/ (GitHub Pages). GitHub Pages serves the committed `docs/` folder on `v2`, so run `pnpm build` and commit `docs/` to publish changes.
+Live at **https://kd-taxiq.web.app** (Firebase Hosting, `pnpm deploy` or `pnpm release`) and https://kudadonbe.github.io/TaxiQ/ (GitHub Pages). GitHub Pages serves the committed `docs/` folder on `v2`, so run `pnpm build` and commit `docs/` to publish changes.
 
 ## Credits
 
