@@ -10,9 +10,9 @@ it's merged and released. Last updated 2026-11-10.
   tyres, towing and other helpers. **Done:** the shared core, the Firestore rules and rule checks,
   My services, Management -> Services, the **map layer** (markers per kind, faded when closed, a
   Services toggle in the map key, a card with Call and Route) and **Help near me** (kind filter, 5
-  nearest open helpers), the CLAUDE.md bullet and the SECURITY.md row. **Left:** run
-  `pnpm test:rules` (needs Java), review and merge the pull request, then deploy with
-  `pnpm release` (new rules); check the Dhivehi labels; add the v3 port line. Help near me ranks by
+  nearest open helpers), the CLAUDE.md bullet and the SECURITY.md row. Checked: `tsc -b`, lint,
+  tests and `pnpm test:rules` (279 passed). **Left:** review and merge the pull request, then
+  deploy with `pnpm release` (new rules); check the Dhivehi labels; add the v3 port line. Help near me ranks by
   straight line (by road for the top few is a later step). Later: request a mechanic or tow,
   ratings and reports (plan §6). `services-map-wip` can be deleted once merged.
 - [ ] **Automatic deploy** ([PR #2](https://github.com/kudadonbe/TaxiQ/pull/2), branch `ci-deploy`):
