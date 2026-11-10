@@ -11,6 +11,7 @@
     "test": "vitest run",
     "preview": "vite preview",
     "deploy": "pnpm build && firebase deploy --only hosting",
+    "rules": "firebase deploy --only firestore:rules,firestore:indexes --project kd-taxiq",
     "test:rules": "firebase emulators:exec --only firestore --project kd-taxiq \"node scripts/rules/game-rules.check.mjs\""
   },
   "dependencies": {
