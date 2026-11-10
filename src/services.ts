@@ -94,6 +94,9 @@ function parsePublic(id: string, x: Record<string, unknown>, now: number): Publi
   return { id, ownerUid: str(x.ownerUid, 128), name: str(x.name, 60), nameDv: str(x.nameDv, 60), kinds: kindsOf(x.kinds), mode, at, hours, phone: str(x.phone, 7), priceNote: str(x.priceNote, 120), level, updatedAt, openNow }
 }
 
+// A link to see a place on OpenStreetMap (for the owner and operators).
+export const placeLink = (at: [number, number]) => `https://www.openstreetmap.org/?mlat=${at[0]}&mlon=${at[1]}#map=18/${at[0]}/${at[1]}`
+
 // Only the detail fields go into the record (an edit starts from the whole record).
 const clean = (d: ServiceDetails) => ({
   name: d.name.trim().slice(0, 60),
