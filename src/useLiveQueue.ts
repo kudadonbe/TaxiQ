@@ -5,13 +5,15 @@ import { REORDER_REASONS, validReorder, type ReorderReason } from './core/reorde
 import type { Dispatch, QueueApi, QueueChange } from './useQueue'
 import { placeAt } from './useQueue'
 import { EMPTY_CALL, hasCallInfo, parseStoredTaxi, toTaxi, validateCall, type TaxiInput } from './validate'
+import { MAIN, queueRef } from './centers'
 
 type Fb = typeof import('./firebase')
 
-// Live queue shared by every signed-in operator, kept in Firestore:
-//   taxis/{id}        taxi records (admin writes)
-//   queue/state       { order: taxi ids, interested: taxi ids }
-//   dispatches/{id}   dispatch log (never deleted; undo/reopen set flags)
+// Live queue of one taxi center, shared by its signed-in operators, kept in Firestore:
+//   taxis/{id}        taxi records (admin writes), with centerId
+//   queue/state       { order: taxi ids, interested: taxi ids } for the first center ('main');
+//   queues/{center}   the same for every other center (src/centers.ts)
+//   dispatches/{id}   dispatch log (never deleted; undo/reopen set flags), with centerId
 // Every change that touches the order runs in a transaction, so two operators can't interleave.
 // Passenger details live in the dispatch documents (Singapore region; see SECURITY.md).
 
@@ -48,7 +50,7 @@ function normalize(order: unknown, taxis: Map<string, Taxi>): string[] {
   return [...new Set(ids), ...missing.map((t) => t.id)]
 }
 
-export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | null, isAdmin = false): QueueApi {
+export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | null, isAdmin = false, center: string = MAIN): QueueApi {
   const [taxis, setTaxis] = useState<Map<string, Taxi>>(new Map())
   const [state, setState] = useState<{ order: unknown; interested: unknown }>({ order: [], interested: [] })
   const [log, setLog] = useState<(Dispatch & { undone: boolean })[]>([])
@@ -59,11 +61,11 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
 
   useEffect(() => {
     if (!fb || !enabled) return
-    const { db, collection, doc, onSnapshot, query, orderBy, limit } = fb
+    const { db, collection, onSnapshot, query, orderBy, limit, where } = fb
     const fail = (e: { code?: string }) => setError(e.code ?? 'error')
     const stops = [
       onSnapshot(
-        collection(db, 'taxis'),
+        query(collection(db, 'taxis'), where('centerId', '==', center)),
         (snap) => {
           const next = new Map<string, Taxi>()
           for (const d of snap.docs) {
@@ -76,12 +78,12 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
         fail,
       ),
       onSnapshot(
-        doc(db, 'queue', 'state'),
+        queueRef(fb, center),
         (snap) => setState({ order: snap.data()?.order ?? [], interested: snap.data()?.interested ?? [] }),
         fail,
       ),
       onSnapshot(
-        query(collection(db, 'dispatches'), orderBy('at', 'desc'), limit(40)),
+        query(collection(db, 'dispatches'), where('centerId', '==', center), orderBy('at', 'desc'), limit(40)),
         (snap) => {
           const rows: (Dispatch & { undone: boolean })[] = []
           for (const d of snap.docs) {
@@ -106,7 +108,7 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
       ),
       // Manual reorders/shuffles by staff, newest first.
       onSnapshot(
-        query(collection(db, 'queueChanges'), orderBy('at', 'desc'), limit(20)),
+        query(collection(db, 'queueChanges'), where('centerId', '==', center), orderBy('at', 'desc'), limit(20)),
         (snap) =>
           setChanges(
             snap.docs.flatMap((d) => {
@@ -122,20 +124,20 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
       ),
     ]
     return () => stops.forEach((s) => s())
-  }, [fb, enabled])
+  }, [fb, enabled, center])
 
   // Admins keep publicTaxis (what the public map shows: no phone numbers) in step with taxis.
   // Any difference, from any source, is repaired the next time an admin has the app open.
   useEffect(() => {
     if (!fb || !enabled || !isAdmin || !loaded) return
-    return fb.onSnapshot(fb.collection(fb.db, 'publicTaxis'), (snap) => {
+    return fb.onSnapshot(fb.query(fb.collection(fb.db, 'publicTaxis'), fb.where('centerId', '==', center)), (snap) => {
       const have = new Map(snap.docs.map((d) => [d.id, d.data()]))
       const batch = fb.writeBatch(fb.db)
       let writes = 0
       for (const t of taxis.values()) {
-        const want = { taxiNo: t.taxiNo, name: t.driver.name, nameDv: t.driver.nameDv, suspended: !!t.suspended, seats: t.seats ?? 4 }
+        const want = { taxiNo: t.taxiNo, name: t.driver.name, nameDv: t.driver.nameDv, suspended: !!t.suspended, seats: t.seats ?? 4, vehicleId: t.vehicleId ?? null, centerId: center }
         const cur = have.get(t.id)
-        if (!cur || cur.taxiNo !== want.taxiNo || cur.name !== want.name || cur.nameDv !== want.nameDv || cur.suspended !== want.suspended || cur.seats !== want.seats) {
+        if (!cur || cur.taxiNo !== want.taxiNo || cur.name !== want.name || cur.nameDv !== want.nameDv || cur.suspended !== want.suspended || cur.seats !== want.seats || (cur.vehicleId ?? null) !== want.vehicleId) {
           batch.set(fb.doc(fb.db, 'publicTaxis', t.id), want)
           writes++
         }
@@ -148,7 +150,7 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
       }
       if (writes) batch.commit().catch((e: { code?: string }) => setError(e.code ?? 'error'))
     })
-  }, [fb, enabled, isAdmin, loaded, taxis])
+  }, [fb, enabled, isAdmin, loaded, taxis, center])
 
   const order = useMemo(() => normalize(state.order, taxis), [state.order, taxis])
   const queue = useMemo(() => order.map((id) => taxis.get(id)!), [order, taxis])
@@ -172,7 +174,7 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
     const { db, doc, collection, runTransaction, serverTimestamp } = fb
     setError(null)
     void runTransaction(db, async (tx) => {
-      const ref = doc(db, 'queue', 'state')
+      const ref = queueRef(fb, center)
       const snap = await tx.get(ref)
       const cur = normalize(snap.data()?.order, taxis)
       const curInterested = Array.isArray(snap.data()?.interested) ? (snap.data()!.interested as string[]) : []
@@ -183,7 +185,7 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
         const [id, data] = next.dispatch
         const dref = id ? doc(db, 'dispatches', id) : doc(collection(db, 'dispatches'))
         if (id) tx.update(dref, data)
-        else tx.set(dref, data)
+        else tx.set(dref, { ...data, centerId: center })
       }
     }).catch((e: { code?: string }) => setError(e.code ?? 'error'))
   }
@@ -257,7 +259,7 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
   const register = (input: TaxiInput) => {
     if (!fb) return
     const ref = fb.doc(fb.collection(fb.db, 'taxis'))
-    adminWrite(fb.setDoc(ref, taxiData(toTaxi(ref.id, input))))
+    adminWrite(fb.setDoc(ref, { ...taxiData(toTaxi(ref.id, input)), centerId: center }))
   }
 
   const remove = (id: string) => {
@@ -274,21 +276,21 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
     const { db, doc, collection, runTransaction, serverTimestamp } = fb
     setError(null)
     void runTransaction(db, async (tx) => {
-      const ref = doc(db, 'queue', 'state')
+      const ref = queueRef(fb, center)
       const snap = await tx.get(ref)
       const current = normalize(snap.data()?.order, taxis)
       const next = validReorder(current, order)
       if (!next) throw Object.assign(new Error('queue_changed'), { code: 'queue_changed' })
       tx.set(ref, { order: next, interested: Array.isArray(snap.data()?.interested) ? snap.data()!.interested : [], updatedAt: serverTimestamp(), updatedBy: email ?? '' })
-      tx.set(doc(collection(db, 'queueChanges')), { at: serverTimestamp(), by: email ?? '', kind, reason, note: note.trim(), before: current, after: next })
+      tx.set(doc(collection(db, 'queueChanges')), { centerId: center, at: serverTimestamp(), by: email ?? '', kind, reason, note: note.trim(), before: current, after: next })
     }).catch((e: { code?: string }) => setError(e.code ?? 'error'))
   }
 
   const seedDemo = () => {
     if (!fb || taxis.size) return
     const batch = fb.writeBatch(fb.db)
-    for (const t of initialTaxis) batch.set(fb.doc(fb.db, 'taxis', t.id), taxiData(t))
-    batch.set(fb.doc(fb.db, 'queue', 'state'), { order: initialTaxis.map((t) => t.id), interested: [], updatedAt: fb.serverTimestamp(), updatedBy: email ?? '' })
+    for (const t of initialTaxis) batch.set(fb.doc(fb.db, 'taxis', t.id), { ...taxiData(t), centerId: center })
+    batch.set(queueRef(fb, center), { order: initialTaxis.map((t) => t.id), interested: [], updatedAt: fb.serverTimestamp(), updatedBy: email ?? '' })
     adminWrite(batch.commit())
   }
 

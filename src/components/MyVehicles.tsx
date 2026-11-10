@@ -1,12 +1,12 @@
-import { MapPin, Plus, ShieldAlert } from 'lucide-react'
+import { CarTaxiFront, MapPin, Plus, ShieldAlert } from 'lucide-react'
 import { Switch } from './Switch'
-import { useMyRide } from '../useRides'
+import { useDriverRides, useMyRide, usePublicTaxis } from '../useRides'
 import { useMyPrivateRide } from '../privateRides'
 import { useState } from 'react'
 import { useAuth } from '../auth'
 import { useI18n } from '../i18n'
 import { useAvailableVehicle } from '../availability'
-import { applyVehicle, DEFAULT_SEATS, RIDERS, setPrice, setRider, useMyVehicles, vehicleErrors, VEHICLE_TYPES, withdrawVehicle, type Vehicle, type VehicleDetails, type VehicleType } from '../vehicles'
+import { applyVehicle, askToBeTaxi, DEFAULT_SEATS, editApproved, needsRecheck, RIDERS, setPrice, setRider, useMyVehicles, vehicleErrors, VEHICLE_TYPES, withdrawVehicle, type Vehicle, type VehicleDetails, type VehicleType } from '../vehicles'
 import { VEHICLE_ICONS } from './iconStyles'
 
 const STATUS_CLASS: Record<Vehicle['status'], string> = {
@@ -50,12 +50,19 @@ function VehicleCard({ v, onEdit, onWithdraw, onShowOnMap }: { v: Vehicle; onEdi
   const { t } = useI18n()
   const avail = useAvailableVehicle()
   const isOn = avail.availableId === v.id
-  const { role, uid } = useAuth()
-  const canTake = role === 'private' || role === 'dev'
+  const { uid, canPrivate, taxiId } = useAuth()
+  const canTake = canPrivate
+  // Also a center taxi: its number, and whether a taxi trip is in progress (then private hire stays off).
+  const linked = !!v.taxiId
+  const taxis = usePublicTaxis(fb, linked)
+  const myTaxi = linked ? taxis.find((x) => x.id === v.taxiId) : undefined
+  const { accepted: taxiTrips } = useDriverRides(fb, linked && taxiId === v.taxiId ? taxiId : null)
+  const onTaxiTrip = taxiTrips.some((r) => r.status === 'accepted' || r.status === 'onboard' || r.status === 'arrived')
   // One way of moving at a time: not while you're a passenger on a ride (taxi or private).
   const taxiRide = useMyRide(fb, uid)
   const privateRide = useMyPrivateRide(fb, uid)
   const inRide =
+    onTaxiTrip ||
     (!!taxiRide && (taxiRide.status === 'offering' || taxiRide.status === 'accepted')) ||
     (!!privateRide && (privateRide.status === 'offering' || privateRide.status === 'accepted' || privateRide.status === 'onboard'))
   const [price, setPriceState] = useState({ base: v.priceBase, perKm: v.pricePerKm })
@@ -102,6 +109,28 @@ function VehicleCard({ v, onEdit, onWithdraw, onShowOnMap }: { v: Vehicle; onEdi
               </p>
             )}
           </div>
+          {/* Also a center taxi: one at a time. Private hire on: on the map, taxi offers paused.
+              Off: working as the center taxi (offers come to the Driver tab). */}
+          {linked ? (
+            <div className="flex items-start gap-2 rounded-xl border border-slate-200 p-3 text-sm">
+              <CarTaxiFront className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+              <div>
+                <p className="font-bold">{t.vehAlsoTaxi(myTaxi?.taxiNo ?? '?')}</p>
+                <p className="text-slate-600">{isOn ? t.vehWorkingPrivate : t.vehWorkingTaxi}</p>
+              </div>
+            </div>
+          ) : v.taxiRequestAt ? (
+            <div className="flex items-center gap-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+              <span className="flex-1">{t.vehTaxiAsked}</span>
+              <button type="button" onClick={() => fb && void askToBeTaxi(fb, v, false)} className="min-h-9 rounded-lg px-2 font-semibold">
+                {t.cancel}
+              </button>
+            </div>
+          ) : (
+            <button type="button" onClick={() => fb && void askToBeTaxi(fb, v, true)} className="inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-300 text-sm font-semibold">
+              <CarTaxiFront className="size-4" aria-hidden="true" /> {t.vehAskTaxi}
+            </button>
+          )}
           {isOn && avail.error && <p className="text-xs font-semibold text-rose-700">{avail.error === 'location_denied' ? t.shareDenied : t.saveError(avail.error)}</p>}
           {(v.type === 'motorbike' || v.type === 'ebike') && (
             <div>
@@ -143,6 +172,11 @@ function VehicleCard({ v, onEdit, onWithdraw, onShowOnMap }: { v: Vehicle; onEdi
         </>
       )}
 
+      {v.status === 'approved' && (
+        <button type="button" onClick={onEdit} className="min-h-9 rounded-lg border border-slate-300 px-3 text-sm font-semibold">
+          {t.vehEdit}
+        </button>
+      )}
       {(v.status === 'pending' || v.status === 'rejected') && (
         <div className="flex gap-2">
           <button type="button" onClick={onEdit} className="min-h-9 rounded-lg border border-slate-300 px-3 text-sm font-semibold">
@@ -205,6 +239,7 @@ function VehicleForm({ me, existing, onDone }: { me: { uid: string; name: string
       </div>
       {field('note', `${t.callNote} (${t.optional})`, <input value={d.note} maxLength={120} onChange={(e) => setD({ ...d, note: e.target.value })} className={box} />)}
       <p className="text-xs text-slate-500">{t.vehPhonePrivate}</p>
+      {existing?.status === 'approved' && <p className={`rounded-lg p-2 text-sm ${needsRecheck(existing, d) ? 'bg-amber-50 font-semibold text-amber-900' : 'bg-slate-50 text-slate-600'}`}>{needsRecheck(existing, d) ? t.vehRecheck : t.vehEditFree}</p>}
       {error && <p className="text-sm font-semibold text-rose-700">{t.saveError(error)}</p>}
       <div className="flex gap-2">
         <button
@@ -213,7 +248,7 @@ function VehicleForm({ me, existing, onDone }: { me: { uid: string; name: string
           onClick={() => {
             if (!fb) return
             setBusy(true)
-            applyVehicle(fb, me, d, existing)
+            ;(existing?.status === 'approved' ? editApproved(fb, existing, d, me.email) : applyVehicle(fb, me, d, existing))
               .then(onDone)
               .catch((e: { code?: string }) => setError(e.code ?? 'error'))
               .finally(() => setBusy(false))

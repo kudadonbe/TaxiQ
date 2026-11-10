@@ -6,10 +6,10 @@ import { saveFares, useFareTable } from '../taxiFares'
 
 // Management -> Taxis (admins): the taxi fare. Passengers see each trip's total from it before
 // sending the trip; it's fixed once booked.
-export function TaxiFaresPanel() {
+export function TaxiFaresPanel({ center = 'main' }: { center?: string }) {
   const { fb, email } = useAuth()
   const { t } = useI18n()
-  const current = useFareTable(fb, true)
+  const current = useFareTable(fb, true, center)
   const [draft, setDraft] = useState<FareTable | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const f = draft ?? current ?? { base: 0, perKm: 0, minimum: 0 }
@@ -43,7 +43,7 @@ export function TaxiFaresPanel() {
         disabled={!fb || !draft || !validFares(f)}
         onClick={() =>
           fb &&
-          saveFares(fb, f, email ?? '')
+          saveFares(fb, f, email ?? '', center)
             .then(() => {
               setDraft(null)
               setMsg(t.fareSaved)

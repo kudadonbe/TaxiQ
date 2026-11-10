@@ -1,7 +1,7 @@
 {
   "name": "taxiq",
   "private": true,
-  "version": "2.4.0",
+  "version": "2.5.0",
   "type": "module",
   "packageManager": "pnpm@10.17.0",
   "scripts": {
@@ -11,6 +11,8 @@
     "test": "vitest run",
     "preview": "vite preview",
     "deploy": "pnpm build && firebase deploy --only hosting",
+    "rules": "firebase deploy --only firestore:rules,firestore:indexes --project kd-taxiq",
+    "release": "pnpm build && firebase deploy --only hosting,firestore:rules,firestore:indexes --project kd-taxiq",
     "test:rules": "firebase emulators:exec --only firestore --project kd-taxiq \"node scripts/rules/game-rules.check.mjs\""
   },
   "dependencies": {

@@ -7,6 +7,7 @@ import { bookOffer, cancelRide, finishRide, moveOn, problemRide, requestRide, ty
 import { taxiFare, CONFIRM_FINISH_MINUTES } from '../core/taxiFare'
 import { zoneFare } from '../core/zoneFares'
 import { useFareTable } from '../taxiFares'
+import { byDistance, useCenters } from '../centers'
 import { secondsLeft } from '../core/openTrip'
 import { announce } from '../announce'
 import { useMyRide, useNow } from '../useRides'
@@ -58,12 +59,33 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
   const { fb, uid, name, status, signIn } = useAuth()
   const { lang, t } = useI18n()
   const ride = useMyRide(fb, uid)
-  const fares = useFareTable(fb, status === 'signedIn')
   const now = useNow(ride?.status === 'offering' || ride?.status === 'interest' || ride?.status === 'confirmed')
   const [pickup, setPickup] = useState(() => (initialPickup ? (initialPickup.name || t.pinnedPlace).slice(0, 120) : ''))
   const [pickupAt, setPickupAt] = useState<[number, number] | undefined>(() => initialPickup?.at)
   const [destination, setDestination] = useState('')
   const [destinationAt, setDestinationAt] = useState<[number, number] | undefined>()
+  // Taxi centers: an open trip goes to the one the passenger picks (nearest to the pickup first,
+  // remembered on this device); a taxi tapped on the map, to its own center.
+  const centers = useCenters(fb, status === 'signedIn')
+  const [pickedCenter, setPickedCenterState] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('taxiq.hireCenter')
+    } catch {
+      return null
+    }
+  })
+  const setPickedCenter = (c: string) => {
+    setPickedCenterState(c)
+    try {
+      localStorage.setItem('taxiq.hireCenter', c)
+    } catch {
+      // Storage unavailable: the choice lasts until reload.
+    }
+  }
+  const nearest = byDistance(centers, pickupAt)
+  const chosenTaxiEarly = chosen ? taxis.find((x) => x.id === chosen) : undefined
+  const center = chosenTaxiEarly && !chosenTaxiEarly.suspended ? chosenTaxiEarly.centerId : pickedCenter && centers.some((c) => c.id === pickedCenter) ? pickedCenter : (nearest[0]?.id ?? 'main')
+  const fares = useFareTable(fb, status === 'signedIn', center)
   const [phone, setPhone] = useState('')
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
@@ -129,7 +151,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
     if (!fb || !uid || busy) return
     setBusy(true)
     setError(null)
-    requestRide(fb, uid, { name: name ?? '', pickup, pickupAt, destination, destinationAt, phone, note, taxiId, price, km, size })
+    requestRide(fb, uid, { name: name ?? '', pickup, pickupAt, destination, destinationAt, phone, note, taxiId, price, km, size, centerId: center })
       .catch((e: { code?: string }) => setError(e.code ?? 'error'))
       .finally(() => setBusy(false))
   }
@@ -142,7 +164,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
     setNote(ride.note)
     if (!fb || !uid) return
     setBusy(true)
-    requestRide(fb, uid, { name: name ?? '', pickup: ride.pickup, pickupAt: ride.pickupAt, destination: ride.destination, destinationAt: ride.destinationAt, phone: ride.phone, note: ride.note, taxiId, price: ride.price, km: ride.km, size: ride.size })
+    requestRide(fb, uid, { name: name ?? '', pickup: ride.pickup, pickupAt: ride.pickupAt, destination: ride.destination, destinationAt: ride.destinationAt, phone: ride.phone, note: ride.note, taxiId, price: ride.price, km: ride.km, size: ride.size, centerId: taxiId ? (byId.get(taxiId)?.centerId ?? ride.centerId) : ride.centerId })
       .catch((e: { code?: string }) => setError(e.code ?? 'error'))
       .finally(() => setBusy(false))
   }
@@ -390,6 +412,18 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
           {by === 'private' && !onOpenPrivate && <p className="text-xs font-semibold text-amber-800">{t.noPrivateNow}</p>}
           {by === 'private' && onOpenPrivate && !pickupAt && <p className="text-xs text-amber-800">{t.privNeedsPin}</p>}
         </div>
+      )}
+      {!demo && !privateOpen && !(chosenTaxi && !chosenTaxi.suspended) && centers.length > 1 && (
+        <label className="block">
+          <span className="text-sm font-medium text-slate-700">{t.centerForTrip}</span>
+          <select value={center} onChange={(e) => setPickedCenter(e.target.value)} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-2 text-base">
+            {nearest.map((c) => (
+              <option key={c.id} value={c.id}>
+                {lang === 'dv' && c.nameDv ? c.nameDv : c.name}
+              </option>
+            ))}
+          </select>
+        </label>
       )}
       {!demo && !privateOpen && !(chosenTaxi && !chosenTaxi.suspended) && (
         <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1" role="group" aria-label={t.seatsNeeded}>
