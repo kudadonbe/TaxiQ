@@ -237,6 +237,16 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
   - Voice clips in object storage instead of Firestore documents.
 - [ ] Ported
 
+## 24. Money account, Dhivehi corpus, staff fixes
+
+- **v2:** `d944ce4`:
+  - Money account (`src/core/account.ts`, `src/account.ts`, `accountEntries`): Paid and Earned per finished trip, written with the finish, checked against the trip; corrections by staff with a reason.
+  - Dhivehi corpus (`src/core/corpus.ts`, `src/corpus.ts`, `CorpusView`): roots, words, dialect forms, sentences, sources, enforced append-only history, JSON export.
+  - Staff cancel a stuck private booking, close a private problem; requests rule under the 1000-expression limit (`stepShape`).
+- **v3:**
+  - The server writes money entries (hash-chained ledger) and connects the payment gateway; the corpus becomes a shared service with public read and reviewed contributions.
+- [ ] Ported
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
