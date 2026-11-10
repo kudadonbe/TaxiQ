@@ -8,7 +8,7 @@ TaxiQ v2 is a visual model of the physical taxi queue at a call center. The oper
 
 `v2` is the **default branch**, a rewrite in React 19 + TypeScript + Vite + Tailwind CSS v4. Branch from and open PRs against `v2`. The `v1` branch (formerly `main`) holds the Angular 15 v1, so don't diff against `v1` expecting related code. There is no `main` branch.
 
-**v3 is in progress on the `v3` branch.** When you add a feature to v2, also add it to `plans/v2-features-to-port.md` on `v3` (with the commit), so it isn't lost when v3 replaces v2.
+**v3 is in progress on the `v3` branch.** When you add a feature to v2, also add **one line** to `plans/v2-features-to-port.md` on `v3`: the feature name, the commit, and only a short note if v3 must know something (e.g. a Firestore rule that should become a server check). No detailed write-ups; the code and git history are the spec. This keeps the feature from being lost when v3 replaces v2.
 
 **Direction:** TaxiQ will have two sides, **public service (taxi)** and **private hire** (people and companies offering their own vehicles), in both the app and the game; v3 grows to hiring **any land vehicle**. See `plans/product-direction.md`.
 
