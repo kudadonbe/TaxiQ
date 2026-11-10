@@ -147,7 +147,7 @@ const seed2 = await fetch(`${BASE}:commit`, { method: 'POST', headers: { Authori
   write('roles/f@test.example', { role: 'private' }),
   write('queue/state', { order: ['t1', 't2'], interested: [] }),
   write('taxis/t1', { taxiNo: '34', taxiReg: 'A1', driver: { name: 'D', nameDv: '', phone: '7770004' } }),
-  write('taxis/t2', { taxiNo: '35', taxiReg: 'A2', driver: { name: 'E' } }),
+  write('taxis/t2', { taxiNo: '35', taxiReg: 'A2', driver: { name: 'E', nameDv: '', phone: '7770006' } }),
   write('roles/drv@test.example', { role: 'driver', taxiId: 't1' }),
 ] }) })
 if (!seed2.ok) { fails++; console.log('FAIL  could not set up the open-trip checks') }
@@ -203,5 +203,95 @@ await expect('an operator cannot', 'op', [write('voiceClips/tripNew-dv', clip({ 
 await expect('only the known messages', 'adm', [write('voiceClips/anything-dv', clip())], false)
 await expect('only audio', 'adm', [write('voiceClips/tripNew-en', clip({ mime: 'text/html' }))], false)
 await canRead('a driver can play it', 'drv', 'voiceClips/tripNew-dv', true)
+// One vehicle as private hire and a center taxi (P6017 and T6017); both roles for one person.
+const vehG = { ownerUid: 'g', ownerName: 'G', kind: 'private', type: 'car', reg: 'P6017', colour: 'white', seats: 4, priceBase: 25, pricePerKm: 5, phone: '7770005', note: '', status: 'approved', reason: '', decidedBy: 'op@test.example', decidedAt: new Date(), createdAt: new Date(), updatedAt: new Date() }
+await fetch(`${BASE}:commit`, { method: 'POST', headers: { Authorization: 'Bearer owner', 'Content-Type': 'application/json' }, body: JSON.stringify({ writes: [
+  write('vehicles/v7', vehG),
+  write('vehicles/v6', { ...vehG, ownerUid: 'h', reg: 'P6018' }),
+  write('roles/h@test.example', { role: 'driver', taxiId: 't1' }),
+] }) })
+await expect('an admin gives a center driver private hire too', 'adm', [write('roles/g@test.example', { role: 'driver', taxiId: 't2', private: true, addedBy: 'adm@test.example', addedAt: NOW })], true)
+await expect('the private flag must be yes or no', 'adm', [write('roles/g2@test.example', { role: 'driver', taxiId: 't2', private: 'yes', addedBy: 'adm@test.example', addedAt: NOW })], false)
+const onMap = (owner) => ({ ownerUid: owner, type: 'car', colour: 'white', seats: 4, firstName: 'G', priceBase: 25, pricePerKm: 5, at: [4.17, 73.5], heading: 0, since: NOW, updatedAt: NOW })
+await expect('a driver with private hire puts their vehicle on the map', 'g', [write('publicVehicles/v7', onMap('g'))], true)
+await expect('a driver without private hire cannot', 'h', [write('publicVehicles/v6', onMap('h'))], false)
+// (the server time inside a field of a map, as the app's serverTimestamp() does)
+const ask = write('vehicles/v7', { updatedAt: NOW }, { merge: true })
+ask.updateMask = { fieldPaths: ['taxiRequest'] }
+ask.updateTransforms.push({ fieldPath: 'taxiRequest.at', setToServerValue: 'REQUEST_TIME' })
+await expect('the owner asks to run the vehicle as a center taxi too', 'g', [ask], true)
+await expect('the owner cannot link it themselves', 'g', [write('vehicles/v7', { taxiId: 't2', taxiRequest: null, updatedAt: NOW }, { merge: true })], false)
+await expect('an admin links it as taxi t2', 'adm', [write('vehicles/v7', { taxiId: 't2', taxiRequest: null, updatedAt: NOW }, { merge: true }), write('taxis/t2', { vehicleId: 'v7' }, { merge: true })], true)
+await expect('the owner changes the colour straight away', 'g', [write('vehicles/v7', { colour: 'silver', updatedAt: NOW }, { merge: true })], true)
+await expect('a new registration cannot stay approved', 'g', [write('vehicles/v7', { reg: 'P6020', updatedAt: NOW }, { merge: true })], false)
+await expect('the owner cannot drop the taxi link', 'g', [write('vehicles/v7', { taxiId: null, updatedAt: NOW }, { merge: true })], false)
+// One at a time: while v7 is out on private hire, its taxi t2 can't take queue offers.
+await expect('a passenger sends an open trip to taxi t2', 'z', [write('requests/z', req({ uid: 'z', offerTo: 't2' }))], true)
+await expect('the driver cannot offer while the vehicle is on private hire', 'g', [write('requests/z', { status: 'interest', offerAt: NOW }, { merge: true })], false)
+await expect('the driver switches private hire off', 'g', [{ delete: `projects/${P}/databases/(default)/documents/publicVehicles/v7` }], true)
+await expect('now the driver can offer as the taxi', 'g', [write('requests/z', { status: 'interest', offerAt: NOW }, { merge: true })], true)
+await expect('a new registration sends it back to Pending', 'g', [write('vehicles/v7', { reg: 'P6020', status: 'pending', reason: '', updatedAt: NOW }, { merge: true })], true)
+// Multiple taxi centers: each center's staff see and change only their center.
+async function canQuery(name, uid, collection, centerId, ok) {
+  const r = await fetch(`${BASE}:runQuery`, { method: 'POST', headers: { Authorization: `Bearer ${tok(uid)}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ structuredQuery: { from: [{ collectionId: collection }], where: { fieldFilter: { field: { fieldPath: 'centerId' }, op: 'EQUAL', value: { stringValue: centerId } } } } }) })
+  const pass = r.ok === ok
+  if (!pass) fails++
+  console.log(`${pass ? 'PASS' : 'FAIL'}  ${ok ? 'allowed' : 'denied '}  ${name}`)
+}
+await fetch(`${BASE}:commit`, { method: 'POST', headers: { Authorization: 'Bearer owner', 'Content-Type': 'application/json' }, body: JSON.stringify({ writes: [
+  write('centers/c2', { name: 'Male Taxi', nameDv: '', at: [4.175, 73.51], updatedBy: 'x', updatedAt: new Date() }),
+  write('roles/ca@test.example', { role: 'admin', centerId: 'c2' }),
+  write('roles/co@test.example', { role: 'operator', centerId: 'c2' }),
+  write('roles/mo@test.example', { role: 'operator' }),
+  write('queues/c2', { order: ['m1'], interested: [] }),
+  write('taxis/m1', { taxiNo: '7', taxiReg: 'M1', driver: { name: 'M', nameDv: '', phone: '7770007' }, centerId: 'c2' }),
+] }) })
+const mTaxi = (c) => ({ taxiNo: '8', taxiReg: 'M2', driver: { name: 'N', nameDv: '', phone: '7770008' }, centerId: c })
+await expect("a center admin registers a taxi in their center", 'ca', [write('taxis/m2', mTaxi('c2'))], true)
+await expect("but not in another center", 'ca', [write('taxis/m3', mTaxi('main'))], false)
+await canQuery("a center's operator lists their center's taxis", 'co', 'taxis', 'c2', true)
+await canQuery("but not another center's", 'co', 'taxis', 'main', false)
+await canQuery('a platform admin lists any center', 'adm', 'taxis', 'c2', true)
+await expect("the first center's operator works its queue", 'mo', [write('queue/state', { order: ['t1', 't2'], interested: [] })], true)
+await expect("another center's operator cannot", 'co', [write('queue/state', { order: ['t2', 't1'], interested: [] })], false)
+await expect('they work their own queue', 'co', [write('queues/c2', { order: ['m1', 'm2'], interested: [] })], true)
+await expect('a center admin makes an operator for their center', 'ca', [write('roles/new@test.example', { role: 'operator', centerId: 'c2', addedBy: 'ca@test.example', addedAt: NOW })], true)
+await expect('but not for another center', 'ca', [write('roles/new2@test.example', { role: 'operator', centerId: 'main', addedBy: 'ca@test.example', addedAt: NOW })], false)
+await expect('nor a platform admin', 'ca', [write('roles/new3@test.example', { role: 'admin', addedBy: 'ca@test.example', addedAt: NOW })], false)
+await expect("nor change a platform admin's entry", 'ca', [write('roles/adm@test.example', { role: 'operator', centerId: 'c2', addedBy: 'ca@test.example', addedAt: NOW })], false)
+await expect("a center admin sets their center's fare", 'ca', [write('fares/c2', { base: 30, perKm: 0, minimum: 30, updatedBy: 'ca@test.example', updatedAt: NOW })], true)
+await expect("not the first center's fare", 'ca', [write('config/fares', { base: 1, perKm: 0, minimum: 0, updatedBy: 'ca@test.example', updatedAt: NOW })], false)
+await expect('a center admin cannot create a center', 'ca', [write('centers/c9', { name: 'Mine', nameDv: '', at: null, updatedBy: 'ca@test.example', updatedAt: NOW })], false)
+await expect('a platform admin creates a center', 'adm', [write('centers/c3', { name: 'Hulhumale Taxi', nameDv: '', at: [4.21, 73.54], updatedBy: 'adm@test.example', updatedAt: NOW })], true)
+await expect('an open trip goes to the top of the chosen center\'s queue', 'w', [write('requests/w', req({ uid: 'w', offerTo: 'm1', centerId: 'c2' }))], true)
+await expect("not to a taxi outside that center's queue", 'w', [write('requests/w', req({ uid: 'w', offerTo: 't1', centerId: 'c2' }))], false)
+await canQuery("the center's operator sees its requests", 'co', 'requests', 'c2', true)
+await canQuery("another center's operator does not", 'mo', 'requests', 'c2', false)
+await expect('a center admin cannot change the voice clips (platform only)', 'ca', [write('voiceClips/tripNew-en', clip({ by: 'ca@test.example' }))], false)
+// Activity log: append-only, the person and staff read it.
+const act = (o = {}) => ({ uid: 'c', kind: 'bookingSent', detail: 'taxi', by: 'c@test.example', at: NOW, expireAt: new Date(Date.now() + 90 * 86_400_000), ...o })
+await expect('a person logs their own event', 'c', [write('activity/a1', act())], true)
+await expect('nobody logs an event for someone else', 'd', [write('activity/a2', act({ by: 'd@test.example' }))], false)
+await expect('staff log an event for the person they acted on', 'op', [write('activity/a3', act({ kind: 'rideFixed', by: 'op@test.example' }))], true)
+await expect('only the listed kinds', 'c', [write('activity/a4', act({ kind: 'anything' }))], false)
+await expect('a log entry cannot be kept longer than 91 days', 'c', [write('activity/a5', act({ expireAt: new Date(Date.now() + 200 * 86_400_000) }))], false)
+await expect('the by field must be the writer', 'c', [write('activity/a6', act({ by: 'x@test.example' }))], false)
+await expect('nobody changes a log entry', 'c', [write('activity/a1', { detail: 'x' }, { merge: true })], false)
+const del = async (name, uid, path) => {
+  const r = await fetch(`${BASE}:commit`, { method: 'POST', headers: { Authorization: `Bearer ${tok(uid)}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ writes: [{ delete: `projects/${P}/databases/(default)/documents/${path}` }] }) })
+  const pass = !r.ok
+  if (!pass) fails++
+  console.log(`${pass ? 'PASS' : 'FAIL'}  denied   ${name}`)
+}
+await del('nobody deletes a log entry, not even staff', 'adm', 'activity/a1')
+await canRead('another citizen cannot read it', 'd', 'activity/a1', false)
+await canRead('the person reads their own log', 'c', 'activity/a1', true)
+await canRead('staff read it', 'op', 'activity/a1', true)
+// Staff cancel a stuck private booking
+const seed3 = await fetch(`${BASE}:commit`, { method: 'POST', headers: { Authorization: 'Bearer owner', 'Content-Type': 'application/json' }, body: JSON.stringify({ writes: [write('privateRides/s1', { ...ride({ uid: 's1', status: 'onboard' }), createdAt: new Date(), updatedAt: new Date() })] }) })
+if (!seed3.ok) { fails++; console.log('FAIL  could not set up the staff-cancel check') }
+await expect('a citizen cannot cancel a booking that is not theirs', 'c', [write('privateRides/s1', { status: 'cancelled', updatedAt: NOW }, { merge: true })], false)
+await expect('staff cannot change anything else while cancelling', 'op', [write('privateRides/s1', { status: 'cancelled', price: 0, updatedAt: NOW }, { merge: true })], false)
+await expect('staff cancel a stuck private booking', 'op', [write('privateRides/s1', { status: 'cancelled', updatedAt: NOW }, { merge: true })], true)
 console.log(fails ? `\n${fails} FAILED` : '\nAll rules checks passed')
 process.exit(fails ? 1 : 0)

@@ -43,11 +43,34 @@ service cloud.firestore {
     function myTaxi() {
       return role() in ['driver', 'dev'] ? get(roleDoc()).data.get('taxiId', '') : '';
     }
+    // May offer private hire: the Private driver role, a developer, or a center driver also allowed it.
+    function canPrivate() {
+      return role() in ['private', 'dev'] || (role() == 'driver' && get(roleDoc()).data.get('private', false) == true);
+    }
     function str(v, max) {
       return v is string && v.size() <= max;
     }
-    function queueOrder() {
-      return get(/databases/$(database)/documents/queue/state).data.order;
+    // ---- Taxi centers. Each has its own queue, taxis, dispatch log, fare table and staff. The first
+    // center is 'main' (everything from before centers; records without a centerId belong to it):
+    // its queue is queue/state, the others' queues/{center}. Platform admins (an admin entry with no
+    // centerId, or a developer) manage every center; a center admin or operator only their own.
+    function myCenter() {
+      return signedIn() && exists(roleDoc()) ? get(roleDoc()).data.get('centerId', 'main') : '';
+    }
+    function isPlatform() {
+      return role() == 'dev' || (role() == 'admin' && !('centerId' in get(roleDoc()).data));
+    }
+    function staffOf(c) {
+      return isPlatform() || (role() in ['admin', 'operator'] && myCenter() == c);
+    }
+    function adminOf(c) {
+      return isPlatform() || (role() == 'admin' && myCenter() == c);
+    }
+    function queueOf(c) {
+      return c == 'main' ? /databases/$(database)/documents/queue/state : /databases/$(database)/documents/queues/$(c);
+    }
+    function queueOrder(c) {
+      return get(queueOf(c)).data.order;
     }
 
     match /roles/{userEmail} {
@@ -57,14 +80,30 @@ service cloud.firestore {
           || (request.resource != null && request.resource.data.role == 'dev');
       }
       allow read: if signedIn() && (userEmail == email() || isAdmin());
+      // A center admin gives and changes roles only within their own center (and the Private
+      // driver role, which has no center), and never touches a platform admin.
+      function platformEntry(d) {
+        return d.role == 'dev' || (d.role == 'admin' && !('centerId' in d));
+      }
+      function centerAdminMay() {
+        return role() == 'admin'
+          && (request.resource == null
+            || (request.resource.data.role in ['admin', 'operator', 'driver'] && request.resource.data.get('centerId', '') == myCenter())
+            || (request.resource.data.role == 'private' && !('centerId' in request.resource.data)))
+          && (resource == null || (!platformEntry(resource.data)
+            && (resource.data.role == 'private' || resource.data.get('centerId', 'main') == myCenter())));
+      }
       allow create, update: if isAdmin()
         && (!touchesDev() || role() == 'dev')
-        && request.resource.data.keys().hasOnly(['role', 'taxiId', 'addedBy', 'addedAt'])
+        && (isPlatform() || centerAdminMay())
+        && request.resource.data.keys().hasOnly(['role', 'taxiId', 'private', 'centerId', 'addedBy', 'addedAt'])
+        && (!('centerId' in request.resource.data) || str(request.resource.data.centerId, 40))
+        && request.resource.data.get('private', false) is bool
         && request.resource.data.role in ['admin', 'operator', 'driver', 'private', 'dev']
         && (request.resource.data.role != 'driver' || str(request.resource.data.taxiId, 40))
         && userEmail == userEmail.lower();
       // Nobody removes their own entry (avoids locking everyone out).
-      allow delete: if isAdmin() && userEmail != email() && (!touchesDev() || role() == 'dev');
+      allow delete: if isAdmin() && userEmail != email() && (!touchesDev() || role() == 'dev') && (isPlatform() || centerAdminMay());
     }
 
     // Everyone who has signed in: written by the person themselves on sign-in; readable by admins
@@ -119,9 +158,13 @@ service cloud.firestore {
 
     // Full taxi records, including driver phone numbers: staff, and each driver for their own taxi.
     match /taxis/{taxiId} {
-      allow read: if isStaff() || (isDriver() && taxiId == myTaxi());
-      allow create, update: if isAdmin()
-        && request.resource.data.keys().hasOnly(['taxiNo', 'taxiReg', 'driver', 'suspended', 'seats'])
+      // Its center's staff (platform admins: every center); a driver, their own taxi.
+      allow read: if isPlatform() || staffOf(resource.data.centerId) || (isDriver() && taxiId == myTaxi());
+      allow create, update: if adminOf(request.resource.data.get('centerId', 'main'))
+        && (resource == null || adminOf(resource.data.get('centerId', 'main')))
+        && request.resource.data.keys().hasOnly(['taxiNo', 'taxiReg', 'driver', 'suspended', 'seats', 'vehicleId', 'centerId'])
+        && (!('centerId' in request.resource.data) || str(request.resource.data.centerId, 40))
+        && (!('vehicleId' in request.resource.data) || str(request.resource.data.vehicleId, 40))
         && (!('seats' in request.resource.data) || (request.resource.data.seats is int && request.resource.data.seats >= 1 && request.resource.data.seats <= 15))
         && str(request.resource.data.taxiNo, 4)
         && str(request.resource.data.taxiReg, 7)
@@ -129,7 +172,7 @@ service cloud.firestore {
         && str(request.resource.data.driver.name, 60)
         && str(request.resource.data.driver.nameDv, 60)
         && str(request.resource.data.driver.phone, 7);
-      allow delete: if isAdmin();
+      allow delete: if adminOf(resource.data.get('centerId', 'main'));
     }
 
     // What the public map shows: no phone numbers. Kept in step with taxis by the admin screens.
@@ -151,7 +194,7 @@ service cloud.firestore {
     }
     function vehicleKeys() {
       return ['ownerUid', 'ownerName', 'kind', 'type', 'reg', 'colour', 'seats', 'priceBase', 'pricePerKm', 'phone', 'note', 'rider',
-        'status', 'reason', 'decidedBy', 'decidedAt', 'createdAt', 'updatedAt'];
+        'status', 'reason', 'decidedBy', 'decidedAt', 'createdAt', 'updatedAt', 'taxiId', 'taxiRequest'];
     }
     match /vehicles/{vehicleId} {
       allow read: if isStaff() || (signedIn() && resource.data.ownerUid == request.auth.uid);
@@ -172,10 +215,26 @@ service cloud.firestore {
           && request.resource.data.decidedBy == resource.data.decidedBy
           && request.resource.data.decidedAt == resource.data.decidedAt
           && request.resource.data.updatedAt == request.time
+          && request.resource.data.get('taxiId', null) == resource.data.get('taxiId', null)
           && vehicleDetails(request.resource.data)
           && ((resource.data.status in ['pending', 'rejected'] && request.resource.data.status == 'pending' && request.resource.data.reason == '')
+            // Approved: price, rider, colour, phone and note change straight away; anything else
+            // (registration, type, seats) sends it back to Pending for an operator to check.
             || (resource.data.status == 'approved'
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['priceBase', 'pricePerKm', 'rider', 'updatedAt']))))
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['priceBase', 'pricePerKm', 'rider', 'colour', 'phone', 'note', 'updatedAt']))
+            || (resource.data.status == 'approved' && request.resource.data.status == 'pending' && request.resource.data.reason == ''
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['type', 'reg', 'seats', 'colour', 'phone', 'note', 'priceBase', 'pricePerKm', 'rider', 'status', 'reason', 'updatedAt']))
+            // Approved: ask to run it as a center taxi too (or take the request back).
+            || (resource.data.status == 'approved' && resource.data.get('taxiId', null) == null
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['taxiRequest', 'updatedAt'])
+              && (request.resource.data.taxiRequest == null
+                || (request.resource.data.taxiRequest.keys().hasOnly(['at']) && request.resource.data.taxiRequest.at == request.time)))))
+        // An admin links it to the center as a taxi (or answers no to the request).
+        || (isAdmin()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['taxiId', 'taxiRequest', 'updatedAt'])
+          && request.resource.data.get('taxiRequest', null) == null
+          && (request.resource.data.get('taxiId', null) == null || str(request.resource.data.taxiId, 40))
+          && request.resource.data.updatedAt == request.time)
         // Any operator decides: approve, reject or suspend, with a reason; nothing else changes.
         || (isStaff()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reason', 'decidedBy', 'decidedAt', 'updatedAt'])
@@ -192,7 +251,7 @@ service cloud.firestore {
       allow read: if isStaff() || (signedIn() && resource.data.ownerUid == request.auth.uid);
       allow create: if signedIn()
         && request.resource.data.keys().hasOnly(['vehicleId', 'ownerUid', 'action', 'by', 'reason', 'at'])
-        && request.resource.data.action in ['applied', 'edited', 'approved', 'rejected', 'suspended', 'withdrawn']
+        && request.resource.data.action in ['applied', 'edited', 'approved', 'rejected', 'suspended', 'withdrawn', 'linked']
         && str(request.resource.data.reason, 120)
         && request.resource.data.at == request.time
         && request.resource.data.by == email()
@@ -252,6 +311,12 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
           && resource.data.status in ['offering', 'interest', 'confirmed', 'accepted'] && request.resource.data.status == 'cancelled'
           && request.resource.data.updatedAt == request.time)
+        // Staff cancel a stuck booking at any step before it's finished.
+        || (resource != null && request.resource.data.status == 'cancelled'
+          && resource.data.status in ['offering', 'interest', 'confirmed', 'accepted', 'onboard', 'arrived']
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+          && request.resource.data.updatedAt == request.time
+          && isStaff())
         // At the destination: the passenger confirms it finished, or reports a problem. With no
         // answer in 10 minutes, the passenger or the owner marks it done. Staff close a problem.
         || (resource != null && resource.data.status == 'arrived'
@@ -291,13 +356,13 @@ service cloud.firestore {
           // A vehicle picked on the map: accept from offering. An open trip: only once booked.
           && ((((resource.data.get('mode', 'direct') == 'direct' && resource.data.status == 'offering')
                   || (resource.data.get('mode', 'direct') == 'queue' && resource.data.status == 'confirmed'))
-                && request.resource.data.status == 'accepted' && role() in ['private', 'dev']
+                && request.resource.data.status == 'accepted' && canPrivate()
                 && request.resource.data.get('offerAt', null) == resource.data.get('offerAt', null)
                 && str(request.resource.data.ownerFirstName, 40)
                 && request.resource.data.ownerPhone is string && request.resource.data.ownerPhone.matches('^[0-9]{7}$'))
             // An open trip: the owner offers to take it.
             || (resource.data.get('mode', 'direct') == 'queue' && resource.data.status == 'offering' && request.resource.data.status == 'interest'
-                && role() in ['private', 'dev'] && request.resource.data.offerAt == request.time
+                && canPrivate() && request.resource.data.offerAt == request.time
                 && request.resource.data.ownerFirstName == '' && request.resource.data.ownerPhone == '')
             || (resource.data.get('mode', 'direct') == 'direct' && resource.data.status == 'offering' && request.resource.data.status == 'declined')
             || (resource.data.status == 'accepted' && request.resource.data.status == 'onboard')
@@ -319,7 +384,7 @@ service cloud.firestore {
         && request.resource.data.get('level', 'active') in ['active', 'rest', 'nap', 'sleep']
         && request.resource.data.ownerUid == request.auth.uid
         // Two checks: the person has the Private driver role, and the vehicle is approved.
-        && role() in ['private', 'dev']
+        && canPrivate()
         && request.resource.data.type in ['car', 'van', 'pickup', 'motorbike', 'ebike']
         && str(request.resource.data.firstName, 40)
         && request.resource.data.at is list && request.resource.data.at.size() == 2
@@ -330,40 +395,51 @@ service cloud.firestore {
 
     match /publicTaxis/{taxiId} {
       allow read: if true;
-      allow create, update: if isAdmin()
-        && request.resource.data.keys().hasOnly(['taxiNo', 'name', 'nameDv', 'suspended', 'seats'])
+      allow create, update: if adminOf(request.resource.data.get('centerId', 'main'))
+        && (resource == null || adminOf(resource.data.get('centerId', 'main')))
+        && request.resource.data.keys().hasOnly(['taxiNo', 'name', 'nameDv', 'suspended', 'seats', 'vehicleId', 'centerId'])
+        && (!('centerId' in request.resource.data) || str(request.resource.data.centerId, 40))
+        && (request.resource.data.get('vehicleId', null) == null || str(request.resource.data.vehicleId, 40))
         && (!('seats' in request.resource.data) || (request.resource.data.seats is int && request.resource.data.seats >= 1 && request.resource.data.seats <= 15))
         && str(request.resource.data.taxiNo, 4)
         && str(request.resource.data.name, 60)
         && str(request.resource.data.nameDv, 60)
         && request.resource.data.suspended is bool;
-      allow delete: if isAdmin();
+      allow delete: if adminOf(resource.data.get('centerId', 'main'));
     }
 
-    match /queue/state {
-      // The order is a list of taxi ids (not personal data); passengers and drivers need it for offers.
-      allow read: if signedIn();
-      allow create, update: if isStaff()
-        && request.resource.data.keys().hasOnly(['order', 'interested', 'updatedAt', 'updatedBy'])
+    // A center's queue: the order is a list of taxi ids (not personal data); passengers and drivers
+    // need it for offers. Its staff change it; a driver who accepted a ride moves their own taxi to
+    // the back, and nothing else.
+    function queueWrite(c) {
+      return request.resource.data.keys().hasOnly(['order', 'interested', 'updatedAt', 'updatedBy'])
         && request.resource.data.order is list && request.resource.data.order.size() <= 500
-        && request.resource.data.interested is list && request.resource.data.interested.size() <= 500;
-      // A driver who accepted a ride moves their own taxi to the back, and nothing else.
-      allow update: if isDriver()
-        && request.resource.data.keys().hasOnly(['order', 'interested', 'updatedAt', 'updatedBy'])
-        && request.resource.data.order == resource.data.order.removeAll([myTaxi()]).concat([myTaxi()])
-        && request.resource.data.interested == resource.data.interested.removeAll([myTaxi()]);
+        && request.resource.data.interested is list && request.resource.data.interested.size() <= 500
+        && (staffOf(c)
+          || (resource != null && isDriver() && myCenter() == c
+            && request.resource.data.order == resource.data.order.removeAll([myTaxi()]).concat([myTaxi()])
+            && request.resource.data.interested == resource.data.interested.removeAll([myTaxi()])));
+    }
+    match /queue/state {
+      allow read: if signedIn();
+      allow create, update: if queueWrite('main');
+    }
+    match /queues/{centerId} {
+      allow read: if signedIn();
+      allow create, update: if exists(/databases/$(database)/documents/centers/$(centerId)) && queueWrite(centerId);
     }
 
     match /dispatches/{dispatchId} {
-      allow read: if isStaff();
-      allow create: if (isStaff() || (isDriver() && request.resource.data.taxi.id == myTaxi()))
-        && request.resource.data.keys().hasOnly(['taxi', 'at', 'from', 'interested', 'call', 'reopened', 'undone', 'by', 'requestId'])
+      allow read: if isPlatform() || staffOf(resource.data.centerId);
+      allow create: if (staffOf(request.resource.data.get('centerId', 'main')) || (isDriver() && request.resource.data.taxi.id == myTaxi()))
+        && request.resource.data.keys().hasOnly(['taxi', 'at', 'from', 'interested', 'call', 'reopened', 'undone', 'by', 'requestId', 'centerId'])
         && request.resource.data.at is int
         && request.resource.data.from is int
         && request.resource.data.reopened == false
         && request.resource.data.undone == false;
-      allow update: if isStaff()
-        && request.resource.data.keys().hasOnly(['taxi', 'at', 'from', 'interested', 'call', 'reopened', 'undone', 'by', 'requestId'])
+      allow update: if staffOf(resource.data.get('centerId', 'main'))
+        && request.resource.data.get('centerId', 'main') == resource.data.get('centerId', 'main')
+        && request.resource.data.keys().hasOnly(['taxi', 'at', 'from', 'interested', 'call', 'reopened', 'undone', 'by', 'requestId', 'centerId'])
         && request.resource.data.at is int
         && request.resource.data.from is int;
     }
@@ -378,7 +454,8 @@ service cloud.firestore {
       }
       function validShape() {
         return next().keys().hasOnly(['uid', 'name', 'mode', 'pickup', 'pickupAt', 'destination', 'destinationAt', 'phone', 'note',
-            'status', 'offerTo', 'offerAt', 'skipped', 'acceptedBy', 'price', 'km', 'arrivedAt', 'size', 'createdAt'])
+            'status', 'offerTo', 'offerAt', 'skipped', 'acceptedBy', 'price', 'km', 'arrivedAt', 'size', 'centerId', 'createdAt'])
+          && (!('centerId' in next()) || str(next().centerId, 40))
           && next().get('size', 'small') in ['small', 'large']
           && next().uid == uid
           && str(next().name, 80)
@@ -405,7 +482,7 @@ service cloud.firestore {
           && next().createdAt == request.time
           && next().skipped.size() == 0
           && next().acceptedBy == null
-          && (next().status == 'expired' || (next().offerTo in queueOrder() && (next().mode == 'direct' || fitsSize())));
+          && (next().status == 'expired' || (next().offerTo in queueOrder(center()) && (next().mode == 'direct' || fitsSize())));
       }
       function sameTrip() {
         return next().uid == prev().uid && next().name == prev().name && next().mode == prev().mode
@@ -415,7 +492,15 @@ service cloud.firestore {
           && next().get('pickupAt', null) == prev().get('pickupAt', null)
           // The total price is fixed from the start.
           && next().get('price', null) == prev().get('price', null) && next().get('km', null) == prev().get('km', null)
-          && next().get('size', 'small') == prev().get('size', 'small');
+          && next().get('size', 'small') == prev().get('size', 'small')
+          && next().get('centerId', 'main') == prev().get('centerId', 'main');
+      }
+      // The request's taxi center (its queue and staff).
+      function center() {
+        return next().get('centerId', 'main');
+      }
+      function centerStaff() {
+        return staffOf(prev().get('centerId', 'main'));
       }
       // A 7-10 seat trip is offered only to a 7-10 seat taxi.
       function fitsSize() {
@@ -426,6 +511,12 @@ service cloud.firestore {
       function sameBooking() {
         return next().acceptedBy == prev().acceptedBy && next().offerTo == prev().offerTo
           && next().skipped == prev().skipped && next().offerAt == prev().offerAt && sameTrip();
+      }
+      // A taxi that may take a trip: not suspended, and (one at a time) its vehicle not out on
+      // private hire. Reads the taxi once (rules stop at 1000 expressions).
+      function freeTaxi(id) {
+        let t = get(/databases/$(database)/documents/taxis/$(id)).data;
+        return !('suspended' in t) && !exists(/databases/$(database)/documents/publicVehicles/$(t.get('vehicleId', '-')));
       }
       function myRide() {
         return isDriver() && prev().acceptedBy == myTaxi();
@@ -452,11 +543,11 @@ service cloud.firestore {
           && (
             (next().status == 'expired' && next().offerTo == null)
             || (prev().mode == 'queue' && next().status == 'offering'
-                && next().offerTo in queueOrder() && !(next().offerTo in next().skipped) && fitsSize())
+                && next().offerTo in queueOrder(center()) && !(next().offerTo in next().skipped) && fitsSize())
           );
       }
 
-      allow read: if signedIn() && (uid == request.auth.uid || isStaff()
+      allow read: if signedIn() && (uid == request.auth.uid || isPlatform() || staffOf(resource.data.get('centerId', 'main'))
         || (isDriver() && (resource.data.offerTo == myTaxi() || resource.data.acceptedBy == myTaxi())));
 
       allow create: if signedIn() && uid == request.auth.uid && validShape() && isFresh();
@@ -468,7 +559,7 @@ service cloud.firestore {
         (next().createdAt == request.time && uid == request.auth.uid && isFresh())
         // The passenger (before pickup) or staff: cancel.
         || (next().status == 'cancelled' && sameTrip()
-            && (isStaff() || (uid == request.auth.uid && prev().status in ['offering', 'interest', 'confirmed', 'accepted', 'expired'])))
+            && (centerStaff() || (uid == request.auth.uid && prev().status in ['offering', 'interest', 'confirmed', 'accepted', 'expired'])))
         // The trip. The driver: picked up, then arrived at the destination.
         || (next().status == 'onboard' && prev().status == 'accepted' && myRide()
             && next().get('arrivedAt', null) == prev().get('arrivedAt', null) && sameBooking())
@@ -478,21 +569,21 @@ service cloud.firestore {
         // marks it done. Staff close a problem.
         || (next().status in ['done', 'problem'] && prev().status == 'arrived'
             && (uid == request.auth.uid
-              || (next().status == 'done' && (myRide() || isStaff()) && request.time > prev().arrivedAt + duration.value(10, 'm')))
+              || (next().status == 'done' && (myRide() || centerStaff()) && request.time > prev().arrivedAt + duration.value(10, 'm')))
             && next().arrivedAt == prev().arrivedAt && sameBooking())
-        || (next().status == 'done' && prev().status == 'problem' && isStaff()
+        || (next().status == 'done' && prev().status == 'problem' && centerStaff()
             && next().get('arrivedAt', null) == prev().get('arrivedAt', null) && sameBooking())
         // On to the next taxi (or expired): once the step has waited its time (anyone involved);
         // the offered driver passing; or the passenger saying no thanks to a taxi that offered.
         || (next().skipped.size() == prev().skipped.size() + 1
-            && ((waited() && (uid == request.auth.uid || isStaff() || isDriver()))
+            && ((waited() && (uid == request.auth.uid || centerStaff() || isDriver()))
               || (prev().status == 'offering' && isDriver() && prev().offerTo == myTaxi())
               || (prev().status == 'interest' && uid == request.auth.uid))
             && movesOn())
         // Open trip: the offered driver offers to take it (taxi must not be suspended).
         || (next().status == 'interest' && prev().status == 'offering' && prev().mode == 'queue'
             && isDriver() && prev().offerTo == myTaxi()
-            && !('suspended' in get(/databases/$(database)/documents/taxis/$(myTaxi())).data)
+            && freeTaxi(prev().offerTo)
             && sameOffer())
         // Open trip: the passenger books the taxi that offered.
         || (next().status == 'confirmed' && prev().status == 'interest' && uid == request.auth.uid && sameOffer())
@@ -500,18 +591,46 @@ service cloud.firestore {
         // completes it; staff may complete a booked one for them.
         || (next().status == 'accepted'
             && (prev().status == 'confirmed' || (prev().status == 'offering' && prev().mode == 'direct'))
-            && ((isDriver() && prev().offerTo == myTaxi()) || (isStaff() && prev().status == 'confirmed'))
+            && ((isDriver() && prev().offerTo == myTaxi()) || (centerStaff() && prev().status == 'confirmed'))
             && next().acceptedBy == prev().offerTo && next().offerTo == prev().offerTo
             && next().skipped == prev().skipped && next().offerAt == prev().offerAt
-            && !('suspended' in get(/databases/$(database)/documents/taxis/$(prev().offerTo)).data)
+            && freeTaxi(prev().offerTo)
             && sameTrip())
       );
     }
 
     // The taxi fare table: admins set it; everyone signed in reads it (the total before sending a trip).
+    // Each center's fare table: config/fares for the first center, fares/{center} for the others.
+    function faresWrite(c) {
+      return adminOf(c)
+        && request.resource.data.keys().hasOnly(['base', 'perKm', 'minimum', 'updatedBy', 'updatedAt'])
+        && request.resource.data.base is number && request.resource.data.base >= 0 && request.resource.data.base <= 10000
+        && request.resource.data.perKm is number && request.resource.data.perKm >= 0 && request.resource.data.perKm <= 10000
+        && request.resource.data.minimum is number && request.resource.data.minimum >= 0 && request.resource.data.minimum <= 10000
+        && request.resource.data.updatedBy == email()
+        && request.resource.data.updatedAt == request.time;
+    }
+    match /fares/{centerId} {
+      allow read: if signedIn();
+      allow create, update: if exists(/databases/$(database)/documents/centers/$(centerId)) && faresWrite(centerId);
+    }
+    // Taxi centers: platform admins create them; a center's admins may rename theirs. Everyone
+    // signed in reads them (the hire form lists them).
+    match /centers/{centerId} {
+      allow read: if signedIn();
+      allow create, update: if (isPlatform() || (resource != null && adminOf(centerId)))
+        && request.resource.data.keys().hasOnly(['name', 'nameDv', 'at', 'migrated', 'updatedBy', 'updatedAt'])
+        && str(request.resource.data.name, 60) && request.resource.data.name.size() > 1
+        && str(request.resource.data.nameDv, 60)
+        && (request.resource.data.at == null || (request.resource.data.at is list && request.resource.data.at.size() == 2))
+        && (isPlatform() || request.resource.data.get('migrated', false) == resource.data.get('migrated', false))
+        && request.resource.data.updatedBy == email()
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if isPlatform() && centerId != 'main';
+    }
     match /config/fares {
       allow read: if signedIn();
-      allow create, update: if isAdmin()
+      allow create, update: if adminOf('main')
         && request.resource.data.keys().hasOnly(['base', 'perKm', 'minimum', 'updatedBy', 'updatedAt'])
         && request.resource.data.base is number && request.resource.data.base >= 0 && request.resource.data.base <= 10000
         && request.resource.data.perKm is number && request.resource.data.perKm >= 0 && request.resource.data.perKm <= 10000
@@ -524,7 +643,7 @@ service cloud.firestore {
     // language, recorded or uploaded by admins; everyone signed in plays them.
     match /voiceClips/{id} {
       allow read: if signedIn();
-      allow create, update: if isAdmin()
+      allow create, update: if isPlatform()
         && id in ['tripNew-en', 'tripNew-dv', 'tripBooked-en', 'tripBooked-dv', 'offerReceived-en', 'offerReceived-dv']
         && request.resource.data.keys().hasOnly(['data', 'mime', 'by', 'updatedAt'])
         && request.resource.data.data is string && request.resource.data.data.size() <= 480000
@@ -532,15 +651,15 @@ service cloud.firestore {
         && request.resource.data.mime.matches('^audio/[a-z0-9.+-]+(;.*)?$')
         && request.resource.data.by == email()
         && request.resource.data.updatedAt == request.time;
-      allow delete: if isAdmin();
+      allow delete: if isPlatform();
     }
 
     // Manual queue changes (reorder / shuffle) by staff, each with a reason. A permanent log:
     // anyone on staff can add an entry for themselves, nobody can edit or delete one.
     match /queueChanges/{id} {
-      allow read: if isStaff();
-      allow create: if isStaff()
-        && request.resource.data.keys().hasOnly(['at', 'by', 'kind', 'reason', 'note', 'before', 'after'])
+      allow read: if isPlatform() || staffOf(resource.data.centerId);
+      allow create: if staffOf(request.resource.data.get('centerId', 'main'))
+        && request.resource.data.keys().hasOnly(['centerId', 'at', 'by', 'kind', 'reason', 'note', 'before', 'after'])
         && request.resource.data.at == request.time
         && request.resource.data.by == email()
         && request.resource.data.kind in ['reorder', 'shuffle']
@@ -549,6 +668,30 @@ service cloud.firestore {
         && (request.resource.data.reason != 'other' || request.resource.data.note.size() > 0)
         && request.resource.data.before is list && request.resource.data.before.size() <= 500
         && request.resource.data.after is list && request.resource.data.after.size() == request.resource.data.before.size();
+      // Never edited; only, once, a platform admin gives an entry from before centers to the first.
+      allow update: if isPlatform() && !('centerId' in resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['centerId']) && request.resource.data.centerId == 'main';
+      allow delete: if false;
+    }
+
+    // Each person's activity log (src/activity.ts): append-only, written by the person's own app or
+    // by staff acting on them, read by the person and staff. Kept 90 days: a TTL policy on expireAt
+    // deletes old entries. Never holds locations or phone numbers (short detail only).
+    match /activity/{id} {
+      allow read: if signedIn() && (resource.data.uid == request.auth.uid || isStaff());
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['uid', 'kind', 'detail', 'by', 'at', 'expireAt'])
+        && request.resource.data.at == request.time
+        && request.resource.data.by == email()
+        && str(request.resource.data.detail, 80)
+        && request.resource.data.uid is string
+        && request.resource.data.expireAt is timestamp
+        && request.resource.data.expireAt > request.time
+        && request.resource.data.expireAt <= request.time + duration.value(91, 'd')
+        && request.resource.data.kind in ['roleChanged', 'vehicleApplied', 'vehicleEdited', 'vehicleApproved', 'vehicleRejected',
+          'vehicleSuspended', 'vehicleLinked', 'availableOn', 'availableOff', 'bookingSent', 'bookingCancelled', 'bookingDone',
+          'offerTaken', 'offerPassed', 'tripFinished', 'problemReported', 'rideFixed']
+        && (request.resource.data.uid == request.auth.uid || isStaff());
       allow update, delete: if false;
     }
 

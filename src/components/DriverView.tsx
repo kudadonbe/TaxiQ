@@ -7,6 +7,8 @@ import { acceptRide, arrivedRide, moveOn, offerRide, pickedUpRide, type PublicTa
 import { CONFIRM_FINISH_MINUTES } from '../core/taxiFare'
 import { firstName, secondsLeft } from '../core/openTrip'
 import { announce } from '../announce'
+import { useAvailableVehicle } from '../availability'
+import { queueRef } from '../centers'
 import { useDriverRides, useNow } from '../useRides'
 
 // Driver screen: their taxi, its place in the queue, ride offers (accept/decline) and accepted rides.
@@ -31,16 +33,21 @@ export function DriverView({ taxis }: { taxis: PublicTaxi[] }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // The driver's own center's queue (their place in it).
+  const myCenter = taxis.find((x) => x.id === taxiId)?.centerId ?? 'main'
   useEffect(() => {
     if (!fb || !taxiId) return
     return fb.onSnapshot(
-      fb.doc(fb.db, 'queue', 'state'),
+      queueRef(fb, myCenter),
       (snap) => setOrder(Array.isArray(snap.data()?.order) ? snap.data()!.order : []),
       () => setOrder([]),
     )
-  }, [fb, taxiId])
+  }, [fb, taxiId, myCenter])
 
   const me = taxis.find((x) => x.id === taxiId)
+  // The same vehicle out on private hire: no taxi offers until private hire is switched off.
+  const { availableId } = useAvailableVehicle()
+  const onPrivate = !!me?.vehicleId && availableId === me.vehicleId
   // Dev: act as the driver of any taxi (stored as taxiId on the dev's own roles entry).
   const actAs = (id: string) => {
     if (!fb || !email) return
@@ -87,6 +94,7 @@ export function DriverView({ taxis }: { taxis: PublicTaxi[] }) {
         <p className="mt-2 font-semibold">{me?.suspended ? t.suspended : position > 0 ? t.queuePosition(position) : ''}</p>
       </section>
 
+      {onPrivate && <p className="rounded-xl border border-amber-300 bg-amber-50 p-3 font-semibold text-amber-900">{t.driverOnPrivate}</p>}
       {error && <p className="text-sm font-semibold text-rose-700">{t.saveError(error)}</p>}
 
       <section className="space-y-2" aria-live="assertive">

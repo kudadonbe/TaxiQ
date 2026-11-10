@@ -8,6 +8,8 @@
 // on early, and only the offered driver can accept.
 
 import type { Taxi } from './types'
+import { MAIN, queueRef } from './centers'
+import { logMine } from './activity'
 
 type Fb = typeof import('./firebase')
 
@@ -41,6 +43,7 @@ export interface RideRequest {
   km: number | null // road distance it was priced on
   arrivedAt: number // ms, when the driver tapped Arrived
   size: 'small' | 'large' // the taxi asked for: up to 5 seats (any taxi), or 7-10 seats only
+  centerId: string // the taxi center whose queue it goes to
   createdAt: number // ms
 }
 
@@ -51,6 +54,8 @@ export interface PublicTaxi {
   nameDv: string
   suspended: boolean
   seats: number
+  vehicleId: string | null // the same vehicle for private hire, if linked
+  centerId: string
 }
 
 const s = (x: unknown, max = 120) => (typeof x === 'string' ? x.slice(0, max) : '')
@@ -80,6 +85,7 @@ export function parseRequest(data: Record<string, unknown> | undefined): RideReq
     km: typeof data.km === 'number' ? data.km : null,
     arrivedAt: ms(data.arrivedAt),
     size: data.size === 'large' ? 'large' : 'small',
+    centerId: typeof data.centerId === 'string' && data.centerId ? data.centerId : MAIN,
     createdAt: ms(data.createdAt),
   }
 }
@@ -88,7 +94,7 @@ export function parsePublicTaxi(id: string, data: Record<string, unknown>): Publ
   const taxiNo = s(data.taxiNo, 4)
   if (!/^[1-9]\d{0,3}$/.test(taxiNo)) return null
   const seats = typeof data.seats === 'number' && data.seats >= 1 && data.seats <= 15 ? data.seats : 4
-  return { id, taxiNo, name: s(data.name, 60), nameDv: s(data.nameDv, 60), suspended: data.suspended === true, seats }
+  return { id, taxiNo, name: s(data.name, 60), nameDv: s(data.nameDv, 60), suspended: data.suspended === true, seats, vehicleId: typeof data.vehicleId === 'string' ? data.vehicleId : null, centerId: typeof data.centerId === 'string' && data.centerId ? data.centerId : MAIN }
 }
 
 // Public taxis in the shape the map wants (no phone numbers).
@@ -100,6 +106,7 @@ export function asMapTaxi(p: PublicTaxi): Taxi {
     driver: { id: p.id, name: p.name, nameDv: p.nameDv, phone: '' },
     suspended: p.suspended ? { reason: 'other', note: '', at: 0 } : undefined,
     seats: p.seats,
+    centerId: p.centerId,
   }
 }
 
@@ -109,10 +116,20 @@ export function nextTaxi(order: string[], skipped: string[], suspended: Readonly
   return order.find((id) => !skipped.includes(id) && !suspended.has(id) && (!large || large.has(id))) ?? null
 }
 
-async function readOrderAndSuspended(fb: Fb) {
-  const [state, pub] = await Promise.all([fb.getDoc(fb.doc(fb.db, 'queue', 'state')), fb.getDocs(fb.collection(fb.db, 'publicTaxis'))])
+async function readOrderAndSuspended(fb: Fb, center: string) {
+  const [state, pub, onPrivate] = await Promise.all([
+    fb.getDoc(queueRef(fb, center)),
+    // The first center also counts taxis from before centers (no centerId yet).
+    center === MAIN
+      ? fb.getDocs(fb.collection(fb.db, 'publicTaxis')).then((all) => ({ docs: all.docs.filter((d) => (d.data().centerId || MAIN) === MAIN) }))
+      : fb.getDocs(fb.query(fb.collection(fb.db, 'publicTaxis'), fb.where('centerId', '==', center))),
+    // Vehicles on the private map now (a linked taxi out on private hire gets no taxi offers).
+    fb.getDocs(fb.query(fb.collection(fb.db, 'publicVehicles'), fb.where('updatedAt', '>', fb.Timestamp.fromMillis(Date.now() - 10 * 60_000)))).catch(() => null),
+  ])
+  const privateNow = new Set(onPrivate ? onPrivate.docs.map((d) => d.id) : [])
   const order = Array.isArray(state.data()?.order) ? (state.data()!.order as unknown[]).filter((x): x is string => typeof x === 'string') : []
-  const suspended = new Set(pub.docs.filter((d) => d.data().suspended === true).map((d) => d.id))
+  // Not offered: suspended taxis, and taxis whose vehicle is out on private hire.
+  const suspended = new Set(pub.docs.filter((d) => d.data().suspended === true || (typeof d.data().vehicleId === 'string' && privateNow.has(d.data().vehicleId))).map((d) => d.id))
   const large = new Set(pub.docs.filter((d) => typeof d.data().seats === 'number' && d.data().seats >= 7).map((d) => d.id))
   return { order, suspended, large }
 }
@@ -129,11 +146,12 @@ export interface NewRide {
   price: number | null // the total, from the fare table and the road distance
   km: number | null
   size: 'small' | 'large'
+  centerId: string // the center chosen (open trip), or the tapped taxi's center
 }
 
 // Passenger: create (or replace) their request.
 export async function requestRide(fb: Fb, uid: string, ride: NewRide) {
-  const { order, suspended, large } = await readOrderAndSuspended(fb)
+  const { order, suspended, large } = await readOrderAndSuspended(fb, ride.centerId)
   const direct = !!ride.taxiId
   const offerTo = direct ? ride.taxiId! : nextTaxi(order, [], suspended, ride.size === 'large' ? large : null)
   const data: Record<string, unknown> = {
@@ -152,18 +170,21 @@ export async function requestRide(fb: Fb, uid: string, ride: NewRide) {
     price: ride.price,
     km: ride.km,
     size: ride.size,
+    centerId: ride.centerId,
     createdAt: fb.serverTimestamp(),
   }
   if (ride.pickupAt) data.pickupAt = ride.pickupAt
   if (ride.destinationAt) data.destinationAt = ride.destinationAt
   await fb.setDoc(fb.doc(fb.db, 'requests', uid), data)
+  logMine(fb, 'bookingSent', 'taxi')
 }
 
 // Anyone involved: move the offer on (declined, or waited OFFER_SECONDS). The rules re-check
 // everything, including the server-side timeout.
 export async function moveOn(fb: Fb, uid: string) {
-  const { order, suspended, large } = await readOrderAndSuspended(fb)
   const ref = fb.doc(fb.db, 'requests', uid)
+  const first = parseRequest((await fb.getDoc(ref)).data())
+  const { order, suspended, large } = await readOrderAndSuspended(fb, first?.centerId ?? MAIN)
   await fb.runTransaction(fb.db, async (tx) => {
     const r = parseRequest((await tx.get(ref)).data())
     if (!r || !(r.status === 'offering' || r.status === 'interest' || r.status === 'confirmed') || !r.offerTo) return
@@ -176,6 +197,7 @@ export async function moveOn(fb: Fb, uid: string) {
 // The top driver offers to take an open trip; the passenger then books it or says no thanks.
 export async function offerRide(fb: Fb, uid: string) {
   await fb.updateDoc(fb.doc(fb.db, 'requests', uid), { status: 'interest', offerAt: fb.serverTimestamp() })
+  logMine(fb, 'offerTaken', 'taxi')
 }
 // The passenger books the offered taxi.
 export async function bookOffer(fb: Fb, uid: string) {
@@ -187,26 +209,42 @@ export async function bookOffer(fb: Fb, uid: string) {
 const upd = (fb: Fb, uid: string, data: Record<string, unknown>) => fb.updateDoc(fb.doc(fb.db, 'requests', uid), data)
 export const pickedUpRide = (fb: Fb, uid: string) => upd(fb, uid, { status: 'onboard' })
 export const arrivedRide = (fb: Fb, uid: string) => upd(fb, uid, { status: 'arrived', arrivedAt: fb.serverTimestamp() })
-export const finishRide = (fb: Fb, uid: string) => upd(fb, uid, { status: 'done' })
-export const problemRide = (fb: Fb, uid: string) => upd(fb, uid, { status: 'problem' })
+export async function finishRide(fb: Fb, uid: string) {
+  await upd(fb, uid, { status: 'done' })
+  // The fixed price, if the request has one (a read after the write; the log never waits on it).
+  void fb
+    .getDoc(fb.doc(fb.db, 'requests', uid))
+    .then((d) => parseRequest(d.data())?.price ?? null)
+    .catch(() => null)
+    .then((price) => logMine(fb, 'tripFinished', price != null ? `taxi · MVR ${price}` : 'taxi'))
+}
+export async function problemRide(fb: Fb, uid: string) {
+  await upd(fb, uid, { status: 'problem' })
+  logMine(fb, 'problemReported', 'taxi')
+}
 
 export async function cancelRide(fb: Fb, uid: string) {
   await fb.updateDoc(fb.doc(fb.db, 'requests', uid), { status: 'cancelled' })
+  logMine(fb, 'bookingCancelled', 'taxi')
 }
 
 // Driver: accept the offer. One transaction marks the request accepted, moves the taxi to the back
 // of the queue and logs the dispatch, so the queue and the log never disagree.
 export async function acceptRide(fb: Fb, uid: string, taxiId: string, email: string) {
   const reqRef = fb.doc(fb.db, 'requests', uid)
-  const stateRef = fb.doc(fb.db, 'queue', 'state')
+  // The request's center: its queue moves the taxi to the back.
+  const center = parseRequest((await fb.getDoc(reqRef)).data())?.centerId ?? MAIN
+  const stateRef = queueRef(fb, center)
   const taxiRef = fb.doc(fb.db, 'taxis', taxiId)
   const dispatchRef = fb.doc(fb.collection(fb.db, 'dispatches'))
+  let direct = false
   await fb.runTransaction(fb.db, async (tx) => {
     const [reqSnap, stateSnap, taxiSnap] = [await tx.get(reqRef), await tx.get(stateRef), await tx.get(taxiRef)]
     const r = parseRequest(reqSnap.data())
     // Booked by the passenger (open trip), or a taxi they picked on the map.
     const ok = r && r.offerTo === taxiId && (r.status === 'confirmed' || (r.status === 'offering' && r.mode === 'direct'))
     if (!r || !ok) throw new Error('offer-gone')
+    direct = r.mode === 'direct'
     const order: string[] = Array.isArray(stateSnap.data()?.order) ? stateSnap.data()!.order : []
     const interested: string[] = Array.isArray(stateSnap.data()?.interested) ? stateSnap.data()!.interested : []
     const from = Math.max(0, order.indexOf(taxiId))
@@ -231,6 +269,9 @@ export async function acceptRide(fb: Fb, uid: string, taxiId: string, email: str
       undone: false,
       by: email,
       requestId: uid,
+      centerId: center,
     })
   })
+  // An open trip was already logged when the driver offered to take it.
+  if (direct) logMine(fb, 'offerTaken', 'taxi')
 }

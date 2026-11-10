@@ -1,4 +1,4 @@
-import { ArrowUpDown, Car, CarTaxiFront, Eye, Gamepad2, Hand, Languages, ListOrdered, LogIn, LogOut, Map as MapIcon, MapPin, Pencil, Settings2, Undo2, type LucideIcon } from 'lucide-react'
+import { ArrowUpDown, Car, CarTaxiFront, Eye, Gamepad2, Hand, Languages, ListOrdered, LogIn, LogOut, Map as MapIcon, MapPin, Pencil, Settings2, Undo2, UserRound, type LucideIcon } from 'lucide-react'
 import { ic } from './components/iconStyles'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from './auth'
@@ -19,6 +19,9 @@ import { PrivateHirePanel } from './components/PrivateHirePanel'
 import { VoiceMessagesPanel } from './components/VoiceMessagesPanel'
 import { TaxiFaresPanel } from './components/TaxiFaresPanel'
 import { useVoiceClips } from './voiceClips'
+import { MAIN, moveToMainCenter, useCenters } from './centers'
+import { CentersPanel } from './components/CentersPanel'
+import { Building2 } from 'lucide-react'
 import { IncomingRides } from './components/IncomingRides'
 import { PeoplePanel } from './components/PeoplePanel'
 import { useI18n } from './i18n'
@@ -35,6 +38,7 @@ import { validateCall } from './validate'
 // Leaflet is only loaded when a map is shown.
 const MapView = lazy(() => import('./components/MapView'))
 const MyVehicles = lazy(() => import('./components/MyVehicles').then((m) => ({ default: m.MyVehicles })))
+const MyAccount = lazy(() => import('./components/MyAccount').then((m) => ({ default: m.MyAccount })))
 const VehiclesAdmin = lazy(() => import('./components/VehiclesAdmin').then((m) => ({ default: m.VehiclesAdmin })))
 const GameTab = lazy(() => import('./game/GameTab').then((m) => ({ default: m.GameTab })))
 
@@ -49,7 +53,7 @@ const DEMO_HOST = location.hostname.endsWith('github.io')
 //   public   signed out, or signed in without a role: the map and Hire a taxi
 //   dev      full access, for testing: every screen, incl. driver (any taxi) and hire
 type Mode = 'demo' | 'staff' | 'driver' | 'public' | 'dev'
-type View = 'queue' | 'map' | 'admin' | 'driver' | 'hire' | 'game' | 'vehicles'
+type View = 'queue' | 'map' | 'admin' | 'driver' | 'hire' | 'game' | 'vehicles' | 'account'
 
 const EMPTY = new Set<string>()
 
@@ -61,6 +65,7 @@ const TAB_ICONS: Record<View, (l: Record<View, string>) => { Icon: LucideIcon; l
   driver: (l) => ({ Icon: CarTaxiFront, label: l.driver }),
   hire: (l) => ({ Icon: l.hire === l.map ? MapIcon : Hand, label: l.hire }),
   vehicles: (l) => ({ Icon: Car, label: l.vehicles }),
+  account: (l) => ({ Icon: UserRound, label: l.account }),
   game: (l) => ({ Icon: Gamepad2, label: l.game }),
 }
 
@@ -103,13 +108,35 @@ export default function App() {
 
   const local = useLocalQueue()
   const live = mode === 'staff' || mode === 'dev'
-  const remote = useLiveQueue(auth.fb, live, auth.email, role === 'admin' || role === 'dev')
+  // Taxi centers. Staff work on their own center; platform admins (and developers) pick one.
+  const centers = useCenters(auth.fb, signedIn && !DEMO_HOST)
+  const [pickedCenter, setPickedCenterState] = useState<string>(() => {
+    try {
+      return sessionStorage.getItem('taxiq.center') || MAIN
+    } catch {
+      return MAIN
+    }
+  })
+  const setPickedCenter = (c: string) => {
+    setPickedCenterState(c)
+    try {
+      sessionStorage.setItem('taxiq.center', c)
+    } catch {
+      // Storage unavailable: the choice lasts until reload.
+    }
+  }
+  const staffCenter = auth.isPlatform ? pickedCenter : auth.centerId
+  // Once, on a platform admin's app: today's records (no center) go to the first center.
+  useEffect(() => {
+    if (live && auth.isPlatform && auth.fb && auth.email) void moveToMainCenter(auth.fb, auth.email).catch(() => {})
+  }, [live, auth.isPlatform, auth.fb, auth.email])
+  const remote = useLiveQueue(auth.fb, live, auth.email, role === 'admin' || role === 'dev', staffCenter)
   const q = live ? remote : local
   const publicTaxis = usePublicTaxis(auth.fb, mode === 'public' || mode === 'driver' || mode === 'dev')
   const mapTaxis = useMemo(() => publicTaxis.map(asMapTaxi), [publicTaxis])
   // The demo site has no live service: hiring there (demo rides only) uses the local demo taxis.
   const hireTaxis = useMemo(
-    () => (DEMO_HOST ? q.queue.map((x) => ({ id: x.id, taxiNo: x.taxiNo, name: x.driver.name, nameDv: x.driver.nameDv, suspended: !!x.suspended, seats: x.seats ?? 4 })) : publicTaxis),
+    () => (DEMO_HOST ? q.queue.map((x) => ({ id: x.id, taxiNo: x.taxiNo, name: x.driver.name, nameDv: x.driver.nameDv, suspended: !!x.suspended, seats: x.seats ?? 4, vehicleId: x.vehicleId ?? null, centerId: x.centerId ?? 'main' })) : publicTaxis),
     [q.queue, publicTaxis],
   )
   const hireMapTaxis = DEMO_HOST ? q.queue : mapTaxis
@@ -189,7 +216,8 @@ export default function App() {
   const assign = (id: string) => callValid && q.assign(id)
 
   // TaxiQ Game is open to everyone on the live site (not the demo host).
-  const game: View[] = DEMO_HOST ? [] : ['vehicles', 'game']
+  // My account: everyone signed in (not the demo host).
+  const game: View[] = DEMO_HOST ? [] : ['vehicles', ...(signedIn ? (['account'] as View[]) : []), 'game']
   const tabs: View[] =
     mode === 'dev'
       ? ['queue', 'map', 'admin', 'driver', 'hire', ...game]
@@ -206,10 +234,10 @@ export default function App() {
   const view: View = tabs.includes(viewState) ? viewState : (tabs[0] ?? 'map')
   const { lang, t, toggleLang, driverName, setDvFixes } = useI18n()
   // Without a staff role, the Hire screen is the full-screen map (taxis, vehicles, hiring): call it Map.
-  const tabLabels = { queue: t.queue, map: t.map, admin: t.admin, driver: t.driver, hire: mode === 'public' && !DEMO_HOST ? t.map : t.hireTab, vehicles: t.vehTab, game: t.gameTab }
+  const tabLabels = { queue: t.queue, map: t.map, admin: t.admin, driver: t.driver, hire: mode === 'public' && !DEMO_HOST ? t.map : t.hireTab, vehicles: t.vehTab, account: t.acctTab, game: t.gameTab }
   // The map views fill the screen under the header; everything else floats over the map.
   // Only the map screens fill the screen (no page scroll); My vehicles and the game scroll normally.
-  const fullMap = view === 'map' || (view !== 'game' && view !== 'vehicles' && (mode === 'public' || view === 'hire'))
+  const fullMap = view === 'map' || (view !== 'game' && view !== 'vehicles' && view !== 'account' && (mode === 'public' || view === 'hire'))
   const [editingTranslations, setEditingTranslations] = useState(false)
   const canTranslate = !DEMO_HOST && (role === 'admin' || role === 'dev')
 
@@ -253,6 +281,24 @@ export default function App() {
                   <span className="hidden sm:inline">{t.undo}</span>
                 </button>
               </>
+            )}
+            {live && auth.isPlatform && centers.length > 1 && (
+              <label className="flex items-center gap-1">
+                <Building2 className="size-4 text-slate-500" aria-hidden="true" />
+                <select
+                  value={staffCenter}
+                  onChange={(e) => setPickedCenter(e.target.value)}
+                  aria-label={t.centerPick}
+                  title={t.centerPick}
+                  className="min-h-10 max-w-[9rem] rounded-lg border border-slate-200 bg-white px-1 text-sm font-semibold"
+                >
+                  {centers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {lang === 'dv' && c.nameDv ? c.nameDv : c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
             )}
             {isDev && (
               <label className="flex items-center gap-1">
@@ -414,6 +460,12 @@ export default function App() {
             />
           </Suspense>
         </main>
+      ) : view === 'account' ? (
+        <main className="mx-auto max-w-5xl px-4 py-4 sm:py-6">
+          <Suspense fallback={<p className="text-sm text-slate-500">{t.loading}</p>}>
+            <MyAccount onGoTo={(v) => setView(v === 'vehicles' ? 'vehicles' : tabs.includes('hire') ? 'hire' : 'map')} />
+          </Suspense>
+        </main>
       ) : view === 'game' ? (
         <main className="isolate mx-auto max-w-6xl px-2 py-3 sm:px-4 sm:py-6">
           <Suspense fallback={<p className="text-sm text-slate-500">{t.loading}</p>}>
@@ -568,15 +620,16 @@ export default function App() {
       ) : view === 'admin' ? (
         <main className="mx-auto max-w-5xl px-4 py-4 sm:py-6">
           <ManagementView
-            users={live && canAdmin ? <PeoplePanel taxis={queue} /> : <p className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">{t.mgmtUsersNeedLive}</p>}
+            users={live && canAdmin ? <PeoplePanel taxis={queue} center={staffCenter} centers={centers} /> : <p className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">{t.mgmtUsersNeedLive}</p>}
             taxis={
               <div className="space-y-4">
-                {live && canAdmin && <TaxiFaresPanel />}
+                {live && canAdmin && <TaxiFaresPanel center={staffCenter} />}
                 <AdminPanel taxis={queue} onRegister={q.register} onRemove={q.remove} onSuspend={q.suspend} onLift={q.lift} onSeats={q.setSeats} />
               </div>
             }
-            vehicles={live ? <Suspense fallback={<p className="text-sm text-slate-500">{t.loading}</p>}><VehiclesAdmin /></Suspense> : undefined}
-            voice={live && canAdmin ? <VoiceMessagesPanel /> : undefined}
+            vehicles={live ? <Suspense fallback={<p className="text-sm text-slate-500">{t.loading}</p>}><VehiclesAdmin taxis={queue} center={staffCenter} /></Suspense> : undefined}
+            voice={live && auth.isPlatform ? <VoiceMessagesPanel /> : undefined}
+            centers={live && auth.isPlatform ? <CentersPanel centers={centers} /> : undefined}
           />
         </main>
       ) : view === 'map' ? (
@@ -645,7 +698,7 @@ export default function App() {
           </section>
 
           <aside className="space-y-4">
-            {live && <RequestsPanel taxis={queue} />}
+            {live && <RequestsPanel taxis={queue} center={staffCenter} />}
             <section className="space-y-3">
               <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500">{t.recent}</h2>
               <DispatchLog history={history} queue={queue} callInProgress={callInProgress} onReopen={q.reopen} />

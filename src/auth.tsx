@@ -15,6 +15,13 @@ interface AuthState {
   name: string | null
   role: Role | null
   taxiId: string | null // drivers: the taxi they drive
+  // May offer private hire: the Private driver role, a developer, or a center driver also allowed
+  // private hire (roles/{email}.private).
+  canPrivate: boolean
+  // Their taxi center (staff and drivers; 'main' when none is set), and whether they are a platform
+  // admin (an admin without a center, or a developer): creates centers, sees every center.
+  centerId: string
+  isPlatform: boolean
   error: string | null
   fb: Fb | null
   signIn: () => void
@@ -29,6 +36,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<{ uid: string; email: string; name: string } | null>(null)
   const [role, setRole] = useState<Role | null>(null)
   const [taxiId, setTaxiId] = useState<string | null>(null)
+  const [alsoPrivate, setAlsoPrivate] = useState(false)
+  const [centerId, setCenterId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // Load the SDK in the background and follow the sign-in state.
@@ -96,10 +105,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const t = snap.exists() ? snap.data().taxiId : null
         setRole(r === 'admin' || r === 'operator' || r === 'driver' || r === 'private' || r === 'dev' ? r : null)
         setTaxiId((r === 'driver' || r === 'dev') && typeof t === 'string' ? t : null)
+        setAlsoPrivate(r === 'driver' && snap.data()?.private === true)
+        const c = snap.exists() ? snap.data().centerId : null
+        setCenterId(typeof c === 'string' && c ? c : null)
       },
       () => {
         setRole(null)
         setTaxiId(null)
+        setAlsoPrivate(false)
+        setCenterId(null)
       },
     )
   }, [fb, user])
@@ -125,6 +139,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     name: user?.name ?? null,
     role: user ? role : null,
     taxiId: user ? taxiId : null,
+    canPrivate: !!user && (role === 'private' || role === 'dev' || (role === 'driver' && alsoPrivate)),
+    centerId: centerId ?? 'main',
+    isPlatform: !!user && (role === 'dev' || (role === 'admin' && !centerId)),
     error,
     fb,
     signIn,

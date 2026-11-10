@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { PublicVehicle } from './vehicles'
+import { logActivity, logMine } from './activity'
 
 // Booking a private vehicle (firestore.rules: privateRides). One booking at a time per passenger,
 // at privateRides/{passengerUid}. Only the passenger, the vehicle's owner and staff see it.
@@ -141,6 +142,7 @@ export async function bookPrivate(fb: Fb, me: { uid: string; name: string }, v: 
     createdAt: fb.serverTimestamp(),
     updatedAt: fb.serverTimestamp(),
   })
+  logMine(fb, 'bookingSent', 'private')
 }
 // Open trip: to the top of the private queue (`queue` is already in queue order).
 export async function openPrivate(fb: Fb, me: { uid: string; name: string }, queue: PublicVehicle[], b: Booking) {
@@ -155,9 +157,14 @@ export async function movePrivateOn(fb: Fb, r: PrivateRide, queue: PublicVehicle
   const data: Record<string, unknown> = { skipped, offerAt: fb.serverTimestamp(), status: next ? 'offering' : 'expired' }
   if (next) Object.assign(data, { vehicleId: next.id, ownerUid: next.ownerUid, price: Math.round(next.priceBase + next.pricePerKm * (r.km ?? tripKm(r.pickupAt, r.destinationAt))) })
   await set(fb, r.uid, data)
+  // The offered owner passing it on (the passenger's no thanks and timeouts aren't logged here).
+  if (r.ownerUid === fb.auth.currentUser?.uid) logMine(fb, 'offerPassed', 'private')
 }
 // The owner offers to take an open trip; the passenger books it.
-export const offerPrivate = (fb: Fb, r: PrivateRide) => set(fb, r.uid, { status: 'interest', offerAt: fb.serverTimestamp() })
+export async function offerPrivate(fb: Fb, r: PrivateRide) {
+  await set(fb, r.uid, { status: 'interest', offerAt: fb.serverTimestamp() })
+  logMine(fb, 'offerTaken', 'private')
+}
 export const bookPrivateOffer = (fb: Fb, uid: string) => set(fb, uid, { status: 'confirmed', offerAt: fb.serverTimestamp() })
 // The owner's phone completes a booked open trip: shares the owner's first name and phone, and the
 // vehicle goes to the back of the private queue.
@@ -167,11 +174,36 @@ export async function finishPrivate(fb: Fb, r: PrivateRide, firstName: string, p
 }
 
 const set = (fb: Fb, uid: string, data: Record<string, unknown>) => fb.updateDoc(fb.doc(fb.db, 'privateRides', uid), { ...data, updatedAt: fb.serverTimestamp() })
-export const cancelPrivate = (fb: Fb, uid: string) => set(fb, uid, { status: 'cancelled' })
-export const acceptPrivate = (fb: Fb, r: PrivateRide, firstName: string, phone: string) => set(fb, r.uid, { status: 'accepted', ownerFirstName: firstName.slice(0, 40), ownerPhone: phone })
-export const declinePrivate = (fb: Fb, r: PrivateRide) => set(fb, r.uid, { status: 'declined' })
+export async function cancelPrivate(fb: Fb, uid: string) {
+  await set(fb, uid, { status: 'cancelled' })
+  logMine(fb, 'bookingCancelled', 'private')
+}
+// Staff: cancel a stuck booking at any step before it finished; logged on the passenger's record.
+export async function staffCancelPrivate(fb: Fb, uid: string) {
+  await set(fb, uid, { status: 'cancelled' })
+  logActivity(fb, uid, 'rideFixed', fb.auth.currentUser?.email, 'private · cancelled')
+}
+export async function acceptPrivate(fb: Fb, r: PrivateRide, firstName: string, phone: string) {
+  await set(fb, r.uid, { status: 'accepted', ownerFirstName: firstName.slice(0, 40), ownerPhone: phone })
+  logMine(fb, 'offerTaken', 'private')
+}
+export async function declinePrivate(fb: Fb, r: PrivateRide) {
+  await set(fb, r.uid, { status: 'declined' })
+  logMine(fb, 'offerPassed', 'private')
+}
 export const pickedUp = (fb: Fb, r: PrivateRide) => set(fb, r.uid, { status: 'onboard' })
 export const arrivedPrivate = (fb: Fb, r: PrivateRide) => set(fb, r.uid, { status: 'arrived', arrivedAt: fb.serverTimestamp() })
 // The passenger: the trip finished (yes), or a problem. After 10 minutes, either side marks it done.
-export const confirmPrivateDone = (fb: Fb, uid: string) => set(fb, uid, { status: 'done' })
-export const problemPrivate = (fb: Fb, uid: string) => set(fb, uid, { status: 'problem' })
+export async function confirmPrivateDone(fb: Fb, uid: string) {
+  await set(fb, uid, { status: 'done' })
+  // The fixed price from the booking (a read after the write; the log never waits on it).
+  void fb
+    .getDoc(fb.doc(fb.db, 'privateRides', uid))
+    .then((d) => (d.exists() ? parse(d.id, d.data())?.price ?? null : null))
+    .catch(() => null)
+    .then((price) => logMine(fb, 'tripFinished', price != null ? `private · MVR ${price}` : 'private'))
+}
+export async function problemPrivate(fb: Fb, uid: string) {
+  await set(fb, uid, { status: 'problem' })
+  logMine(fb, 'problemReported', 'private')
+}
