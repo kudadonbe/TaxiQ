@@ -6,10 +6,16 @@ it's merged and released. Last updated 2026-11-10.
 
 ## In progress
 
-- [ ] **Services on the map** (branch `services-map`, built by a cloud session): mechanics, tyres,
-  towing and other helpers. Core, rules and My services pushed; still to come: Management ->
-  Services, the map layer and Help near me, then a pull request into `v2`. Review it, then merge.
-  Plan: `plans/vehicles-traffic-services.md` §6.
+- [ ] **Services on the map** (branch `services-map`): mechanics, tyres, towing and other helpers.
+  Done and pushed: the shared core (`src/core/services.ts`, `src/services.ts`), the Firestore
+  rules and rule checks, **My services** (in My account) and **Management -> Services**
+  (`433ced6`). **Still to do:** the **map layer** in `MapView.tsx` (a Services layer with a
+  marker per kind, faded when closed; a toggle in the map key; a card with Call and Route) and
+  **Help near me** (a tool button opening one panel: a kind filter and the 5 nearest open helpers,
+  via `nearestHelp`), then a CLAUDE.md bullet and a SECURITY.md row, the checks (`tsc -b`, lint,
+  tests, rules checks), and a pull request into `v2`. An unfinished first try at the map layer
+  (may not compile) is saved on branch `services-map-wip` (`e8d5750`): reuse it or start again
+  from `services-map`. Plan: `plans/vehicles-traffic-services.md` §6.
 - [ ] **Automatic deploy** ([PR #2](https://github.com/kudadonbe/TaxiQ/pull/2), branch `ci-deploy`):
   every merge to `v2` checks, then deploys hosting, rules and indexes. Before merging: create the
   deploy-only service account and the `FIREBASE_SERVICE_ACCOUNT` secret (SECURITY.md, "Automatic
