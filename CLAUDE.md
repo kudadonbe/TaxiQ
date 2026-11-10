@@ -10,6 +10,8 @@ TaxiQ v2 is a visual model of the physical taxi queue at a call center. The oper
 
 **v3 is in progress on the `v3` branch.** When you add a feature to v2, also add **one line** to `plans/v2-features-to-port.md` on `v3`: the feature name, the commit, and only a short note if v3 must know something (e.g. a Firestore rule that should become a server check). No detailed write-ups; the code and git history are the spec. This keeps the feature from being lost when v3 replaces v2.
 
+**Open work:** `plans/open-items.md` lists what's in progress, waiting on a decision, and next. Read it at the start of a session and update it when something is done.
+
 **Direction:** TaxiQ will have two sides, **public service (taxi)** and **private hire** (people and companies offering their own vehicles), in both the app and the game; v3 grows to hiring **any land vehicle**. See `plans/product-direction.md`.
 
 ## Commands
