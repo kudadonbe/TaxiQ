@@ -22,10 +22,14 @@ pnpm dev       # Vite dev server, http://localhost:5173
 pnpm build     # tsc -b (type-check app + node configs) then vite build to docs/
 pnpm lint      # oxlint (not ESLint), config in .oxlintrc.json
 pnpm preview   # serve the built docs/
-pnpm deploy    # build + deploy docs/ to Firebase Hosting (needs the firebase CLI, logged in)
+pnpm test      # vitest unit tests (src/core/*.test.ts)
+pnpm test:rules # Firestore rules checks in the emulator (needs Java)
+pnpm deploy    # build + deploy docs/ to Firebase Hosting only (needs the firebase CLI, logged in)
+pnpm rules     # deploy Firestore rules + indexes only
+pnpm release   # build, then deploy hosting + rules + indexes together
 ```
 
-There is no test runner set up yet. `pnpm build` is the type-check gate, since `tsc -b` runs before the Vite build.
+`pnpm build` is the type-check gate, since `tsc -b` runs before the Vite build. **Which deploy:** a rules-only fix is `pnpm rules`, a code-only change is `pnpm deploy`, and code that needs new rules, indexes or data is `pnpm release`, so the site and the rules never disagree. New indexes take a few minutes to build; until then their queries fail with `failed-precondition`. Tag each release (`git tag -a v2.x.0`, annotated) after bumping `version` in `package.json`.
 
 ## Architecture
 
