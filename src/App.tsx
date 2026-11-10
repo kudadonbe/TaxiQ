@@ -1,4 +1,4 @@
-import { ArrowUpDown, Car, CarTaxiFront, Eye, Gamepad2, Hand, Languages, ListOrdered, LogIn, LogOut, Map as MapIcon, MapPin, Pencil, Settings2, Undo2, UserRound, type LucideIcon } from 'lucide-react'
+import { ArrowUpDown, BookOpen, Car, CarTaxiFront, Eye, Gamepad2, Hand, Languages, ListOrdered, LogIn, LogOut, Map as MapIcon, MapPin, Pencil, Settings2, Undo2, UserRound, type LucideIcon } from 'lucide-react'
 import { ic } from './components/iconStyles'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from './auth'
@@ -40,6 +40,7 @@ const MapView = lazy(() => import('./components/MapView'))
 const MyVehicles = lazy(() => import('./components/MyVehicles').then((m) => ({ default: m.MyVehicles })))
 const MyAccount = lazy(() => import('./components/MyAccount').then((m) => ({ default: m.MyAccount })))
 const VehiclesAdmin = lazy(() => import('./components/VehiclesAdmin').then((m) => ({ default: m.VehiclesAdmin })))
+const CorpusView = lazy(() => import('./components/CorpusView').then((m) => ({ default: m.CorpusView })))
 const GameTab = lazy(() => import('./game/GameTab').then((m) => ({ default: m.GameTab })))
 
 // The GitHub Pages copy can't sign in (Firebase only allows its own domains), so it runs the
@@ -53,7 +54,7 @@ const DEMO_HOST = location.hostname.endsWith('github.io')
 //   public   signed out, or signed in without a role: the map and Hire a taxi
 //   dev      full access, for testing: every screen, incl. driver (any taxi) and hire
 type Mode = 'demo' | 'staff' | 'driver' | 'public' | 'dev'
-type View = 'queue' | 'map' | 'admin' | 'driver' | 'hire' | 'game' | 'vehicles' | 'account'
+type View = 'queue' | 'map' | 'admin' | 'driver' | 'hire' | 'game' | 'vehicles' | 'account' | 'corpus'
 
 const EMPTY = new Set<string>()
 
@@ -66,6 +67,7 @@ const TAB_ICONS: Record<View, (l: Record<View, string>) => { Icon: LucideIcon; l
   hire: (l) => ({ Icon: l.hire === l.map ? MapIcon : Hand, label: l.hire }),
   vehicles: (l) => ({ Icon: Car, label: l.vehicles }),
   account: (l) => ({ Icon: UserRound, label: l.account }),
+  corpus: (l) => ({ Icon: BookOpen, label: l.corpus }),
   game: (l) => ({ Icon: Gamepad2, label: l.game }),
 }
 
@@ -217,7 +219,8 @@ export default function App() {
 
   // TaxiQ Game is open to everyone on the live site (not the demo host).
   // My account: everyone signed in (not the demo host).
-  const game: View[] = DEMO_HOST ? [] : ['vehicles', ...(signedIn ? (['account'] as View[]) : []), 'game']
+  // The Dhivehi corpus: corpus editors only (platform admins, or roles/{email}.corpus).
+  const game: View[] = DEMO_HOST ? [] : ['vehicles', ...(signedIn ? (['account'] as View[]) : []), ...(auth.corpusEditor ? (['corpus'] as View[]) : []), 'game']
   const tabs: View[] =
     mode === 'dev'
       ? ['queue', 'map', 'admin', 'driver', 'hire', ...game]
@@ -234,10 +237,10 @@ export default function App() {
   const view: View = tabs.includes(viewState) ? viewState : (tabs[0] ?? 'map')
   const { lang, t, toggleLang, driverName, setDvFixes } = useI18n()
   // Without a staff role, the Hire screen is the full-screen map (taxis, vehicles, hiring): call it Map.
-  const tabLabels = { queue: t.queue, map: t.map, admin: t.admin, driver: t.driver, hire: mode === 'public' && !DEMO_HOST ? t.map : t.hireTab, vehicles: t.vehTab, account: t.acctTab, game: t.gameTab }
+  const tabLabels = { queue: t.queue, map: t.map, admin: t.admin, driver: t.driver, hire: mode === 'public' && !DEMO_HOST ? t.map : t.hireTab, vehicles: t.vehTab, account: t.acctTab, corpus: t.corpusTab, game: t.gameTab }
   // The map views fill the screen under the header; everything else floats over the map.
   // Only the map screens fill the screen (no page scroll); My vehicles and the game scroll normally.
-  const fullMap = view === 'map' || (view !== 'game' && view !== 'vehicles' && view !== 'account' && (mode === 'public' || view === 'hire'))
+  const fullMap = view === 'map' || (view !== 'game' && view !== 'vehicles' && view !== 'account' && view !== 'corpus' && (mode === 'public' || view === 'hire'))
   const [editingTranslations, setEditingTranslations] = useState(false)
   const canTranslate = !DEMO_HOST && (role === 'admin' || role === 'dev')
 
@@ -464,6 +467,12 @@ export default function App() {
         <main className="mx-auto max-w-5xl px-4 py-4 sm:py-6">
           <Suspense fallback={<p className="text-sm text-slate-500">{t.loading}</p>}>
             <MyAccount onGoTo={(v) => setView(v === 'vehicles' ? 'vehicles' : tabs.includes('hire') ? 'hire' : 'map')} />
+          </Suspense>
+        </main>
+      ) : view === 'corpus' ? (
+        <main className="mx-auto max-w-5xl px-4 py-4 sm:py-6">
+          <Suspense fallback={<p className="text-sm text-slate-500">{t.loading}</p>}>
+            <CorpusView />
           </Suspense>
         </main>
       ) : view === 'game' ? (

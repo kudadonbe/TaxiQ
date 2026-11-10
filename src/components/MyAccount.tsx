@@ -1,4 +1,4 @@
-import { Car, Check, CircleCheck, Copy, History, LogIn, Map as MapIcon, Route, UserRound, X } from 'lucide-react'
+import { Banknote, Car, Check, CircleCheck, Copy, History, LogIn, Map as MapIcon, Route, UserRound, X } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { useAuth } from '../auth'
 import { useI18n } from '../i18n'
@@ -9,9 +9,12 @@ import { cancelPrivate, useIncomingPrivateRides, useMyPrivateRide } from '../pri
 import { cancelRide } from '../rides'
 import { readyForRides, rideChecks, type CheckId } from '../core/readiness'
 import { ACTIVITY_DAYS, useActivity } from '../activity'
+import { useAccount } from '../account'
+import { totals } from '../core/account'
+import { MoneyEntries, MoneyMonths, MoneyTotals } from './MoneyList'
 
 // My account: who you are, why you can or can't take rides (and how to fix it), your bookings as a
-// passenger, your trips as a driver or owner, and your activity log.
+// passenger, your trips as a driver or owner, your money account, and your activity log.
 
 type GoTo = 'vehicles' | 'hire'
 const card = 'space-y-3 rounded-xl border border-slate-200 bg-white p-4'
@@ -33,6 +36,7 @@ export function MyAccount({ onGoTo }: { onGoTo?: (view: GoTo) => void }) {
   const { accepted: taxiTrips } = useDriverRides(fb, taxiId)
   const privateTrips = useIncomingPrivateRides(fb, uid)
   const activity = useActivity(fb, uid, 50)
+  const money = useAccount(fb, uid)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -125,7 +129,9 @@ export function MyAccount({ onGoTo }: { onGoTo?: (view: GoTo) => void }) {
     ...privateTrips.map((r) => ({ id: `p-${r.uid}`, kind: t.acctPrivate, status: r.status, place: r.pickup, price: r.price as number | null })),
   ]
   const finished = trips.filter((r) => r.status === 'done')
-  const earned = finished.reduce((sum, r) => sum + (r.price ?? 0), 0)
+  const sums = totals(money)
+  // The account is the record (it has finished private trips too); the trips list is the fallback.
+  const earned = money.length > 0 ? sums.earned : finished.reduce((sum, r) => sum + (r.price ?? 0), 0)
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
@@ -231,6 +237,21 @@ export function MyAccount({ onGoTo }: { onGoTo?: (view: GoTo) => void }) {
           {finished.length > 0 && <p className="text-sm font-bold text-emerald-800">{t.acctFinished(finished.length, earned)}</p>}
         </section>
       )}
+
+      <section className={card}>
+        <h3 className="flex items-center gap-2 font-black">
+          <Banknote className="size-4" aria-hidden="true" /> {t.moneyTitle}
+        </h3>
+        {money.length > 0 && (
+          <>
+            <MoneyTotals sums={sums} />
+            <MoneyMonths entries={money} />
+            <h4 className="text-sm font-bold">{t.moneyEntryList}</h4>
+          </>
+        )}
+        <MoneyEntries entries={money} max={30} />
+        <p className="text-xs text-slate-500">{t.moneyCashNote}</p>
+      </section>
 
       <section className={card}>
         <h3 className="flex items-center gap-2 font-black">

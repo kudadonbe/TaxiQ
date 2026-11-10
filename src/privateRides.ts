@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { PublicVehicle } from './vehicles'
 import { logActivity, logMine } from './activity'
+import { addTripEntries } from './account'
 
 // Booking a private vehicle (firestore.rules: privateRides). One booking at a time per passenger,
 // at privateRides/{passengerUid}. Only the passenger, the vehicle's owner and staff see it.
@@ -194,14 +195,27 @@ export async function declinePrivate(fb: Fb, r: PrivateRide) {
 export const pickedUp = (fb: Fb, r: PrivateRide) => set(fb, r.uid, { status: 'onboard' })
 export const arrivedPrivate = (fb: Fb, r: PrivateRide) => set(fb, r.uid, { status: 'arrived', arrivedAt: fb.serverTimestamp() })
 // The passenger: the trip finished (yes), or a problem. After 10 minutes, either side marks it done.
+// Done, and in the same batch the trip's money entries (Paid for the passenger, Earned for the
+// owner, at the fixed total; the rules check them against the booking).
+async function finishWithEntries(fb: Fb, uid: string) {
+  const ref = fb.doc(fb.db, 'privateRides', uid)
+  const d = await fb.getDoc(ref)
+  const r = d.exists() ? parse(d.id, d.data()) : null
+  if (!r) throw new Error('no-booking')
+  const batch = fb.writeBatch(fb.db)
+  batch.update(ref, { status: 'done', updatedAt: fb.serverTimestamp() })
+  addTripEntries(fb, batch, { kind: 'private', passengerUid: uid, driverUid: r.ownerUid || null, createdAtMs: r.createdAt, price: r.price }, fb.auth.currentUser?.email ?? '')
+  await batch.commit()
+  return r
+}
 export async function confirmPrivateDone(fb: Fb, uid: string) {
-  await set(fb, uid, { status: 'done' })
-  // The fixed price from the booking (a read after the write; the log never waits on it).
-  void fb
-    .getDoc(fb.doc(fb.db, 'privateRides', uid))
-    .then((d) => (d.exists() ? parse(d.id, d.data())?.price ?? null : null))
-    .catch(() => null)
-    .then((price) => logMine(fb, 'tripFinished', price != null ? `private · MVR ${price}` : 'private'))
+  const r = await finishWithEntries(fb, uid)
+  logMine(fb, 'tripFinished', `private · MVR ${r.price}`)
+}
+// Staff: close a reported problem as done (the trip's entries are recorded); logged on the passenger's record.
+export async function closePrivateProblem(fb: Fb, uid: string) {
+  const r = await finishWithEntries(fb, uid)
+  logActivity(fb, uid, 'rideFixed', fb.auth.currentUser?.email, `private · done · MVR ${r.price}`)
 }
 export async function problemPrivate(fb: Fb, uid: string) {
   await set(fb, uid, { status: 'problem' })

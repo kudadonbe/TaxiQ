@@ -109,7 +109,8 @@ export function useDriverRides(fb: Fb | null, taxiId: string | null, email: stri
 }
 
 // Booked by the passenger: complete it (the taxi goes to the back, the dispatch is logged). Done by
-// the driver's phone; staff screens do it too if the driver's phone hasn't within 5 s.
+// the driver's phone; staff screens do it too if the driver's phone hasn't within 5 s (afterMs; they
+// keep the driver's account from the offer).
 function useFinishBookings(fb: Fb | null, list: RequestWithId[], email: string | null, afterMs = 0) {
   const tried = useRef(new Set<string>())
   useEffect(() => {
@@ -120,7 +121,7 @@ function useFinishBookings(fb: Fb | null, list: RequestWithId[], email: string |
         const key = `${r.id}:${r.offerAt}`
         if (tried.current.has(key)) continue
         tried.current.add(key)
-        acceptRide(fb, r.id, r.offerTo, email ?? '').catch(() => {})
+        acceptRide(fb, r.id, r.offerTo, email ?? '', afterMs === 0).catch(() => {})
       }
     }
     tick()

@@ -33,7 +33,7 @@ export function PeoplePanel({ taxis, center = MAIN, centers = [] }: { taxis: Tax
   const { fb, email: me, role: myRole, isPlatform } = useAuth()
   const { lang, t } = useI18n()
   const [profiles, setProfiles] = useState<{ uid: string; email: string; name: string; lastSeen: number | null }[]>([])
-  const [roles, setRoles] = useState<Map<string, { role: Role; taxiId?: string; alsoPrivate?: boolean; centerId?: string }>>(new Map())
+  const [roles, setRoles] = useState<Map<string, { role: Role; taxiId?: string; alsoPrivate?: boolean; centerId?: string; corpus?: boolean }>>(new Map())
   const [filter, setFilter] = useState<RoleOrCitizen | 'all' | 'online'>('all')
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -67,11 +67,11 @@ export function PeoplePanel({ taxis, center = MAIN, centers = [] }: { taxis: Tax
       fb.onSnapshot(
         fb.collection(fb.db, 'roles'),
         (snap) => {
-          const m = new Map<string, { role: Role; taxiId?: string; alsoPrivate?: boolean; centerId?: string }>()
+          const m = new Map<string, { role: Role; taxiId?: string; alsoPrivate?: boolean; centerId?: string; corpus?: boolean }>()
           for (const d of snap.docs) {
             const r = d.data().role
             if (r === 'admin' || r === 'operator' || r === 'driver' || r === 'private' || r === 'dev')
-              m.set(d.id, { role: r, taxiId: typeof d.data().taxiId === 'string' ? d.data().taxiId : undefined, alsoPrivate: d.data().private === true, centerId: typeof d.data().centerId === 'string' ? d.data().centerId : undefined })
+              m.set(d.id, { role: r, taxiId: typeof d.data().taxiId === 'string' ? d.data().taxiId : undefined, alsoPrivate: d.data().private === true, centerId: typeof d.data().centerId === 'string' ? d.data().centerId : undefined, corpus: d.data().corpus === true })
           }
           setRoles(m)
         },
@@ -126,6 +126,8 @@ export function PeoplePanel({ taxis, center = MAIN, centers = [] }: { taxis: Tax
             ...(role === 'driver' || role === 'dev' ? (taxiId ? { taxiId } : {}) : {}),
             // A center driver who may also offer private hire (the same vehicle, or another).
             ...(role === 'driver' && alsoPrivate ? { private: true } : {}),
+            // Keep a corpus editor's flag when their role changes (it's set separately).
+            ...(roles.get(email)?.corpus ? { corpus: true } : {}),
             ...((role === 'operator' || role === 'driver' || (role === 'admin' && !(platform && isPlatform))) ? { centerId: center } : {}),
             addedBy: me ?? '',
             addedAt: fb.serverTimestamp(),

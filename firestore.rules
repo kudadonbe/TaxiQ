@@ -96,7 +96,10 @@ service cloud.firestore {
       allow create, update: if isAdmin()
         && (!touchesDev() || role() == 'dev')
         && (isPlatform() || centerAdminMay())
-        && request.resource.data.keys().hasOnly(['role', 'taxiId', 'private', 'centerId', 'addedBy', 'addedAt'])
+        && request.resource.data.keys().hasOnly(['role', 'taxiId', 'private', 'centerId', 'corpus', 'addedBy', 'addedAt'])
+        // Corpus editor (Dhivehi corpus): given or taken away by platform admins only.
+        && request.resource.data.get('corpus', false) is bool
+        && (isPlatform() || request.resource.data.get('corpus', false) == (resource == null ? false : resource.data.get('corpus', false)))
         && (!('centerId' in request.resource.data) || str(request.resource.data.centerId, 40))
         && request.resource.data.get('private', false) is bool
         && request.resource.data.role in ['admin', 'operator', 'driver', 'private', 'dev']
@@ -454,7 +457,7 @@ service cloud.firestore {
       }
       function validShape() {
         return next().keys().hasOnly(['uid', 'name', 'mode', 'pickup', 'pickupAt', 'destination', 'destinationAt', 'phone', 'note',
-            'status', 'offerTo', 'offerAt', 'skipped', 'acceptedBy', 'price', 'km', 'arrivedAt', 'size', 'centerId', 'createdAt'])
+            'status', 'offerTo', 'offerAt', 'skipped', 'acceptedBy', 'driverUid', 'price', 'km', 'arrivedAt', 'size', 'centerId', 'createdAt'])
           && (!('centerId' in next()) || str(next().centerId, 40))
           && next().get('size', 'small') in ['small', 'large']
           && next().uid == uid
@@ -473,7 +476,20 @@ service cloud.firestore {
           && (next().offerTo == null || str(next().offerTo, 40))
           && next().offerAt is timestamp
           && next().skipped is list && next().skipped.size() <= 500
-          && (next().acceptedBy == null || str(next().acceptedBy, 40));
+          && (next().acceptedBy == null || str(next().acceptedBy, 40))
+          && (next().get('driverUid', null) == null || str(next().driverUid, 128));
+      }
+      // A step of a trip: the fields a step may change. The rest stay as they were (sameTrip).
+      function stepShape() {
+        return next().keys().hasOnly(['uid', 'name', 'mode', 'pickup', 'pickupAt', 'destination', 'destinationAt', 'phone', 'note',
+            'status', 'offerTo', 'offerAt', 'skipped', 'acceptedBy', 'driverUid', 'price', 'km', 'arrivedAt', 'size', 'centerId', 'createdAt'])
+          && next().status in ['offering', 'interest', 'confirmed', 'accepted', 'onboard', 'arrived', 'done', 'problem', 'expired', 'cancelled']
+          && (!('arrivedAt' in next()) || next().arrivedAt is timestamp)
+          && (next().offerTo == null || str(next().offerTo, 40))
+          && next().offerAt is timestamp
+          && next().skipped is list && next().skipped.size() <= 500
+          && (next().acceptedBy == null || str(next().acceptedBy, 40))
+          && (next().get('driverUid', null) == null || str(next().driverUid, 128));
       }
       // A fresh request: offered to one taxi (or nobody, if no taxi is free), just now.
       function isFresh() {
@@ -482,18 +498,20 @@ service cloud.firestore {
           && next().createdAt == request.time
           && next().skipped.size() == 0
           && next().acceptedBy == null
+          && next().get('driverUid', null) == null
           && (next().status == 'expired' || (next().offerTo in queueOrder(center()) && (next().mode == 'direct' || fitsSize())));
       }
+      // The same trip; the driver's account (driverUid, whose earnings) stays unless driverIs() says
+      // otherwise: only the driver who offers or accepts sets it, to themselves.
       function sameTrip() {
-        return next().uid == prev().uid && next().name == prev().name && next().mode == prev().mode
-          && next().pickup == prev().pickup && next().destination == prev().destination
-          && next().phone == prev().phone && next().note == prev().note
-          && next().createdAt == prev().createdAt
-          && next().get('pickupAt', null) == prev().get('pickupAt', null)
-          // The total price is fixed from the start.
-          && next().get('price', null) == prev().get('price', null) && next().get('km', null) == prev().get('km', null)
-          && next().get('size', 'small') == prev().get('size', 'small')
-          && next().get('centerId', 'main') == prev().get('centerId', 'main');
+        return sameTripAs(prev().get('driverUid', null));
+      }
+      function sameTripAs(driver) {
+        // One diff instead of a check per field (rules stop at 1000 expressions). The total price is
+        // fixed from the start.
+        return next().get('driverUid', null) == driver
+          && !next().diff(prev()).affectedKeys().hasAny(['uid', 'name', 'mode', 'pickup', 'destination', 'phone', 'note',
+            'createdAt', 'pickupAt', 'destinationAt', 'price', 'km', 'size', 'centerId']);
       }
       // The request's taxi center (its queue and staff).
       function center() {
@@ -530,7 +548,10 @@ service cloud.firestore {
       }
       // The trip stays with the same taxi, and only the step and its time change.
       function sameOffer() {
-        return sameTrip() && next().offerTo == prev().offerTo && next().skipped == prev().skipped
+        return sameOfferAs(prev().get('driverUid', null));
+      }
+      function sameOfferAs(driver) {
+        return sameTripAs(driver) && next().offerTo == prev().offerTo && next().skipped == prev().skipped
           && next().acceptedBy == null && next().offerAt == request.time;
       }
       // Move the offer on from the current taxi (passed, no thanks, or timed out) to the next, or expire.
@@ -554,11 +575,15 @@ service cloud.firestore {
 
       // Each kind of change is told apart first by a cheap check (the new status, or a new
       // createdAt), so only one branch is checked in full (rules may evaluate 1000 expressions).
-      allow update: if signedIn() && validShape() && (
+      // A new request is checked in full (validShape). Every other change is a step of the same trip:
+      // each branch keeps the fixed fields (sameTrip), checked in full when the request was made, so
+      // only the step's own fields are checked (stepShape), which keeps the count down.
+      allow update: if signedIn() && (
         // The passenger: a new request.
-        (next().createdAt == request.time && uid == request.auth.uid && isFresh())
+        (next().createdAt == request.time && uid == request.auth.uid && validShape() && isFresh())
+        || (stepShape() && (
         // The passenger (before pickup) or staff: cancel.
-        || (next().status == 'cancelled' && sameTrip()
+        (next().status == 'cancelled' && sameTrip()
             && (centerStaff() || (uid == request.auth.uid && prev().status in ['offering', 'interest', 'confirmed', 'accepted', 'expired'])))
         // The trip. The driver: picked up, then arrived at the destination.
         || (next().status == 'onboard' && prev().status == 'accepted' && myRide()
@@ -584,7 +609,7 @@ service cloud.firestore {
         || (next().status == 'interest' && prev().status == 'offering' && prev().mode == 'queue'
             && isDriver() && prev().offerTo == myTaxi()
             && freeTaxi(prev().offerTo)
-            && sameOffer())
+            && sameOfferAs(request.auth.uid))
         // Open trip: the passenger books the taxi that offered.
         || (next().status == 'confirmed' && prev().status == 'interest' && uid == request.auth.uid && sameOffer())
         // Booked (open trip), or a taxi the passenger picked on the map (direct): the driver
@@ -595,7 +620,12 @@ service cloud.firestore {
             && next().acceptedBy == prev().offerTo && next().offerTo == prev().offerTo
             && next().skipped == prev().skipped && next().offerAt == prev().offerAt
             && freeTaxi(prev().offerTo)
-            && sameTrip())
+            // The driver's account: kept (the one who offered; staff completing a booking keep it),
+            // or, if missing, set by the accepting driver to themselves (direct).
+            && sameTripAs(next().get('driverUid', null))
+            && (next().get('driverUid', null) == prev().get('driverUid', null)
+              || (prev().get('driverUid', null) == null && next().driverUid == request.auth.uid && isDriver() && prev().offerTo == myTaxi())))
+        ))
       );
     }
 
@@ -692,6 +722,205 @@ service cloud.firestore {
           'vehicleSuspended', 'vehicleLinked', 'availableOn', 'availableOff', 'bookingSent', 'bookingCancelled', 'bookingDone',
           'offerTaken', 'offerPassed', 'tripFinished', 'problemReported', 'rideFixed']
         && (request.resource.data.uid == request.auth.uid || isStaff());
+      allow update, delete: if false;
+    }
+
+    // Each person's money account (src/account.ts, src/core/account.ts). Append-only. When a trip
+    // finishes, the batch that marks it done also records Paid for the passenger and Earned for the
+    // driver or owner, at the trip's fixed total, in cash. Each trip entry is checked against its
+    // trip (read after the batch): done, the same price, the right people, and one per trip and side
+    // (the id is the trip key and side, and entries are never updated). Staff add corrections, with
+    // a reason. Read by the person and staff.
+    match /accountEntries/{id} {
+      function e() {
+        return request.resource.data;
+      }
+      function tripDoc() {
+        return getAfter(e().kind == 'taxi'
+          ? /databases/$(database)/documents/requests/$(e().passengerUid)
+          : /databases/$(database)/documents/privateRides/$(e().passengerUid)).data;
+      }
+      function tripEntryOk() {
+        let t = tripDoc();
+        let driver = e().kind == 'taxi' ? t.get('driverUid', null) : t.get('ownerUid', null);
+        return t.status == 'done'
+          && e().amount == t.price
+          && e().tripKey == e().kind + '-' + e().passengerUid + '-' + string(t.createdAt.toMillis())
+          && id == e().tripKey + '-' + e().side
+          && ((e().side == 'paid' && e().uid == e().passengerUid) || (e().side == 'earned' && e().uid == driver))
+          && (request.auth.uid == e().passengerUid || request.auth.uid == driver || isStaff());
+      }
+      allow read: if signedIn() && (resource.data.uid == request.auth.uid || isStaff());
+      allow create: if signedIn()
+        && e().by == email() && e().at == request.time
+        && e().method == 'cash' && e().amount is int && str(e().uid, 128) && e().uid.size() > 0
+        && (
+          (e().side in ['earned', 'paid']
+            && e().keys().hasOnly(['uid', 'passengerUid', 'side', 'amount', 'method', 'kind', 'tripKey', 'note', 'by', 'at'])
+            && e().keys().hasAll(['uid', 'passengerUid', 'side', 'amount', 'method', 'kind', 'tripKey', 'note', 'by', 'at'])
+            && e().kind in ['taxi', 'private'] && e().note == '' && e().amount > 0
+            && str(e().passengerUid, 128) && e().passengerUid.size() > 0
+            && tripEntryOk())
+          || (e().side == 'correction' && isStaff()
+            && e().keys().hasOnly(['uid', 'side', 'amount', 'method', 'kind', 'tripKey', 'note', 'by', 'at'])
+            && e().keys().hasAll(['uid', 'side', 'amount', 'method', 'kind', 'tripKey', 'note', 'by', 'at'])
+            && e().kind == null && e().tripKey == ''
+            && e().amount != 0 && e().amount >= -100000 && e().amount <= 100000
+            && str(e().note, 120) && e().note.size() >= 3)
+        );
+      allow update, delete: if false;
+    }
+
+    // ---- Dhivehi corpus (src/core/corpus.ts, src/corpus.ts): the owner's own research, never
+    // imported from a dictionary. Words grouped by root, dialect forms, example sentences and the
+    // sources cited. Corpus editors are platform admins and anyone whose roles entry has corpus: true.
+    // Reading is editors only for now: open it up by changing corpusReader() alone.
+    // Every write also adds a corpusHistory entry in the same batch (the document names it in
+    // historyId, checked with getAfter); history is append-only. Editors may delete corpus documents:
+    // the history keeps the before snapshot.
+    function corpusEditor() {
+      // The corpus flag first: a corpus-only entry may have no role field.
+      return signedIn() && exists(roleDoc())
+        && (get(roleDoc()).data.get('corpus', false) == true || isPlatform());
+    }
+    function corpusReader() {
+      return corpusEditor();
+    }
+    // '' (where allowed) or text with Thaana letters (U+0780 to U+07BF).
+    function corpusThaana(v, max, allowEmpty) {
+      return v is string && v.size() <= max
+        && ((allowEmpty && v == '') || v.matches('(?s).*[\\x{0780}-\\x{07BF}].*'));
+    }
+    function corpusList(v, max) {
+      return v is list && v.size() <= max;
+    }
+    function corpusDialect(v) {
+      // Keep in step with DIALECTS in src/core/corpus.ts.
+      return v in ['male', 'addu', 'huvadhu', 'mulaku', 'naifaru'];
+    }
+    // Who and when: created once, updated on every write, always by the writer.
+    function corpusMeta(d) {
+      return d.updatedBy == email() && d.updatedAt == request.time
+        && (resource == null
+          ? d.createdBy == email() && d.createdAt == request.time
+          : d.createdBy == resource.data.createdBy && d.createdAt == resource.data.createdAt);
+    }
+    function corpusVerified(d) {
+      return d.verified is bool && d.verifiedBy is string
+        && ((d.verified == false && d.verifiedBy == '')
+          || (d.verified == true && (d.verifiedBy == email()
+            || (resource != null && resource.data.get('verified', false) == true && d.verifiedBy == resource.data.get('verifiedBy', '')))));
+    }
+    // The history entry written in the same batch, for this document.
+    function corpusLogged(col, docId) {
+      let h = getAfter(/databases/$(database)/documents/corpusHistory/$(request.resource.data.historyId)).data;
+      return h.collection == col && h.docId == docId && h.by == email() && h.at == request.time;
+    }
+    function corpusMetaKeys() {
+      return ['createdBy', 'createdAt', 'updatedBy', 'updatedAt', 'historyId'];
+    }
+    match /corpusRoots/{id} {
+      function ok(d) {
+        return d.keys().hasOnly(['thaana', 'latin', 'meaningEn', 'meaningDv', 'origin', 'notes', 'sources', 'verified', 'verifiedBy'].concat(corpusMetaKeys()))
+          && d.keys().hasAll(['thaana', 'latin', 'meaningEn', 'meaningDv', 'origin', 'notes', 'sources', 'verified', 'verifiedBy'].concat(corpusMetaKeys()))
+          && d.historyId is string
+          && corpusThaana(d.thaana, 80, false)
+          && str(d.latin, 80) && str(d.meaningEn, 500) && str(d.meaningDv, 500) && str(d.notes, 1000)
+          && d.origin in ['', 'sanskrit', 'pali', 'arabic', 'persian', 'urdu', 'hindi', 'english', 'portuguese', 'other']
+          && corpusList(d.sources, 30)
+          && corpusVerified(d) && corpusMeta(d) && corpusLogged('corpusRoots', id);
+      }
+      allow read: if corpusReader();
+      allow create, update: if corpusEditor() && ok(request.resource.data);
+      allow delete: if corpusEditor();
+    }
+    match /corpusWords/{wordId} {
+      // Thaana may be empty for a draft known only by its Latin spelling.
+      function ok(d) {
+        return d.keys().hasOnly(['thaana', 'latin', 'rootId', 'pos', 'meaningEn', 'meaningDv', 'category', 'scientificName', 'partUsed', 'notes', 'sources', 'verified', 'verifiedBy'].concat(corpusMetaKeys()))
+          && d.keys().hasAll(['thaana', 'latin', 'rootId', 'pos', 'meaningEn', 'meaningDv', 'category', 'scientificName', 'partUsed', 'notes', 'sources', 'verified', 'verifiedBy'].concat(corpusMetaKeys()))
+          && d.historyId is string
+          && corpusThaana(d.thaana, 80, true)
+          && str(d.latin, 80) && (d.thaana != '' || d.latin != '')
+          && str(d.rootId, 128)
+          && d.pos in ['', 'noun', 'verb', 'adjective', 'adverb', 'pronoun', 'particle', 'other']
+          && str(d.meaningEn, 500) && str(d.meaningDv, 500)
+          && d.category in ['', 'medicine', 'plant', 'vehicle', 'place', 'food', 'sea', 'general', 'other']
+          && str(d.scientificName, 80)
+          && d.partUsed in ['', 'seed', 'leaf', 'root', 'bark', 'fruit', 'flower', 'oil', 'whole', 'other']
+          && str(d.notes, 1000) && corpusList(d.sources, 30)
+          && corpusVerified(d) && corpusMeta(d) && corpusLogged('corpusWords', wordId);
+      }
+      allow read: if corpusReader();
+      allow create, update: if corpusEditor() && ok(request.resource.data);
+      allow delete: if corpusEditor();
+
+      match /forms/{dialect} {
+        function formOk(d) {
+          return corpusDialect(dialect)
+            && d.keys().hasOnly(['thaana', 'latin', 'pronunciation', 'notes', 'speaker', 'sources'].concat(corpusMetaKeys()))
+            && d.keys().hasAll(['thaana', 'latin', 'pronunciation', 'notes', 'speaker', 'sources'].concat(corpusMetaKeys()))
+            && d.historyId is string
+            && corpusThaana(d.thaana, 80, true)
+            && str(d.latin, 80) && str(d.pronunciation, 200) && str(d.notes, 1000)
+            // A short label like 'elder, Hithadhoo': never a full name or phone number.
+            && str(d.speaker, 60) && !d.speaker.matches('.*([0-9]{5,}|@).*')
+            && corpusList(d.sources, 30)
+            && corpusMeta(d) && corpusLogged('corpusForms', wordId + '/' + dialect)
+            && existsAfter(/databases/$(database)/documents/corpusWords/$(wordId));
+        }
+        allow read: if corpusReader();
+        allow create, update: if corpusEditor() && formOk(request.resource.data);
+        allow delete: if corpusEditor();
+      }
+    }
+    // Every word's forms in one query (collectionGroup('forms')): the word list's dialect counts and
+    // search, and the export. Read only; writes go through corpusWords/{wordId}/forms above.
+    match /{path=**}/forms/{dialect} {
+      allow read: if corpusReader();
+    }
+    match /corpusSentences/{id} {
+      function ok(d) {
+        return d.keys().hasOnly(['thaana', 'translationEn', 'dialect', 'wordIds', 'sources', 'notes'].concat(corpusMetaKeys()))
+          && d.keys().hasAll(['thaana', 'translationEn', 'dialect', 'wordIds', 'sources', 'notes'].concat(corpusMetaKeys()))
+          && d.historyId is string
+          && corpusThaana(d.thaana, 500, false)
+          && str(d.translationEn, 500) && str(d.notes, 1000)
+          && (d.dialect == '' || corpusDialect(d.dialect))
+          && corpusList(d.wordIds, 50) && corpusList(d.sources, 30)
+          && corpusMeta(d) && corpusLogged('corpusSentences', id);
+      }
+      allow read: if corpusReader();
+      allow create, update: if corpusEditor() && ok(request.resource.data);
+      allow delete: if corpusEditor();
+    }
+    match /corpusSources/{id} {
+      function ok(d) {
+        return d.keys().hasOnly(['kind', 'title', 'author', 'year', 'details', 'permission'].concat(corpusMetaKeys()))
+          && d.keys().hasAll(['kind', 'title', 'author', 'year', 'details', 'permission'].concat(corpusMetaKeys()))
+          && d.historyId is string
+          && d.kind in ['book', 'list', 'person', 'fieldwork', 'website', 'other']
+          && str(d.title, 200) && d.title.size() > 0
+          && str(d.author, 200) && str(d.year, 20) && str(d.details, 300) && str(d.permission, 200)
+          && corpusMeta(d) && corpusLogged('corpusSources', id);
+      }
+      allow read: if corpusReader();
+      allow create, update: if corpusEditor() && ok(request.resource.data);
+      allow delete: if corpusEditor();
+    }
+    // Append-only: created by an editor, as themselves, now; never changed or deleted.
+    match /corpusHistory/{id} {
+      allow read: if corpusReader();
+      allow create: if corpusEditor()
+        && request.resource.data.keys().hasOnly(['collection', 'docId', 'action', 'before', 'after', 'by', 'at'])
+        && request.resource.data.keys().hasAll(['collection', 'docId', 'action', 'before', 'after', 'by', 'at'])
+        && request.resource.data.by == email()
+        && request.resource.data.at == request.time
+        && request.resource.data.collection in ['corpusRoots', 'corpusWords', 'corpusForms', 'corpusSentences', 'corpusSources']
+        && str(request.resource.data.docId, 300)
+        && request.resource.data.action in ['create', 'update', 'delete', 'verify']
+        && (request.resource.data.before == null || request.resource.data.before is map)
+        && (request.resource.data.after == null || request.resource.data.after is map);
       allow update, delete: if false;
     }
 

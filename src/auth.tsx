@@ -22,6 +22,8 @@ interface AuthState {
   // admin (an admin without a center, or a developer): creates centers, sees every center.
   centerId: string
   isPlatform: boolean
+  // May read and edit the Dhivehi corpus: a platform admin, or roles/{email}.corpus is true.
+  corpusEditor: boolean
   error: string | null
   fb: Fb | null
   signIn: () => void
@@ -38,6 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [taxiId, setTaxiId] = useState<string | null>(null)
   const [alsoPrivate, setAlsoPrivate] = useState(false)
   const [centerId, setCenterId] = useState<string | null>(null)
+  const [corpusFlag, setCorpusFlag] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   // Load the SDK in the background and follow the sign-in state.
@@ -108,12 +111,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAlsoPrivate(r === 'driver' && snap.data()?.private === true)
         const c = snap.exists() ? snap.data().centerId : null
         setCenterId(typeof c === 'string' && c ? c : null)
+        setCorpusFlag(snap.exists() && snap.data().corpus === true)
       },
       () => {
         setRole(null)
         setTaxiId(null)
         setAlsoPrivate(false)
         setCenterId(null)
+        setCorpusFlag(false)
       },
     )
   }, [fb, user])
@@ -142,6 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     canPrivate: !!user && (role === 'private' || role === 'dev' || (role === 'driver' && alsoPrivate)),
     centerId: centerId ?? 'main',
     isPlatform: !!user && (role === 'dev' || (role === 'admin' && !centerId)),
+    corpusEditor: !!user && (corpusFlag || role === 'dev' || (role === 'admin' && !centerId)),
     error,
     fb,
     signIn,

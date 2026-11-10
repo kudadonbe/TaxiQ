@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
@@ -11,4 +12,6 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   // MapLibre's worker is loaded as a module worker.
   worker: { format: 'es' },
+  // Tests: only this app's own (not other sessions' worktrees in .claude/, nor the built docs/).
+  test: { exclude: ['**/node_modules/**', '.claude/**', 'docs/**'] },
 })
