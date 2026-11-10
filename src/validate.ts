@@ -63,6 +63,8 @@ export function parseStoredTaxi(value: unknown): Taxi | null {
   }
   if (Object.keys(validate(input, [])).length) return null
   const taxi = toTaxi(str(v.id), input)
+  if (typeof v.centerId === 'string' && /^[\w-]{1,40}$/.test(v.centerId)) taxi.centerId = v.centerId
+  if (typeof v.vehicleId === 'string' && /^[\w-]{1,40}$/.test(v.vehicleId)) taxi.vehicleId = v.vehicleId
   const suspension = parseSuspension(v.suspended)
   if (suspension) taxi.suspended = suspension
   return taxi

@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, type ReactNode } from 'react'
 import { useAuth } from './auth'
 import { useAvailability, useMyVehicles } from './vehicles'
+import { logMine } from './activity'
 
 // The vehicle this owner has switched to Available, for the whole app: it stays on the map on every
 // tab until they switch it off (or close the app). Remembered on this device across reloads.
@@ -22,7 +23,13 @@ export function AvailabilityProvider({ children }: { children: ReactNode }) {
       return null
     }
   })
+  const mine = useMyVehicles(fb, uid)
+  // Called only from the person's own switch: log the change, not the heartbeats.
   const setAvailable = (id: string | null) => {
+    if (id !== wanted) {
+      const reg = mine.find((v) => v.id === (id ?? wanted))?.reg ?? ''
+      logMine(fb, id ? 'availableOn' : 'availableOff', reg)
+    }
     setWanted(id)
     try {
       if (id) localStorage.setItem(KEY, id)
@@ -31,7 +38,6 @@ export function AvailabilityProvider({ children }: { children: ReactNode }) {
       // Storage unavailable: it lasts until reload.
     }
   }
-  const mine = useMyVehicles(fb, uid)
   const vehicle = mine.find((v) => v.id === wanted && v.status === 'approved') ?? null
   const run = useAvailability(fb, vehicle, (name ?? '').split(' ')[0] ?? '')
   return <AvailabilityContext.Provider value={{ availableId: vehicle ? vehicle.id : null, setAvailable, error: run.error }}>{children}</AvailabilityContext.Provider>

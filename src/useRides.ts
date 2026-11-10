@@ -130,13 +130,13 @@ function useFinishBookings(fb: Fb | null, list: RequestWithId[], email: string |
 }
 
 // Staff: requests still looking for a taxi, or that no taxi took.
-export function useOpenRequests(fb: Fb | null, enabled: boolean, staffEmail: string | null = null): RequestWithId[] {
+export function useOpenRequests(fb: Fb | null, enabled: boolean, staffEmail: string | null = null, center = 'main'): RequestWithId[] {
   const [list, setList] = useState<RequestWithId[]>([])
   useEffect(() => {
     if (!fb || !enabled) return
     const { db, collection, query, where, onSnapshot } = fb
     return onSnapshot(
-      query(collection(db, 'requests'), where('status', 'in', ['offering', 'interest', 'confirmed', 'expired', 'problem'])),
+      query(collection(db, 'requests'), where('centerId', '==', center), where('status', 'in', ['offering', 'interest', 'confirmed', 'expired', 'problem'])),
       (snap) =>
         setList(
           snap.docs
@@ -146,7 +146,7 @@ export function useOpenRequests(fb: Fb | null, enabled: boolean, staffEmail: str
         ),
       () => setList([]),
     )
-  }, [fb, enabled])
+  }, [fb, enabled, center])
   const current = fb && enabled ? list : []
   useAutoMoveOn(fb, current)
   useFinishBookings(fb, current, staffEmail, 5000)

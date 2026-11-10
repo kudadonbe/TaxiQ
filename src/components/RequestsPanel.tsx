@@ -8,10 +8,10 @@ import type { Taxi } from '../types'
 import { useNow, useOpenRequests } from '../useRides'
 
 // Staff: passenger requests still being offered, or that no taxi took (handle those by radio).
-export function RequestsPanel({ taxis }: { taxis: Taxi[] }) {
+export function RequestsPanel({ taxis, center = 'main' }: { taxis: Taxi[]; center?: string }) {
   const { fb, email } = useAuth()
   const { t } = useI18n()
-  const list = useOpenRequests(fb, true, email)
+  const list = useOpenRequests(fb, true, email, center)
   const now = useNow(list.some((r) => r.status !== 'expired'))
   const no = (id: string | null) => taxis.find((x) => x.id === id)?.taxiNo ?? '?'
 

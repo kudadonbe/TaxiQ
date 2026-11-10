@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { BEAT_MS, beatLevel, isFresh, WAKE_METRES, type BeatLevel } from './core/heartbeat'
+import { logActivity } from './activity'
 
 // Private vehicles for hire (people and companies, not a center's queue). See firestore.rules:
 //   vehicles/{id}        the application and record (owner and staff read; has the phone number)
@@ -38,6 +39,10 @@ export interface Vehicle extends VehicleDetails {
   decidedAt: number | null
   createdAt: number
   rider: Rider
+  // Also a center taxi (the same vehicle, e.g. P6017 and T6017): the linked taxi record, set by an
+  // admin; and the owner's request to join the center, until an admin answers it.
+  taxiId: string | null
+  taxiRequestAt: number | null
 }
 export interface PublicVehicle {
   id: string
@@ -106,6 +111,8 @@ function parseVehicle(id: string, x: Record<string, unknown>): Vehicle | null {
     decidedBy: typeof x.decidedBy === 'string' ? x.decidedBy : null,
     decidedAt: ms(x.decidedAt) || null,
     createdAt: ms(x.createdAt),
+    taxiId: typeof x.taxiId === 'string' ? x.taxiId : null,
+    taxiRequestAt: x.taxiRequest && typeof x.taxiRequest === 'object' ? ms((x.taxiRequest as Record<string, unknown>).at) || Date.now() : null,
     rider: riderOf(x.rider),
   }
 }
@@ -185,10 +192,62 @@ const clean = (d: VehicleDetails & { rider?: Rider }) => ({
 export async function applyVehicle(fb: Fb, me: { uid: string; name: string; email: string }, d: VehicleDetails, existing?: Vehicle) {
   const ref = existing ? fb.doc(fb.db, 'vehicles', existing.id) : fb.doc(fb.collection(fb.db, 'vehicles'))
   const base = { ...clean(d), ownerUid: me.uid, ownerName: me.name.slice(0, 80), kind: 'private', status: 'pending', reason: '', decidedBy: null, decidedAt: null, updatedAt: fb.serverTimestamp() }
-  if (existing) await fb.setDoc(ref, { ...base, createdAt: fb.Timestamp.fromMillis(existing.createdAt || Date.now()) })
+  // Re-sending keeps a link to the center taxi (the rules refuse dropping it).
+  if (existing) await fb.setDoc(ref, { ...base, ...(existing.taxiId ? { taxiId: existing.taxiId } : {}), createdAt: fb.Timestamp.fromMillis(existing.createdAt || Date.now()) })
   else await fb.setDoc(ref, { ...base, createdAt: fb.serverTimestamp() })
   await log(fb, ref.id, me.uid, existing ? 'edited' : 'applied', me.email)
+  logActivity(fb, me.uid, existing ? 'vehicleEdited' : 'vehicleApplied', me.email, clean(d).reg)
 }
+// An approved vehicle: price, rider, colour, phone and note change straight away; a new
+// registration, type or seats sends it back to Pending for an operator to check again (and it comes
+// off the map until approved).
+export const BIG_CHANGES: (keyof VehicleDetails)[] = ['reg', 'type', 'seats']
+export function needsRecheck(v: Vehicle, d: VehicleDetails) {
+  const c = clean(d)
+  return c.reg !== v.reg || c.type !== v.type || c.seats !== v.seats
+}
+export async function editApproved(fb: Fb, v: Vehicle, d: VehicleDetails, email: string) {
+  const c = clean(d)
+  const recheck = needsRecheck(v, d)
+  const data: Record<string, unknown> = recheck
+    ? { ...c, status: 'pending', reason: '', updatedAt: fb.serverTimestamp() }
+    : { colour: c.colour, phone: c.phone, note: c.note, priceBase: c.priceBase, pricePerKm: c.pricePerKm, updatedAt: fb.serverTimestamp() }
+  await fb.updateDoc(fb.doc(fb.db, 'vehicles', v.id), data)
+  await log(fb, v.id, v.ownerUid, 'edited', email)
+  logActivity(fb, v.ownerUid, 'vehicleEdited', email, recheck ? `${c.reg} · recheck` : c.reg)
+}
+// The owner asks to run this vehicle as a center taxi too (or takes the request back).
+export async function askToBeTaxi(fb: Fb, v: Vehicle, ask: boolean) {
+  await fb.updateDoc(fb.doc(fb.db, 'vehicles', v.id), { taxiRequest: ask ? { at: fb.serverTimestamp() } : null, updatedAt: fb.serverTimestamp() })
+}
+// An admin links the vehicle to the center as a taxi: creates the taxi record (center number, T
+// registration, driver names, seats), links both ways, and makes the owner its driver, keeping
+// private hire (roles: driver + private). An owner who is staff keeps their role and gets the taxi.
+export async function linkAsTaxi(
+  fb: Fb,
+  v: Vehicle,
+  taxi: { taxiNo: string; taxiReg: string; name: string; nameDv: string; phone: string; seats: number },
+  ownerEmail: string,
+  adminEmail: string,
+  center = 'main',
+) {
+  const taxiRef = fb.doc(fb.collection(fb.db, 'taxis'))
+  const roleRef = fb.doc(fb.db, 'roles', ownerEmail.toLowerCase())
+  const current = await fb.getDoc(roleRef)
+  const role = current.exists() ? current.data().role : null
+  const batch = fb.writeBatch(fb.db)
+  batch.set(taxiRef, { taxiNo: taxi.taxiNo, taxiReg: taxi.taxiReg, driver: { name: taxi.name, nameDv: taxi.nameDv, phone: taxi.phone }, seats: taxi.seats, vehicleId: v.id, centerId: center })
+  batch.update(fb.doc(fb.db, 'vehicles', v.id), { taxiId: taxiRef.id, taxiRequest: null, updatedAt: fb.serverTimestamp() })
+  if (role === 'admin' || role === 'operator' || role === 'dev') batch.set(roleRef, { taxiId: taxiRef.id }, { merge: true })
+  else batch.set(roleRef, { role: 'driver', taxiId: taxiRef.id, private: true, centerId: center, addedBy: adminEmail, addedAt: fb.serverTimestamp() })
+  await batch.commit()
+  await log(fb, v.id, v.ownerUid, 'linked', adminEmail)
+  logActivity(fb, v.ownerUid, 'vehicleLinked', adminEmail, `${v.reg} · taxi ${taxi.taxiNo}`)
+}
+export async function declineTaxiRequest(fb: Fb, v: Vehicle) {
+  await fb.updateDoc(fb.doc(fb.db, 'vehicles', v.id), { taxiRequest: null, updatedAt: fb.serverTimestamp() })
+}
+
 export async function setPrice(fb: Fb, v: Vehicle, priceBase: number, pricePerKm: number) {
   await fb.updateDoc(fb.doc(fb.db, 'vehicles', v.id), { priceBase, pricePerKm, updatedAt: fb.serverTimestamp() })
 }
@@ -203,6 +262,7 @@ export async function withdrawVehicle(fb: Fb, v: Vehicle, email: string) {
 export async function decideVehicle(fb: Fb, v: Vehicle, status: 'approved' | 'rejected' | 'suspended', reason: string, email: string) {
   await fb.updateDoc(fb.doc(fb.db, 'vehicles', v.id), { status, reason: reason.slice(0, 120), decidedBy: email, decidedAt: fb.serverTimestamp(), updatedAt: fb.serverTimestamp() })
   await log(fb, v.id, v.ownerUid, status, email, reason)
+  logActivity(fb, v.ownerUid, status === 'approved' ? 'vehicleApproved' : status === 'rejected' ? 'vehicleRejected' : 'vehicleSuspended', email, reason.slice(0, 80))
   if (status !== 'approved') await fb.deleteDoc(fb.doc(fb.db, 'publicVehicles', v.id)).catch(() => undefined)
 }
 

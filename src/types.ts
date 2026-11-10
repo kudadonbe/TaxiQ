@@ -23,6 +23,10 @@ export interface Taxi {
   // Passenger seats (1-15). 7 or more is a 7-10 seat taxi, with its own official fares in Greater
   // Malé (src/core/zoneFares.ts). Older records have none: 4.
   seats?: number
+  // The same vehicle offered for private hire (vehicles/{id}): while it is on the private map, the
+  // taxi gets no queue offers (one at a time).
+  vehicleId?: string
+  centerId?: string // its taxi center (src/centers.ts); none = the first center
   suspended?: Suspension
 }
 export const seatsOf = (t: Pick<Taxi, 'seats'>) => t.seats ?? 4
