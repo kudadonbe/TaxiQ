@@ -40,6 +40,7 @@ const MapView = lazy(() => import('./components/MapView'))
 const MyVehicles = lazy(() => import('./components/MyVehicles').then((m) => ({ default: m.MyVehicles })))
 const MyAccount = lazy(() => import('./components/MyAccount').then((m) => ({ default: m.MyAccount })))
 const VehiclesAdmin = lazy(() => import('./components/VehiclesAdmin').then((m) => ({ default: m.VehiclesAdmin })))
+const ServicesAdmin = lazy(() => import('./components/ServicesAdmin').then((m) => ({ default: m.ServicesAdmin })))
 const CorpusView = lazy(() => import('./components/CorpusView').then((m) => ({ default: m.CorpusView })))
 const GameTab = lazy(() => import('./game/GameTab').then((m) => ({ default: m.GameTab })))
 
@@ -637,6 +638,7 @@ export default function App() {
               </div>
             }
             vehicles={live ? <Suspense fallback={<p className="text-sm text-slate-500">{t.loading}</p>}><VehiclesAdmin taxis={queue} center={staffCenter} /></Suspense> : undefined}
+            services={live ? <Suspense fallback={<p className="text-sm text-slate-500">{t.loading}</p>}><ServicesAdmin /></Suspense> : undefined}
             voice={live && auth.isPlatform ? <VoiceMessagesPanel /> : undefined}
             centers={live && auth.isPlatform ? <CentersPanel centers={centers} /> : undefined}
           />
