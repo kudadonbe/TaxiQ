@@ -1566,6 +1566,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     if (!mySpot) return
     setMode('taxi')
     setSvcTrip({ from: mySpot, to: x.at, name: svcName(x) })
+    setOpenPanel(null) // the card would cover the route; the route card has its own close
   }
   const toggle = (which: 'key' | 'share' | 'help' | 'hire') => {
     if (active === which) return closeActive()
