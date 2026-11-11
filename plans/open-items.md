@@ -2,19 +2,15 @@
 
 What's waiting, so any session (on any machine, or in the cloud at claude.ai/code) can pick up
 where the last one stopped. Update it when something is done or new: tick it, or remove it once
-it's merged and released. Last updated 2026-11-10.
+it's merged and released. Last updated 2026-11-11.
 
 ## In progress
 
-- [ ] **Services on the map** (branch `services-map`, pull request into `v2` open): mechanics,
-  tyres, towing and other helpers. **Done:** the shared core, the Firestore rules and rule checks,
-  My services, Management -> Services, the **map layer** (markers per kind, faded when closed, a
-  Services toggle in the map key, a card with Call and Route) and **Help near me** (kind filter, 5
-  nearest open helpers), the CLAUDE.md bullet and the SECURITY.md row. Checked: `tsc -b`, lint,
-  tests and `pnpm test:rules` (279 passed). **Left:** review and merge the pull request, then
-  deploy with `pnpm release` (new rules); check the Dhivehi labels; add the v3 port line. Help near me ranks by
-  straight line (by road for the top few is a later step). Later: request a mechanic or tow,
-  ratings and reports (plan §6). `services-map-wip` can be deleted once merged.
+- [x] **Services on the map**: merged ([PR #3](https://github.com/kudadonbe/TaxiQ/pull/3), `40c4ea0`)
+  and released 2026-11-11 (`pnpm release`). Review fix: a suspended listing can't be withdrawn.
+  **Left:** check the Dhivehi labels (svc*); Help near me by road distance for the top few; later
+  request a mechanic or tow, ratings and reports (plan §6). Branches `services-map`,
+  `services-map-wip` and `review-services` can be deleted.
 - [ ] **Automatic deploy** ([PR #2](https://github.com/kudadonbe/TaxiQ/pull/2), branch `ci-deploy`):
   every merge to `v2` checks, then deploys hosting, rules and indexes. Before merging: create the
   deploy-only service account and the `FIREBASE_SERVICE_ACCOUNT` secret (SECURITY.md, "Automatic
