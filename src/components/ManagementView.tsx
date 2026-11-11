@@ -1,18 +1,18 @@
-import { AudioLines, Building2, Car, CarTaxiFront, Users } from 'lucide-react'
+import { AudioLines, Building2, Car, CarTaxiFront, LifeBuoy, Users } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { useI18n } from '../i18n'
 
-type Section = 'users' | 'taxis' | 'vehicles' | 'voice' | 'centers'
+type Section = 'users' | 'taxis' | 'vehicles' | 'services' | 'voice' | 'centers'
 const KEY = 'taxiq.management'
 
 // Management (admins): its own sections, starting with user management (everyone who has signed in,
 // their roles, who's online) and taxi registration. The choice is kept for the session.
-export function ManagementView({ users, taxis, vehicles, voice, centers }: { users: ReactNode; taxis: ReactNode; vehicles?: ReactNode; voice?: ReactNode; centers?: ReactNode }) {
+export function ManagementView({ users, taxis, vehicles, services, voice, centers }: { users: ReactNode; taxis: ReactNode; vehicles?: ReactNode; services?: ReactNode; voice?: ReactNode; centers?: ReactNode }) {
   const { t } = useI18n()
   const [section, setSectionState] = useState<Section>(() => {
     try {
       const v = sessionStorage.getItem(KEY)
-      return v === 'taxis' || v === 'vehicles' || v === 'voice' || v === 'centers' ? v : 'users'
+      return v === 'taxis' || v === 'vehicles' || v === 'services' || v === 'voice' || v === 'centers' ? v : 'users'
     } catch {
       return 'users'
     }
@@ -29,6 +29,7 @@ export function ManagementView({ users, taxis, vehicles, voice, centers }: { use
     { id: 'users', label: t.mgmtUsers, Icon: Users },
     { id: 'taxis', label: t.mgmtTaxis, Icon: CarTaxiFront },
     ...(vehicles ? [{ id: 'vehicles' as const, label: t.mgmtVehicles, Icon: Car }] : []),
+    ...(services ? [{ id: 'services' as const, label: t.mgmtServices, Icon: LifeBuoy }] : []),
     ...(voice ? [{ id: 'voice' as const, label: t.mgmtVoice, Icon: AudioLines }] : []),
     ...(centers ? [{ id: 'centers' as const, label: t.mgmtCenters, Icon: Building2 }] : []),
   ]
@@ -51,7 +52,7 @@ export function ManagementView({ users, taxis, vehicles, voice, centers }: { use
           </button>
         ))}
       </nav>
-      {section === 'users' ? users : section === 'vehicles' && vehicles ? vehicles : section === 'voice' && voice ? voice : section === 'centers' && centers ? centers : taxis}
+      {section === 'users' ? users : section === 'vehicles' && vehicles ? vehicles : section === 'services' && services ? services : section === 'voice' && voice ? voice : section === 'centers' && centers ? centers : taxis}
     </div>
   )
 }

@@ -12,6 +12,7 @@ import { ACTIVITY_DAYS, useActivity } from '../activity'
 import { useAccount } from '../account'
 import { totals } from '../core/account'
 import { MoneyEntries, MoneyMonths, MoneyTotals } from './MoneyList'
+import { MyServices } from './MyServices'
 
 // My account: who you are, why you can or can't take rides (and how to fix it), your bookings as a
 // passenger, your trips as a driver or owner, your money account, and your activity log.
@@ -252,6 +253,8 @@ export function MyAccount({ onGoTo }: { onGoTo?: (view: GoTo) => void }) {
         <MoneyEntries entries={money} max={30} />
         <p className="text-xs text-slate-500">{t.moneyCashNote}</p>
       </section>
+
+      <MyServices />
 
       <section className={card}>
         <h3 className="flex items-center gap-2 font-black">
