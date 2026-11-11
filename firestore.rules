@@ -466,8 +466,9 @@ service cloud.firestore {
           && request.resource.data.decidedBy == email()
           && request.resource.data.decidedAt == request.time
           && request.resource.data.updatedAt == request.time));
-      // The owner withdraws it.
-      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+      // The owner withdraws it, but not while suspended (a suspension can't be escaped by
+      // withdrawing and applying again).
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid && resource.data.status != 'suspended';
     }
     // Every application and decision, kept for good.
     match /serviceLog/{logId} {

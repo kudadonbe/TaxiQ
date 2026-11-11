@@ -423,6 +423,7 @@ await expect('pending: it cannot stay on the map', 'm', [write('publicServices/s
 await expect('suspending needs a reason', 'op', [decide('suspended')], false)
 await expect('an operator suspends it with a reason and takes it off the map', 'op', [decide('suspended', 'Complaints'), delW('publicServices/s1')], true)
 await expect('the owner cannot lift a suspension', 'm', [write('services/s1', { status: 'pending', reason: '', updatedAt: NOW }, { merge: true })], false)
+await expect('the owner cannot escape a suspension by withdrawing it', 'm', [delW('services/s1')], false)
 await expect('nobody changes the log', 'op', [write('serviceLog/sl3', svcLog({ action: 'approved' }))], false)
 await del('nobody deletes a service log entry', 'op', 'serviceLog/sl3')
 await canRead('another citizen cannot read the service log', 'n', 'serviceLog/sl1', false)

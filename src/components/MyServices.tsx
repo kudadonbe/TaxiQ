@@ -104,6 +104,8 @@ function ServiceCard({ s, onEdit, onWithdraw }: { s: Service; onEdit: () => void
             {s.status === 'rejected' ? t.vehFixResend : t.vehEdit}
           </button>
         )}
+        {/* A suspended listing can't be withdrawn (the rules refuse it too). */}
+        {s.status !== 'suspended' && (
         <button
           type="button"
           onClick={() => {
@@ -116,6 +118,7 @@ function ServiceCard({ s, onEdit, onWithdraw }: { s: Service; onEdit: () => void
         >
           {sure ? t.svcWithdrawSure : t.vehWithdraw}
         </button>
+        )}
       </div>
     </div>
   )
