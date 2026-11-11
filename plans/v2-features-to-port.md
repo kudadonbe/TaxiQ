@@ -247,6 +247,8 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
   - The server writes money entries (hash-chained ledger) and connects the payment gateway; the corpus becomes a shared service with public read and reviewed contributions.
 - [ ] Ported
 
+## 25. Services on the map (mechanics, tyres, towing...): `40c4ea0`. v3: approval, open-now and nearest-help on the server; the rules' 'publicServices matches the approved listing' check becomes a server check.
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
