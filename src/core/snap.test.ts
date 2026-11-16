@@ -30,6 +30,19 @@ describe('keep vehicles on the road', () => {
     expect(alongRoad(g, s, 250)).toBeCloseTo(270, 0) // was going roughly west: faces west
     expect(alongRoad(g, s, 80)).toBeCloseTo(90, 0)
   })
+  it('on a one-way road it only ever faces the way the road may be driven', () => {
+    // West-east one-way (0 -> 1 only), and an east-west one-way just north of it (3 -> 2 only).
+    const oneWay: RoadGraph = {
+      nodes: [[4.17, 73.5], [4.17, 73.502], [4.1705, 73.5], [4.1705, 73.502]],
+      next: [[1], [], [], [2]],
+    }
+    const east = snapToRoad(oneWay, [4.1699, 73.501])!
+    expect(alongRoad(oneWay, east, 270)).toBeCloseTo(90, 0) // was heading west: still faces east, the only way
+    expect(alongRoad(oneWay, east, 90)).toBeCloseTo(90, 0)
+    const west = snapToRoad(oneWay, [4.1706, 73.501])!
+    expect(alongRoad(oneWay, west, 90)).toBeCloseTo(270, 0) // was heading east: faces west, the only way
+    expect(alongRoad(oneWay, west, 250)).toBeCloseTo(270, 0)
+  })
   it('predicts the road ahead, the way the vehicle is facing', () => {
     const s = snapToRoad(g, [4.17, 73.5005])! // on the west-east road, facing east
     const ahead = roadAhead(g, s, 90, 400)

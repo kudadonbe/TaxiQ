@@ -1,4 +1,4 @@
-import { ArrowUpDown, BookOpen, Car, CarTaxiFront, Eye, Gamepad2, Hand, Languages, ListOrdered, LogIn, LogOut, Map as MapIcon, MapPin, Pencil, Settings2, Undo2, UserRound, type LucideIcon } from 'lucide-react'
+import { ArrowUpDown, BookOpen, Car, CarTaxiFront, Eye, Gamepad2, Hand, Languages, ListOrdered, LogIn, LogOut, Map as MapIcon, MapPin, Pencil, PersonStanding, Settings2, Undo2, UserRound, type LucideIcon } from 'lucide-react'
 import { ic } from './components/iconStyles'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from './auth'
@@ -35,6 +35,7 @@ import { usePeople, useShareMe } from './usePresence'
 import { useAvailableVehicle } from './availability'
 import { ShareMe } from './components/ShareMe'
 import { validateCall } from './validate'
+import { setOffDuty } from './duty'
 
 // Leaflet is only loaded when a map is shown.
 const MapView = lazy(() => import('./components/MapView'))
@@ -76,6 +77,7 @@ const TAB_ICONS: Record<View, (l: Record<View, string>) => { Icon: LucideIcon; l
 const VIEW_AS = ['dev', 'admin', 'operator', 'driver', 'private', 'citizen'] as const
 type ViewAs = (typeof VIEW_AS)[number]
 const VIEW_AS_KEY = 'taxiq.viewAs'
+const CITIZEN_KEY = 'taxiq.asCitizen'
 
 export default function App() {
   const auth = useAuth()
@@ -99,7 +101,40 @@ export default function App() {
     }
   }
   const isDev = signedIn && auth.role === 'dev'
-  const role = isDev ? (viewAs === 'citizen' ? null : viewAs) : auth.role
+  // Use as a citizen (anyone with a staff or driver role; developers have View as): this screen then
+  // shows what a citizen sees. The stored role and the rules are unchanged. A driver goes off duty
+  // while it's on (duty/{taxiId}): their taxi keeps its place in the queue but gets no offers.
+  const [asCitizen, setAsCitizenState] = useState(() => {
+    try {
+      return sessionStorage.getItem(CITIZEN_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  const [dutyError, setDutyError] = useState<string | null>(null)
+  const canCitizen = signedIn && !DEMO_HOST && (auth.role === 'admin' || auth.role === 'operator' || auth.role === 'driver')
+  const citizen = canCitizen && asCitizen
+  const toggleCitizen = async () => {
+    const on = !citizen
+    setDutyError(null)
+    if (auth.role === 'driver' && auth.taxiId && auth.fb && auth.email) {
+      try {
+        await setOffDuty(auth.fb, auth.taxiId, auth.email, on)
+      } catch (e) {
+        setDutyError((e as { code?: string }).code ?? 'error')
+        // Off duty must be saved before the driver stops seeing offers; back on duty is always
+        // allowed (the Driver screen shows the state and can retry).
+        if (on) return
+      }
+    }
+    setAsCitizenState(on)
+    try {
+      sessionStorage.setItem(CITIZEN_KEY, on ? '1' : '0')
+    } catch {
+      // Storage unavailable: the choice lasts until reload.
+    }
+  }
+  const role = isDev ? (viewAs === 'citizen' ? null : viewAs) : citizen ? null : auth.role
   const mode: Mode = DEMO_HOST
     ? 'demo'
     : signedIn && role === 'dev'
@@ -225,7 +260,7 @@ export default function App() {
   // TaxiQ Game is open to everyone on the live site (not the demo host).
   // My account: everyone signed in (not the demo host).
   // The Dhivehi corpus: corpus editors only (platform admins, or roles/{email}.corpus).
-  const game: View[] = DEMO_HOST ? [] : ['vehicles', ...(signedIn ? (['account'] as View[]) : []), ...(auth.corpusEditor ? (['corpus'] as View[]) : []), 'game']
+  const game: View[] = DEMO_HOST ? [] : ['vehicles', ...(signedIn ? (['account'] as View[]) : []), ...(auth.corpusEditor && !citizen ? (['corpus'] as View[]) : []), 'game']
   const tabs: View[] =
     mode === 'dev'
       ? ['queue', 'map', 'admin', 'driver', 'hire', ...game]
@@ -326,6 +361,19 @@ export default function App() {
               </select>
               </label>
             )}
+            {canCitizen && (
+              <button
+                type="button"
+                onClick={() => void toggleCitizen()}
+                aria-pressed={citizen}
+                aria-label={citizen ? t.dutyBackToRole : t.dutyUseAsCitizen}
+                title={citizen ? t.dutyBackToRole : t.dutyUseAsCitizen}
+                className={`inline-flex min-h-10 min-w-10 items-center justify-center gap-1 rounded-lg border px-2 font-medium sm:px-3 ${citizen ? 'border-sky-400 bg-sky-50 text-sky-800' : 'border-slate-200 text-slate-700 hover:bg-slate-100'}`}
+              >
+                <PersonStanding className="size-4" aria-hidden="true" />
+                <span className="hidden sm:inline">{citizen ? t.dutyBackToRole : t.dutyUseAsCitizen}</span>
+              </button>
+            )}
             {canTranslate && (
               <button
                 type="button"
@@ -413,9 +461,11 @@ export default function App() {
             signedIn && (
               <p className="text-slate-500">
                 <bdi dir="ltr">{auth.email}</bdi>
+                {citizen && <span className="font-semibold text-sky-800"> · {t.dutyAsCitizen}</span>}
               </p>
             )
           )}
+          {dutyError && <p className="mt-1 font-semibold text-rose-700">{t.saveError(dutyError)}</p>}
           {auth.error && <p className="mt-1 font-semibold text-rose-700">{t.signInError(auth.error)}</p>}
           {operatorScreens && q.error && <p className="mt-1 font-semibold text-rose-700">{t.saveError(q.error)}</p>}
         </div>

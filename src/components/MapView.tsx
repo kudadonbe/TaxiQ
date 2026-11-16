@@ -1,4 +1,4 @@
-import { CarTaxiFront, Footprints, Hand, Info, LifeBuoy, LocateFixed, MapPin, Phone, Radar, Route as RouteIcon, X } from 'lucide-react'
+import { Bus as BusIcon, CarTaxiFront, Footprints, Hand, Info, LifeBuoy, LocateFixed, MapPin, Phone, Radar, Route as RouteIcon, X, type LucideIcon } from 'lucide-react'
 import { PlaceTypeIcon } from './icons'
 import { ic } from './iconStyles'
 import type { Feature, LineString } from 'geojson'
@@ -23,11 +23,12 @@ import { useLiveBuses, type Bus, type BusRoute } from '../buses'
 import { MOVING_ICONS, SERVICE_ICONS, VEHICLE_ICONS } from './iconStyles'
 import type { PublicService } from '../services'
 import { nearestHelp, SERVICE_KINDS, todayHours, type ServiceKind } from '../core/services'
-import { bearing, coastGlide, glideAt, glideSpeed, glideState, nextGlide, turnAhead, turnToward, type Glide } from '../core/glide'
-import { indicator, leanDegrees } from '../core/drive'
-import { inLane, twoWayBetween } from '../core/lanes'
+import { bearing, coastGlide, driveGlide, glideAt, glideBraking, glideSpeed, glideState, MAX_GLIDE_MS, MIN_GLIDE_MS, nextGlide, OVERRUN, standGlide, turnAhead, type Glide } from '../core/glide'
+import { CATCH_UP_GIVE_UP_S, catchUpSpeed, driveProfile, indicator, leanDegrees, needsCatchUp, roadLimitKmh, type DriveType } from '../core/drive'
+import { axleCentre, axleHeading, followFront, placeAxles, WHEELBASE_M, type Axles } from '../core/kinematics'
+import { isTwoWay, LANE_OFFSET_M, toTheLeft, twoWayBetween } from '../core/lanes'
 import { alongRoad, roadAhead, snapParked, snapToRoad, type Snapped } from '../core/snap'
-import { filterReading, newTracker, shouldReappear, type Tracker } from '../core/gpsFilter'
+import { filterReading, newTracker, personJumped, type Tracker } from '../core/gpsFilter'
 import { forward, makeLine, nextStop, pointAt, project, stretch, type RouteLine } from '../core/routeLine'
 import { createRoot, type Root } from 'react-dom/client'
 import { loadPlots, plotPopup, plotsGeoJSON, type Plot } from './plotLayer'
@@ -240,37 +241,150 @@ const VEHICLE_SVGS: Record<'car' | 'van' | 'pickup' | 'motorbike' | 'ebike', str
   ebike: bikeSvg('ebike', 'none'),
 }
 
-// Vehicles at their real length for the zoom, like a game camera; a minimum on-screen size keeps
-// them visible when zoomed out, and a maximum keeps them from filling the screen.
+// Vehicles at their real length for the zoom, like a game camera, never smaller than BADGE_PX on
+// screen and with a maximum so they don't fill it. Zoomed out (an island or more in view: where the
+// real-size shape would be under BADGE_SWITCH_PX, about zoom 17.5 for a car), a round badge (BADGE_PX
+// across) with the type's icon and a direction arrow is drawn instead, so a motorbike or a bus stays
+// easy to see. At street level the top-down shape takes over at the badge's own size (no jump) and
+// grows to its true size as the map zooms in.
 type SizedVehicle = 'car' | 'van' | 'pickup' | 'motorbike' | 'ebike' | 'bus'
 const REAL_LENGTH_M: Record<SizedVehicle, number> = { car: 4.5, van: 5.2, pickup: 5.3, motorbike: 2.1, ebike: 1.8, bus: 12 }
 const DRAWN_PX: Record<SizedVehicle, number> = { car: 36, van: 40, pickup: 40, motorbike: 34, ebike: 32, bus: 56 } // SVG height
-const MIN_PX: Record<SizedVehicle, number> = { car: 16, van: 17, pickup: 17, motorbike: 13, ebike: 12, bus: 24 }
-function realScale(m: MlMap, type: SizedVehicle) {
+const BADGE_PX = 24
+const BADGE_SWITCH_PX = 6
+function realPx(m: MlMap, type: SizedVehicle) {
   const lat = m.getCenter().lat
   const metresPerPx = (40_075_016.686 * Math.cos((lat * Math.PI) / 180)) / (512 * 2 ** m.getZoom())
-  const px = Math.max(MIN_PX[type] ?? 16, Math.min((REAL_LENGTH_M[type] ?? 4.5) / metresPerPx, 160))
-  return px / (DRAWN_PX[type] ?? 36)
+  return (REAL_LENGTH_M[type] ?? 4.5) / metresPerPx
+}
+const realScale = (px: number, type: SizedVehicle) => Math.max(BADGE_PX, Math.min(px, 160)) / (DRAWN_PX[type] ?? 36)
+
+// The zoomed-out badge: a round disc in the vehicle's colour with its type's icon (rendered by
+// React into the marker) and a small arrow on its rim that points the way it is going.
+interface Badge {
+  el: HTMLSpanElement
+  dir: HTMLSpanElement
+  root: Root
+  icon: string
+}
+function makeBadge(): Badge {
+  const el = document.createElement('span')
+  el.className = 'veh-badge'
+  const dir = document.createElement('span')
+  dir.className = 'veh-badge-dir'
+  const icon = document.createElement('span')
+  icon.className = 'veh-badge-icon'
+  el.append(dir, icon)
+  return { el, dir, root: createRoot(icon), icon: '' }
+}
+function setBadgeIcon(b: Badge, key: string, Icon: LucideIcon) {
+  if (b.icon === key) return
+  b.icon = key
+  b.root.render(<Icon className="size-3.5" aria-hidden="true" strokeWidth={2.5} />)
+}
+// Dark or white icon, whichever reads on the badge's colour.
+function inkFor(hex: string) {
+  const n = /^#[0-9a-f]{6}$/i.test(hex) ? parseInt(hex.slice(1), 16) : 0
+  return 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255) > 150 ? '#0f172a' : '#ffffff'
+}
+// Draw a vehicle at this zoom: the badge (arrow turned by `rel` degrees) or the real-size shape.
+function drawVehicle(root: HTMLElement, shape: HTMLElement, badge: Badge, px: number, type: SizedVehicle, rel: number, extra = '') {
+  const asBadge = px < BADGE_SWITCH_PX
+  if (root.classList.contains('as-badge') !== asBadge) {
+    root.classList.toggle('as-badge', asBadge)
+    shape.style.display = asBadge ? 'none' : ''
+  }
+  if (asBadge) badge.dir.style.transform = `rotate(${rel}deg)`
+  else shape.style.transform = `rotate(${rel}deg) scale(${realScale(px, type)})${extra}`
 }
 
-// Lost signal or a big GPS jump: the vehicle fades out where it was shown, then fades in at its new
-// place, standing along the road (plans/vehicle-movement-rules.md §6). It never slides across the map.
-const VANISH_MS = 500
-function reappear(e: { marker: maplibregl.Marker; glide: Glide | null; roadHeading: number | null; shownHeading: number }, at: [number, number], heading: () => number) {
-  const el = e.marker.getElement()
-  el.classList.remove('reappear')
-  el.classList.add('vanish')
-  const stay = e.glide ? glideAt(e.glide, performance.now()) : at
-  e.glide = { from: stay, to: stay, path: [stay], cum: [0], start: performance.now(), dur: 0, heading: e.shownHeading }
-  setTimeout(() => {
-    const h = heading()
-    e.glide = { from: at, to: at, path: [at], cum: [0], start: performance.now(), dur: 0, heading: h }
-    e.roadHeading = h
-    e.shownHeading = h
-    el.classList.remove('vanish')
-    void el.offsetWidth // restart the animation
-    el.classList.add('reappear')
-  }, VANISH_MS)
+// No road route at all (another island, roads not loaded), or too far to watch it drive there: a
+// gentle, short cross-fade into place. A copy of the marker fades out where it was shown while the
+// marker fades in at its new place (cloneNode copies the DOM as it is; no HTML is parsed). It never
+// slides across the sea or through buildings.
+const FADE_MS = 700
+function crossFade(m: MlMap, marker: Marker, from: [number, number]) {
+  const el = marker.getElement()
+  const ghost = el.cloneNode(true) as HTMLElement
+  ghost.classList.remove('xfade-in')
+  ghost.classList.add('xfade-out')
+  ghost.style.pointerEvents = 'none'
+  const copy = new maplibregl.Marker({ element: ghost, rotationAlignment: 'viewport', pitchAlignment: 'viewport' }).setLngLat(ll(from)).addTo(m)
+  setTimeout(() => copy.remove(), FADE_MS)
+  el.classList.remove('xfade-in')
+  void el.offsetWidth // restart the animation
+  el.classList.add('xfade-in')
+}
+
+// A private vehicle or a bus on the map, moved by its GPS reports.
+interface VehicleEntry {
+  marker: Marker
+  shape: HTMLDivElement
+  badge: Badge
+  price: HTMLSpanElement
+  type: string
+  glide: Glide | null
+  lastReport: number | null
+  atKey: string
+  shownHeading: number
+  onRoad: boolean
+  lean: number
+  tracker: Tracker
+  s: number | null
+  speed: number
+  coasted: number
+  snap: Snapped | null
+  axles: Axles | null // real-car turning (src/core/kinematics.ts)
+  lane: number // metres left of the road's middle now (eased between two-way and one-way roads)
+}
+
+// The speed limit (km/h) of the road a vehicle is snapped to.
+function snappedLimit(g: RoadGraph, s: Snapped | null, at: readonly [number, number]) {
+  const k = s ? (g.next[s.i] ?? []).indexOf(s.j) : -1
+  const l = s && k >= 0 ? g.limit?.[s.i]?.[k] : undefined
+  return l ?? roadLimitKmh(undefined, at)
+}
+
+// A new accepted report: drive the vehicle to `target` (plans/vehicle-movement-rules.md §6). Always
+// along the road route (`path`, or the roads from where it is shown, following one-way streets),
+// never across a block: at its normal steady glide when that's within the road's speed, otherwise
+// catching up a bit faster (at most 1.5x the limit, about 10 s) with the driving rules (gentle
+// acceleration, slowing for corners, stopping at the end). With no road route at all, a short hop
+// glides straight and anything longer cross-fades; so does a catch-up that would take over 30 s.
+function moveVehicle(m: MlMap, e: VehicleEntry, g: RoadGraph, now: number, mv: { target: [number, number]; snapped: Snapped | null; path?: [number, number][] | null; type: DriveType; phoneHeading?: number | null; standHeading: () => number }) {
+  if (!e.glide) {
+    e.glide = standGlide(mv.target, mv.standHeading(), now)
+    e.axles = null
+    return
+  }
+  const from = glideAt(e.glide, now)
+  const hop = metresBetween(from, mv.target)
+  let path = mv.path ?? null
+  if (!path && mv.snapped && hop >= 3) path = findRoute(g, from, mv.target, 'taxi')?.path ?? null
+  if (path && path.length >= 2) {
+    let roadM = 0
+    for (let i = 1; i < path.length; i++) roadM += metresBetween(path[i - 1]!, path[i]!)
+    const gap = e.lastReport === null ? MIN_GLIDE_MS : now - e.lastReport
+    const normalMs = Math.min(MAX_GLIDE_MS, Math.max(MIN_GLIDE_MS, gap * OVERRUN))
+    const limit = snappedLimit(g, mv.snapped, mv.target)
+    if (!needsCatchUp(roadM, normalMs, limit)) {
+      e.glide = nextGlide(e.glide, mv.target, now, e.lastReport, mv.phoneHeading, path)
+      return
+    }
+    const moving = now < e.glide.start + e.glide.dur
+    const prof = driveProfile([from, ...path.slice(1)], mv.type, moving ? glideSpeed(e.glide, now) : 0, catchUpSpeed(roadM, limit))
+    if ((prof.d.length - 1) * prof.dt <= CATCH_UP_GIVE_UP_S) {
+      e.glide = driveGlide(e.glide, path, now, prof)
+      return
+    }
+  } else if (hop <= (mv.snapped ? 30 : 80)) {
+    e.glide = nextGlide(e.glide, mv.target, now, e.lastReport, mv.phoneHeading)
+    return
+  }
+  crossFade(m, e.marker, e.axles ? axleCentre(e.axles) : from)
+  e.glide = standGlide(mv.target, mv.standHeading(), now)
+  e.axles = null
+  e.speed = 0
 }
 
 // A bus route's own line: its stops in order, joined along the roads (built once per road map).
@@ -332,6 +446,7 @@ interface MarkerParts {
   root: HTMLDivElement
   car: HTMLDivElement
   label: HTMLSpanElement
+  badge: Badge
 }
 
 // Marker = rotating car + upright number label. Text goes in via textContent, never HTML.
@@ -343,8 +458,10 @@ function markerParts(): MarkerParts {
   car.innerHTML = withIndicators(CAR_SVG)
   const label = document.createElement('span')
   label.className = 'absolute -top-4 left-1/2 -translate-x-1/2 rounded-full border px-1.5 text-[11px] leading-4 font-black tabular-nums shadow'
-  root.append(car, label)
-  return { root, car, label }
+  const badge = makeBadge()
+  setBadgeIcon(badge, 'taxi', CarTaxiFront)
+  root.append(car, badge.el, label)
+  return { root, car, label, badge }
 }
 
 const ll = (p: [number, number]): [number, number] => [p[1], p[0]] // [lat, lng] -> MapLibre [lng, lat]
@@ -672,6 +789,8 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     for (const [id, entry] of markers.current) {
       if (!live.has(id)) {
         entry.marker.remove()
+        const root = entry.parts.badge.root
+        setTimeout(() => root.unmount())
         markers.current.delete(id)
       }
     }
@@ -687,6 +806,8 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       }
       const { marker, parts } = entry
       parts.car.className = `absolute inset-0 grid place-items-center drop-shadow-md will-change-transform ${statusClass[status]}`
+      parts.badge.el.className = `veh-badge ${statusClass[status]}`
+      parts.badge.el.style.setProperty('--badge-ink', status === 'suspended' ? '#ffffff' : '#0f172a')
       parts.label.className = `absolute -top-4 left-1/2 -translate-x-1/2 rounded-full border px-1.5 text-[11px] leading-4 font-black tabular-nums shadow ${labelClass[status]}`
       parts.label.textContent = taxi.taxiNo
       parts.root.style.zIndex = status === 'answered' ? '2' : '1'
@@ -750,6 +871,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       const follow = following.current && latest.get(following.current)
       if (follow) m.setCenter([follow.lng, follow.lat])
       const bearing = m.getBearing()
+      const px = realPx(m, 'car')
       for (const [id, entry] of markers.current) {
         const p = latest.get(id)
         if (!p) {
@@ -760,7 +882,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
           continue
         }
         entry.marker.setLngLat([p.lng, p.lat])
-        entry.parts.car.style.transform = `rotate(${p.heading - bearing}deg) scale(${realScale(m, 'car')})`
+        drawVehicle(entry.parts.root, entry.parts.car, entry.parts.badge, px, 'car', p.heading - bearing)
         setSignal(entry.parts.car, p.signal)
         entry.parts.car.classList.toggle('braking', !!p.braking)
         if (!entry.onMap) {
@@ -952,9 +1074,12 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     }
   }, [nearKey, lang])
 
-  // People sharing their position: a round icon for how they move; staff also see the name.
-  // Built with DOM text; the icon is rendered by React into the marker.
-  const peopleMarkers = useRef(new Map<string, { marker: Marker; root: Root; label: HTMLSpanElement; mode: string; glide: Glide | null; lastReport: number | null; atKey: string }>())
+  // People sharing their position: a round icon for how they move, the same size at every zoom (so
+  // they stay visible zoomed out); people on a bike, e-bike or motorbike get a bigger, bolder disc,
+  // and anyone moving a small arrow the way they're going. Staff also see the name. Built with DOM
+  // text; the icon is rendered by React into the marker. Never moved onto roads: a long jump
+  // cross-fades into place.
+  const peopleMarkers = useRef(new Map<string, { marker: Marker; root: Root; label: HTMLSpanElement; dir: HTMLSpanElement; mode: string; glide: Glide | null; lastReport: number | null; atKey: string }>())
   const peopleKey = JSON.stringify(people)
   useEffect(() => {
     const m = map.current
@@ -967,19 +1092,29 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       if (!entry) {
         const el = document.createElement('div')
         el.className = 'person-marker'
+        const disc = document.createElement('span')
+        disc.className = 'person-marker-disc'
         const icon = document.createElement('span')
         icon.className = 'person-marker-icon'
+        const dir = document.createElement('span')
+        dir.className = 'person-marker-dir'
+        disc.append(icon, dir)
         const label = document.createElement('span')
         label.className = 'person-marker-label'
-        el.append(icon, label)
+        el.append(disc, label)
         const root = createRoot(icon)
-        entry = { marker: new maplibregl.Marker({ element: el }).setLngLat(ll(p.at)).addTo(m), root, label, mode: '', glide: null, lastReport: null, atKey: '' }
+        entry = { marker: new maplibregl.Marker({ element: el }).setLngLat(ll(p.at)).addTo(m), root, label, dir, mode: '', glide: null, lastReport: null, atKey: '' }
         peopleMarkers.current.set(p.id, entry)
       }
       const pKey = p.at.join(',')
       if (pKey !== entry.atKey) {
         const now = performance.now()
-        entry.glide = nextGlide(entry.glide, p.at, now, entry.lastReport)
+        const shown = entry.glide ? glideAt(entry.glide, now) : p.at
+        const gapS = entry.lastReport === null ? 0 : (now - entry.lastReport) / 1000
+        if (entry.glide && personJumped(metresBetween(shown, p.at), gapS)) {
+          crossFade(m, entry.marker, shown)
+          entry.glide = standGlide(p.at, entry.glide.heading, now)
+        } else entry.glide = nextGlide(entry.glide, p.at, now, entry.lastReport)
         entry.lastReport = now
         entry.atKey = pKey
       }
@@ -990,6 +1125,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       entry.label.style.display = p.name ? '' : 'none'
       if (entry.mode !== p.mode) {
         entry.mode = p.mode
+        pel.classList.toggle('fast', p.mode === 'bike' || p.mode === 'ebike' || p.mode === 'motorbike')
         const Icon = MOVING_ICONS[p.mode]
         entry.root.render(<Icon className="size-4" aria-hidden="true" />)
       }
@@ -1007,9 +1143,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   // colour, with an upright price label. Between the owner's reports it glides at a steady speed and
   // turns to face its way (src/core/glide.ts), so it drives rather than jumps. Tap for its type,
   // owner's first name and price. Text goes in with textContent only.
-  const vehicleMarkers = useRef(
-    new Map<string, { marker: Marker; shape: HTMLDivElement; price: HTMLSpanElement; type: string; glide: Glide | null; lastReport: number | null; atKey: string; shownHeading: number; onRoad: boolean; roadHeading: number | null; lean: number; tracker: Tracker; s: number | null; speed: number; coasted: number; snap: Snapped | null }>(),
-  )
+  const vehicleMarkers = useRef(new Map<string, VehicleEntry>())
   const vehiclesKey = JSON.stringify(vehicles)
   const vLabels = useRef({ type: (x: string) => x, price: (b: number, k: number) => `${b} ${k}`, hire: '', follow: '', unfollow: '', level: (l: string) => l })
   const hireVehicleRef = useRef(onHireVehicle)
@@ -1033,11 +1167,12 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         el.className = 'vehicle-marker'
         const shape = document.createElement('div')
         shape.className = 'vehicle-shape'
+        const badge = makeBadge()
         const price = document.createElement('span')
         price.className = 'vehicle-marker-price'
-        el.append(shape, price)
+        el.append(shape, badge.el, price)
         const marker = new maplibregl.Marker({ element: el, rotationAlignment: 'viewport', pitchAlignment: 'viewport' }).setLngLat(ll(v.at)).addTo(m)
-        entry = { marker, shape, price, type: '', glide: null, lastReport: null, atKey: '', shownHeading: v.heading || 0, onRoad: false, roadHeading: null, lean: 0, tracker: newTracker(), s: null, speed: 0, coasted: 0, snap: null }
+        entry = { marker, shape, badge, price, type: '', glide: null, lastReport: null, atKey: '', shownHeading: v.heading || 0, onRoad: false, lean: 0, tracker: newTracker(), s: null, speed: 0, coasted: 0, snap: null, axles: null, lane: 0 }
         vehicleMarkers.current.set(v.id, entry)
       }
       const e = entry
@@ -1057,34 +1192,28 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       if (verdict === 'move' && !behind) {
         const now = performance.now()
         // Keep it on the road: snap the fix to the nearest road (or parking aisle), and drive there
-        // along the roads, unless that is far longer than a straight hop (a GPS jump).
+        // along the roads (one-way streets followed), catching up after lost signal or a jump.
         const g = g0
         const snapped = snap0
         const target = snapped ? snapped.at : v.at
         const dt = e.lastReport === null ? 0 : (now - e.lastReport) / 1000
         if (dt > 0 && e.glide) e.speed = Math.min(60 / 3.6, metresBetween(glideAt(e.glide, now), target) / dt)
         e.snap = snapped
-        let roadPath: [number, number][] | undefined
-        let roadM: number | null = null
-        if (e.glide && snapped) {
-          const from = glideAt(e.glide, now)
-          const r = findRoute(g, from, target, 'taxi')
-          roadM = r ? r.metres : Infinity
-          if (r && r.metres <= metresBetween(from, target) * 2.5 + 60) roadPath = r.path
-        }
-        const hop = e.glide ? metresBetween(glideAt(e.glide, now), target) : 0
-        if (e.glide && shouldReappear(hop, dt, roadM)) {
-          // Lost signal or a big jump: fade out here, fade in there (never slide across the map).
-          reappear(e, target, () => (snapped ? alongRoad(g, snapped, e.shownHeading) : v.heading || e.shownHeading))
-          e.speed = 0
-        } else {
-          e.glide = nextGlide(e.glide, target, now, e.lastReport, snapped ? null : v.heading, roadPath)
-          e.roadHeading = snapped ? alongRoad(g, snapped, e.glide.path.length >= 2 ? e.glide.heading : e.shownHeading) : null
-        }
         e.onRoad = !!snapped
+        moveVehicle(m, e, g, now, {
+          target,
+          snapped,
+          type: v.type,
+          phoneHeading: snapped ? null : v.heading,
+          standHeading: () => (snapped ? alongRoad(g, snapped, e.shownHeading || v.heading) : v.heading || e.shownHeading),
+        })
         e.lastReport = now
       }
-      e.shape.style.color = vehicleColour(v.colour)
+      const colour = vehicleColour(v.colour)
+      e.shape.style.color = colour
+      e.badge.el.style.color = colour
+      e.badge.el.style.setProperty('--badge-ink', inkFor(colour))
+      setBadgeIcon(e.badge, v.type, VEHICLE_ICONS[v.type])
       e.price.textContent = vLabels.current.price(v.priceBase, v.pricePerKm)
       const vel = e.marker.getElement()
       vel.classList.toggle('mine', !!myUidRef.current && v.ownerUid === myUidRef.current)
@@ -1134,6 +1263,8 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     for (const [id, entry] of vehicleMarkers.current) {
       if (seen.has(id) || id.startsWith('b:')) continue
       entry.marker.remove()
+      const root = entry.badge.root
+      setTimeout(() => root.unmount())
       vehicleMarkers.current.delete(id)
     }
   }, [vehiclesKey, ready])
@@ -1219,11 +1350,13 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         const shape = document.createElement('div')
         shape.className = 'vehicle-shape'
         shape.innerHTML = withIndicators(BUS_SVG) // static markup, no user data
+        const badge = makeBadge()
+        setBadgeIcon(badge, 'bus', BusIcon)
         const price = document.createElement('span')
         price.className = 'vehicle-marker-price bus-route'
-        el.append(shape, price)
+        el.append(shape, badge.el, price)
         const marker = new maplibregl.Marker({ element: el, rotationAlignment: 'viewport', pitchAlignment: 'viewport' }).setLngLat(ll(b.at)).addTo(m)
-        e = { marker, shape, price, type: 'bus', glide: null, lastReport: null, atKey: '', shownHeading: 0, onRoad: false, roadHeading: null, lean: 0, tracker: newTracker(), s: null, speed: 0, coasted: 0, snap: null }
+        e = { marker, shape, badge, price, type: 'bus', glide: null, lastReport: null, atKey: '', shownHeading: 0, onRoad: false, lean: 0, tracker: newTracker(), s: null, speed: 0, coasted: 0, snap: null, axles: null, lane: 0 }
         vehicleMarkers.current.set(key, e)
       }
       const entry = e
@@ -1237,59 +1370,40 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         const line = routeLineFor(b.route, g)
         const proj = line && verdict === 'move' ? project(line, b.at) : null
         if (verdict === 'move' && line && proj && proj.dist < 60) {
-          // On its own route: only forward along it (§6), the stretch between as the path.
+          // On its own route: only forward along it (§6), the stretch between as the path; far ahead
+          // (lost signal), it catches up along that same route line.
           const shownS = entry.glide ? project(line, glideAt(entry.glide, now)).s : proj.s
           const ahead = forward(line, shownS, proj.s)
-          const gap = entry.lastReport === null ? 0 : (now - entry.lastReport) / 1000
-          if (entry.glide && (ahead < -60 || shouldReappear(Math.abs(ahead), gap))) {
-            // Lost signal or a big jump: fade out and reappear at its new place on the route.
-            const at = pointAt(line, proj.s)
-            entry.s = proj.s
-            entry.speed = 0
-            entry.onRoad = true
-            reappear(entry, at, () => {
-              const sn = snapToRoad(g, at)
-              return sn ? alongRoad(g, sn, bearing(at, pointAt(line, Math.min(line.length, proj.s + 10)))) : entry.shownHeading
-            })
-            entry.lastReport = now
-          } else if (entry.glide && ahead < 0 && ahead > -60) {
+          const at = pointAt(line, proj.s)
+          const sn = snapToRoad(g, at)
+          const standHeading = () => (sn ? alongRoad(g, sn, bearing(at, pointAt(line, Math.min(line.length, proj.s + 10)))) : entry.shownHeading)
+          if (entry.glide && ahead < 0 && ahead > -60) {
             // Behind where it's shown (a slow bus after a little prediction): wait, never go back.
           } else {
             const dt = entry.lastReport === null ? 0 : (now - entry.lastReport) / 1000
-            if (dt > 0) entry.speed = Math.max(0, Math.min(35 / 3.6, ahead / dt))
-            const path = entry.glide ? stretch(line, shownS, proj.s) : undefined
-            entry.glide = nextGlide(entry.glide, pointAt(line, proj.s), now, entry.lastReport, null, path)
-            entry.s = proj.s
+            if (dt > 0) entry.speed = Math.max(0, Math.min(35 / 3.6, Math.abs(ahead) / dt))
+            // Far behind (a new trip, or the line was matched wrongly): along the roads instead.
+            const path = entry.glide && ahead >= 0 ? stretch(line, shownS, proj.s) : null
             entry.onRoad = true
-            const sn = snapToRoad(g, pointAt(line, proj.s))
-            entry.roadHeading = sn ? alongRoad(g, sn, entry.glide.heading) : entry.glide.heading
+            entry.snap = sn
+            moveVehicle(m, entry, g, now, { target: at, snapped: sn, path, type: 'bus', standHeading })
+            entry.s = proj.s
             entry.lastReport = now
           }
         } else if (verdict === 'move') {
           // Off its route line (a diversion, or no line yet): keep it on the nearest road.
           const snapped = snapToRoad(g, b.at)
           const target = snapped ? snapped.at : b.at
-          let roadPath: [number, number][] | undefined
-          let roadM: number | null = null
-          if (entry.glide && snapped) {
-            const from = glideAt(entry.glide, now)
-            const r = findRoute(g, from, target, 'taxi')
-            roadM = r ? r.metres : Infinity
-            if (r && r.metres <= metresBetween(from, target) * 2.5 + 60) roadPath = r.path
-          }
-          const gap = entry.lastReport === null ? 0 : (now - entry.lastReport) / 1000
-          if (entry.glide && shouldReappear(metresBetween(glideAt(entry.glide, now), target), gap, roadM)) {
-            reappear(entry, target, () => (snapped ? alongRoad(g, snapped, entry.shownHeading) : entry.shownHeading))
-          } else {
-            entry.glide = nextGlide(entry.glide, target, now, entry.lastReport, null, roadPath)
-            entry.roadHeading = snapped ? alongRoad(g, snapped, entry.glide.path.length >= 2 ? entry.glide.heading : entry.shownHeading) : null
-          }
           entry.onRoad = !!snapped
+          entry.snap = snapped
+          moveVehicle(m, entry, g, now, { target, snapped, type: 'bus', standHeading: () => (snapped ? alongRoad(g, snapped, entry.shownHeading) : entry.shownHeading) })
           entry.s = null
           entry.lastReport = now
         }
       }
       entry.shape.style.color = b.route.colour
+      entry.badge.el.style.color = b.route.colour
+      entry.badge.el.style.setProperty('--badge-ink', inkFor(b.route.colour))
       entry.price.textContent = b.route.number || 'Bus'
       entry.price.style.background = b.route.colour
       entry.marker.getElement().onclick = (ev) => {
@@ -1325,12 +1439,14 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     for (const [id, entry] of vehicleMarkers.current) {
       if (!id.startsWith('b:') || seen.has(id)) continue
       entry.marker.remove()
+      const root = entry.badge.root
+      setTimeout(() => root.unmount())
       vehicleMarkers.current.delete(id)
     }
   }, [busesKey, ready])
 
-  // Every frame: move each private vehicle (and each person sharing) along its glide, turn it toward
-  // its heading (relative to the map's rotation), and keep a followed vehicle in the middle.
+  // Every frame: move each private vehicle and bus (and each person sharing) along its glide, turn it
+  // like a real vehicle (relative to the map's rotation), and keep a followed vehicle in the middle.
   useEffect(() => {
     const m = map.current
     if (!m || !ready) return
@@ -1367,33 +1483,52 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
             if (ahead.length >= 2) e.glide = coastGlide(e.glide, ahead, v, now)
           }
         }
-        // Along its glide, facing the stretch it's on, and in the left lane of two-way roads.
+        // Real-car turning (src/core/kinematics.ts): the glide moves the FRONT axle along the road
+        // (in the left lane of two-way roads, the middle of one-way roads); the rear axle trails a
+        // wheelbase behind and the vehicle is drawn between them, facing rear -> front. Stopped, it
+        // stays exactly as it is (never turning on the spot); placed afresh, it stands along its road.
         const st = glideState(e.glide, now)
-        // Moving: face along the stretch it's driving. Stopped: line up with its road (never across it).
         const moving = e.glide.path.length >= 2 && now < e.glide.start + e.glide.dur
-        const heading = moving || e.roadHeading === null ? st.heading : e.roadHeading
-        const at = e.onRoad ? inLane(st.at[0], st.at[1], heading, moving ? twoWayBetween(graphRef.current, st.a, st.b) : true) : st.at
+        const kind = e.type.split(':')[0] as SizedVehicle
+        const wb = WHEELBASE_M[kind] ?? WHEELBASE_M.car
+        const g = graphRef.current
+        if (moving || !e.axles) {
+          const twoWay = moving ? twoWayBetween(g, st.a, st.b) : e.snap ? isTwoWay(g, e.snap.i, e.snap.j) : true
+          const want = e.onRoad && twoWay ? LANE_OFFSET_M : 0
+          // Change lanes gently (a two-way road into a one-way one), not with a sideways hop.
+          e.lane = e.axles ? e.lane + (want - e.lane) * Math.min(1, dt / 700) : want
+          // The lane is measured from the body's own (smooth) heading, so the front doesn't hop
+          // sideways at each little bend of a rounded corner.
+          const front = e.lane > 0.01 ? toTheLeft(st.at[0], st.at[1], e.axles ? axleHeading(e.axles) : st.heading, e.lane) : st.at
+          e.axles = e.axles ? followFront(e.axles, front, wb) : placeAxles(front, e.glide.heading, wb)
+        }
+        const at = axleCentre(e.axles)
         e.marker.setLngLat(ll(at))
         const before = e.shownHeading
-        e.shownHeading = turnToward(e.shownHeading, heading, dt)
-        const kind = e.type.split(':')[0] as SizedVehicle
-        const speed = moving ? glideSpeed(e.glide) : 0
+        e.shownHeading = axleHeading(e.axles)
+        const speed = moving ? glideSpeed(e.glide, now) : 0
         // Indicators a moment before a turn; bikes lean into it (a slight sideways squeeze).
         const ahead = moving ? turnAhead(e.glide, now) : { angle: 0, dist: Infinity }
         setSignal(e.shape, indicator(ahead.angle, ahead.dist, speed))
-        // Brake lights while easing to a stop or standing still.
-        e.shape.classList.toggle('braking', !moving || (now - e.glide.start) / e.glide.dur > 0.85)
+        // Brake lights while slowing down or standing still.
+        e.shape.classList.toggle('braking', glideBraking(e.glide, now))
         let squeeze = ''
         if (kind === 'motorbike' || kind === 'ebike') {
           const rate = dt > 0 ? (((e.shownHeading - before + 540) % 360) - 180) / (dt / 1000) : 0
           e.lean += (leanDegrees(rate, speed) - e.lean) * Math.min(1, dt / 200)
           squeeze = ` scaleX(${(1 - Math.abs(e.lean) / 90).toFixed(3)})`
         }
-        e.shape.style.transform = `rotate(${e.shownHeading - bearingNow}deg) scale(${realScale(m, kind)})${squeeze}`
+        drawVehicle(e.marker.getElement(), e.shape, e.badge, realPx(m, kind), kind, e.shownHeading - bearingNow, squeeze)
         if (following.current === (id.startsWith('b:') ? id : `v:${id}`)) m.setCenter(ll(at))
       }
+      // People: along their glide; the arrow shows the way while they're moving.
       for (const e of peopleMarkers.current.values()) {
-        if (e.glide) e.marker.setLngLat(ll(glideAt(e.glide, now)))
+        if (!e.glide) continue
+        e.marker.setLngLat(ll(glideAt(e.glide, now)))
+        const moving = e.glide.path.length >= 2 && now < e.glide.start + e.glide.dur
+        const el = e.marker.getElement()
+        if (el.classList.contains('moving') !== moving) el.classList.toggle('moving', moving)
+        if (moving) e.dir.style.transform = `rotate(${glideState(e.glide, now).heading - bearingNow}deg)`
       }
       frame = requestAnimationFrame(tick)
     }

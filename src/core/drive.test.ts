@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { brakingSpeed, cornerSpeed, cruiseSpeed, HANDLING, indicator, leanDegrees, nextSpeed, roadLimitKmh, turnAngle } from './drive'
+import { brakingSpeed, catchUpSpeed, cornerSpeed, cruiseSpeed, driveProfile, HANDLING, indicator, leanDegrees, needsCatchUp, nextSpeed, roadLimitKmh, turnAngle } from './drive'
 
 const KMH = 3.6
 const KULHU: [number, number] = [6.62, 73.07]
@@ -64,5 +64,32 @@ describe('turning', () => {
     expect(indicator(-90, 20, 8)).toBe('left')
     expect(indicator(90, 100, 8)).toBeNull() // too far yet
     expect(indicator(10, 5, 8)).toBeNull() // barely a bend
+  })
+})
+
+describe('catching up along the roads (after lost signal or a GPS jump)', () => {
+  it('a bit faster than normal: about 10 s, at most 1.5x the limit, never under it', () => {
+    expect(catchUpSpeed(50, 30)).toBeCloseTo(30 / 3.6, 6) // short: at the limit
+    expect(catchUpSpeed(100, 30)).toBeCloseTo(10, 6) // 100 m in 10 s
+    expect(catchUpSpeed(1000, 30)).toBeCloseTo((30 / 3.6) * 1.5, 6) // far: capped
+  })
+  it('only when a normal glide would be faster than the road allows', () => {
+    expect(needsCatchUp(80, 10_000, 30)).toBe(false) // 8 m/s on a 30 road
+    expect(needsCatchUp(200, 10_000, 30)).toBe(true)
+  })
+  it('the speed plan accelerates gently, slows for a corner and stops at the end', () => {
+    const O: [number, number] = [4.17, 73.5]
+    const k = Math.cos((O[0] * Math.PI) / 180)
+    const at = (n: number, e: number): [number, number] => [O[0] + n / 111_320, O[1] + e / (111_320 * k)]
+    const p = driveProfile([at(0, 0), at(100, 0), at(100, 100)], 'car', 0, catchUpSpeed(200, 30))
+    const v = p.d.slice(1).map((x, i) => (x - p.d[i]!) / p.dt)
+    const total = p.d[p.d.length - 1]!
+    expect(total).toBeCloseTo(200, 0)
+    expect(v[0]!).toBeLessThan(1) // no instant start
+    for (let i = 1; i < v.length; i++) expect(Math.abs(v[i]! - v[i - 1]!) / p.dt).toBeLessThan(4.1) // gentle
+    expect(Math.max(...v)).toBeLessThanOrEqual((30 / 3.6) * 1.5 + 1e-9)
+    const atCorner = v[p.d.findIndex((x) => x >= 100) - 1]!
+    expect(atCorner * 3.6).toBeLessThan(15) // slowed for the 90-degree corner
+    expect(v[v.length - 1]!).toBeLessThan(1) // eased to a stop
   })
 })

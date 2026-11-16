@@ -180,6 +180,43 @@ html .maplibregl-map {
   border: 2px solid white;
   box-shadow: 0 2px 6px rgb(15 23 42 / 0.35);
 }
+.person-marker-disc {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+/* On a bike, e-bike or motorbike: a bigger, darker disc, so they stand out when zoomed out. */
+.person-marker.fast .person-marker-icon {
+  width: 30px;
+  height: 30px;
+  background: #075985;
+  border-width: 2.5px;
+}
+.person-marker.fast .person-marker-icon svg {
+  width: 18px;
+  height: 18px;
+}
+/* The way they're going, while moving. */
+.person-marker-dir {
+  display: none;
+  position: absolute;
+  inset: -7px;
+  pointer-events: none;
+}
+.person-marker.moving .person-marker-dir {
+  display: block;
+}
+.person-marker-dir::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  margin-left: -4px;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 6px solid #0c4a6e;
+  filter: drop-shadow(0 0 1px white) drop-shadow(0 0 1px white);
+}
 .person-marker-label {
   font: 700 11px/1.2 var(--font-sans);
   color: #0c4a6e;
@@ -325,31 +362,73 @@ html .maplibregl-map {
   pointer-events: none;
 }
 
-/* Lost signal or a big GPS jump: fade out where it was, then fade in slowly at the new place. */
-.vehicle-marker.vanish,
-.bus-marker.vanish {
-  animation: vehicle-vanish 0.5s ease-in forwards;
+/* No road route at all (another island, roads not loaded), or a person's long jump: a short,
+   gentle cross-fade. A copy fades out where it was while the marker fades in at its new place. */
+.xfade-out {
+  animation: marker-fade-out 0.7s ease-in forwards;
 }
-.vehicle-marker.reappear,
-.bus-marker.reappear {
-  animation: vehicle-reappear 1.6s ease-out;
+.xfade-in {
+  animation: marker-fade-in 0.7s ease-out;
 }
-@keyframes vehicle-vanish {
+@keyframes marker-fade-out {
   to {
     opacity: 0;
-    filter: blur(2px);
   }
 }
-@keyframes vehicle-reappear {
+@keyframes marker-fade-in {
   from {
     opacity: 0;
-    filter: blur(3px);
-  }
-  60% {
-    filter: blur(0);
   }
 }
 
+/* Zoomed out (the real-size shape would be under 24 px): a round badge in the vehicle's colour with
+   its type's icon, and a small arrow on its rim pointing the way it is going (turned in MapView). */
+.veh-badge {
+  display: none;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 24px;
+  height: 24px;
+  margin: -12px 0 0 -12px;
+  place-items: center;
+  border-radius: 9999px;
+  background: currentColor;
+  border: 2px solid white;
+  box-shadow:
+    0 0 0 1px rgb(15 23 42 / 0.45),
+    0 2px 5px rgb(15 23 42 / 0.4);
+}
+.as-badge .veh-badge {
+  display: grid;
+}
+.veh-badge-icon {
+  display: grid;
+  place-items: center;
+  line-height: 0;
+  color: var(--badge-ink, #0f172a);
+}
+.veh-badge-dir {
+  position: absolute;
+  inset: -8px;
+  pointer-events: none;
+}
+.veh-badge-dir::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  margin-left: -4px;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 6px solid #0f172a;
+  filter: drop-shadow(0 0 1px white) drop-shadow(0 0 1px white);
+}
+.vehicle-marker.mine .veh-badge {
+  box-shadow:
+    0 0 0 3px #10b981,
+    0 2px 5px rgb(15 23 42 / 0.4);
+}
 
 /* Your own vehicle shows above your blue GPS dot (they are at the same place). */
 .vehicle-marker.mine {

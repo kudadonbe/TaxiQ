@@ -70,3 +70,57 @@ export function indicator(angle: number, distToTurn: number, v: number): 'left' 
 export function leanDegrees(turnRate: number, v: number) {
   return Math.max(-15, Math.min(15, (turnRate * v) / 25))
 }
+
+// Catching up (plans/vehicle-movement-rules.md §6): after lost signal or a big GPS jump a real
+// vehicle drives to its new place along the roads, a bit faster than normal: fast enough to get
+// there in about 10 s, but never more than 1.5x the road's limit (and never slower than the limit).
+export const CATCH_UP_S = 10
+export const CATCH_UP_MAX = 1.5
+// Further than this would take (at the catch-up speed) and it isn't worth watching it drive: it
+// cross-fades into place, standing along its road.
+export const CATCH_UP_GIVE_UP_S = 30
+export function catchUpSpeed(roadM: number, limitKmh: number) {
+  const limit = kmh(limitKmh)
+  return Math.min(limit * CATCH_UP_MAX, Math.max(limit, roadM / CATCH_UP_S))
+}
+// Would a normal glide (this many metres in this many ms) be faster than the road allows? Then it
+// is catching up, with the driving rules below.
+export const needsCatchUp = (roadM: number, glideMs: number, limitKmh: number) => glideMs <= 0 || roadM / (glideMs / 1000) > kmh(limitKmh) * 1.05
+
+// A speed plan along a path (metres along it every `dt` seconds): start at `v0`, accelerate gently
+// toward `cruise`, brake in time for each corner (slower for sharper ones), and come to a stop at
+// the end, with the type's acceleration and braking. Corners are read from the path's own bends,
+// so pass the path before its corners are rounded.
+export interface Profile {
+  dt: number // seconds between samples
+  d: number[] // metres along the path at each sample (the last is the whole length)
+}
+export function driveProfile(path: readonly [number, number][], type: DriveType, v0: number, cruise: number, dt = 0.1): Profile {
+  const m = (a: readonly [number, number], b: readonly [number, number]) =>
+    Math.hypot((b[0] - a[0]) * 111_320, (b[1] - a[1]) * 111_320 * Math.cos((((a[0] + b[0]) / 2) * Math.PI) / 180))
+  const bear = (a: readonly [number, number], b: readonly [number, number]) =>
+    ((Math.atan2((b[1] - a[1]) * Math.cos((((a[0] + b[0]) / 2) * Math.PI) / 180), b[0] - a[0]) * 180) / Math.PI + 360) % 360
+  const cum = [0]
+  for (let i = 1; i < path.length; i++) cum.push(cum[i - 1]! + m(path[i - 1]!, path[i]!))
+  const total = cum[cum.length - 1] ?? 0
+  const corners: { at: number; angle: number }[] = []
+  for (let i = 1; i < path.length - 1; i++) {
+    if (m(path[i - 1]!, path[i]!) < 0.5 || m(path[i]!, path[i + 1]!) < 0.5) continue
+    const angle = turnAngle(bear(path[i - 1]!, path[i]!), bear(path[i]!, path[i + 1]!))
+    if (Math.abs(angle) >= 15) corners.push({ at: cum[i]!, angle })
+  }
+  const h = HANDLING[type]
+  const d = [0]
+  let x = 0
+  let v = Math.max(0, v0)
+  for (let guard = 0; x < total - 0.02 && guard < 20_000; guard++) {
+    let want = cruise
+    for (const c of corners) if (c.at > x && c.at - x < 80) want = Math.min(want, brakingSpeed(cornerSpeed(type, c.angle, cruise), c.at - x - 2, h.brake))
+    want = Math.min(want, brakingSpeed(0, total - x, h.brake))
+    v = nextSpeed(v, Math.max(want, 0.5), type, dt) // creep the last few centimetres
+    x = Math.min(total, x + v * dt)
+    d.push(x)
+  }
+  if (d[d.length - 1] !== total) d.push(total)
+  return { dt, d }
+}

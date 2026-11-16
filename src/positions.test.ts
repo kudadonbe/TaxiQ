@@ -57,3 +57,23 @@ describe('traffic: a safe distance, never through each other', () => {
   })
 })
 
+
+describe('demo taxis turn like real cars (the rear axle trails the front)', () => {
+  it('the drawn car never jumps or spins, and turns gradually at corners', () => {
+    for (const id of ['1', '2', '3', '4', '5', '6']) {
+      const s = __sim.create(ROAD_GRAPH, id)
+      if (s.parked) continue
+      const axles = new Map()
+      let last = __sim.withAxles(axles, id, __sim.step(s, 0.016))
+      for (let f = 0; f < 60 * 60; f++) {
+        const p = __sim.withAxles(axles, id, __sim.step(s, 1 / 60))
+        expect(metres([last.lat, last.lng], [p.lat, p.lng])).toBeLessThan(1.5)
+        const turn = Math.abs(((p.heading - last.heading + 540) % 360) - 180)
+        // It can only turn by moving: at most ~ (distance moved / wheelbase) radians a frame.
+        const moved = metres([last.lat, last.lng], [p.lat, p.lng])
+        expect(turn).toBeLessThan(((moved * 2) / 2.6) * (180 / Math.PI) + 0.5)
+        last = p
+      }
+    }
+  })
+})

@@ -120,7 +120,7 @@ export function nextTaxi(order: string[], skipped: string[], suspended: Readonly
 }
 
 async function readOrderAndSuspended(fb: Fb, center: string) {
-  const [state, pub, onPrivate] = await Promise.all([
+  const [state, pub, onPrivate, offDutyNow] = await Promise.all([
     fb.getDoc(queueRef(fb, center)),
     // The first center also counts taxis from before centers (no centerId yet).
     center === MAIN
@@ -128,11 +128,14 @@ async function readOrderAndSuspended(fb: Fb, center: string) {
       : fb.getDocs(fb.query(fb.collection(fb.db, 'publicTaxis'), fb.where('centerId', '==', center))),
     // Vehicles on the private map now (a linked taxi out on private hire gets no taxi offers).
     fb.getDocs(fb.query(fb.collection(fb.db, 'publicVehicles'), fb.where('updatedAt', '>', fb.Timestamp.fromMillis(Date.now() - 10 * 60_000)))).catch(() => null),
+    // Taxis whose driver is off duty (using the app as a citizen): they keep their place, no offers.
+    fb.getDocs(fb.query(fb.collection(fb.db, 'duty'), fb.where('offDuty', '==', true))).catch(() => null),
   ])
   const privateNow = new Set(onPrivate ? onPrivate.docs.map((d) => d.id) : [])
+  const offDuty = new Set(offDutyNow ? offDutyNow.docs.map((d) => d.id) : [])
   const order = Array.isArray(state.data()?.order) ? (state.data()!.order as unknown[]).filter((x): x is string => typeof x === 'string') : []
-  // Not offered: suspended taxis, and taxis whose vehicle is out on private hire.
-  const suspended = new Set(pub.docs.filter((d) => d.data().suspended === true || (typeof d.data().vehicleId === 'string' && privateNow.has(d.data().vehicleId))).map((d) => d.id))
+  // Not offered: suspended taxis, taxis whose vehicle is out on private hire, and off-duty taxis.
+  const suspended = new Set(pub.docs.filter((d) => d.data().suspended === true || offDuty.has(d.id) || (typeof d.data().vehicleId === 'string' && privateNow.has(d.data().vehicleId))).map((d) => d.id))
   const large = new Set(pub.docs.filter((d) => typeof d.data().seats === 'number' && d.data().seats >= 7).map((d) => d.id))
   return { order, suspended, large }
 }

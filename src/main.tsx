@@ -8,6 +8,7 @@ import { AuthProvider } from './auth.tsx'
 import { AvailabilityProvider } from './availability.tsx'
 import { I18nProvider } from './i18n.tsx'
 import { ServiceAvailabilityProvider } from './serviceAvailability.tsx'
+import { StayOpenBanner } from './components/StayOpenBanner.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -16,6 +17,7 @@ createRoot(document.getElementById('root')!).render(
         <AvailabilityProvider>
           <ServiceAvailabilityProvider>
             <App />
+            <StayOpenBanner />
           </ServiceAvailabilityProvider>
         </AvailabilityProvider>
       </AuthProvider>

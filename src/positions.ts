@@ -7,6 +7,7 @@
 
 import { brakingSpeed, cornerSpeed, cruiseSpeed, HANDLING, indicator, nextSpeed, roadLimitKmh, turnAngle } from './core/drive'
 import { roundCorners } from './core/glide'
+import { axleCentre, axleHeading, followFront, placeAxles, WHEELBASE_M, type Axles } from './core/kinematics'
 import { inLane, isTwoWay, LANE_OFFSET_M, toTheLeft, twoWayBetween } from './core/lanes'
 import { metres as metresBetween, nearestNode, type RoadGraph } from './core/route'
 import { getArea, subscribeArea } from './roadArea'
@@ -284,6 +285,18 @@ function along(g: RoadGraph, r: Run, now: number, last: Position | undefined): P
   return { lat, lng, heading, braking: braking || stopped }
 }
 
+// Real-car turning (src/core/kinematics.ts): the point a taxi's rules drive (on its path, in its
+// lane) is its FRONT axle; the rear axle trails a wheelbase behind, and the car is drawn between
+// them, facing rear -> front. A jump of over 30 m (a new area, a new job) places it afresh.
+function withAxles(axles: Map<string, Axles>, id: string, p: Position): Position {
+  const front: [number, number] = [p.lat, p.lng]
+  const old = axles.get(id)
+  const ax = old && metresBetween(old.front, front) < 30 ? followFront(old, front, WHEELBASE_M.car) : placeAxles(front, p.heading, WHEELBASE_M.car)
+  axles.set(id, ax)
+  const [lat, lng] = axleCentre(ax)
+  return { ...p, lat, lng, heading: axleHeading(ax) }
+}
+
 // Demo taxis drive on the roads of the current area (src/roadArea.ts): Kulhudhuffushi, or the
 // roads around the viewer. When the area changes they start again there.
 export function subscribePositions(ids: readonly string[], onUpdate: (p: Positions) => void): () => void {
@@ -294,6 +307,7 @@ export function subscribePositions(ids: readonly string[], onUpdate: (p: Positio
     sims = make()
   })
   let last = new Map<string, Position>()
+  const axles = new Map<string, Axles>()
   const onJob = new Set<string>()
   let lastTime = performance.now()
   let frame = 0
@@ -307,7 +321,7 @@ export function subscribePositions(ids: readonly string[], onUpdate: (p: Positio
       const s = sims[k]!
       const run = runs.get(s.id)
       if (run) {
-        out.set(s.id, along(s.g, run, now, last.get(s.id)))
+        out.set(s.id, withAxles(axles, s.id, along(s.g, run, now, last.get(s.id))))
         onJob.add(s.id)
         continue
       }
@@ -331,7 +345,7 @@ export function subscribePositions(ids: readonly string[], onUpdate: (p: Positio
           sims[k] = fresh
         }
       }
-      out.set(s.id, step(sims[k]!, dt))
+      out.set(s.id, withAxles(axles, s.id, step(sims[k]!, dt)))
     }
     last = out
     onUpdate(out)
@@ -413,5 +427,5 @@ export function traffic(sims: Sim[], now: number, dt: number) {
 }
 
 // For tests: drive one simulated taxi on a road map, frame by frame.
-export const __sim = { create, step, traffic }
+export const __sim = { create, step, traffic, withAxles }
 

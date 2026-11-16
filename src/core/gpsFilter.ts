@@ -53,14 +53,11 @@ export function filterReading(tr: Tracker, r: Reading, maxSpeed: number): 'move'
   return 'move'
 }
 
-// After lost signal, or a big jump: rather than drive it across the map, the vehicle fades out where
-// it was and fades in at the new place. True when it moved more than 300 m, or more than 120 m after
-// 45 s or more with no reading, or when the roads between are far longer than the straight hop (it
-// can't have driven there in that time).
-export const REAPPEAR_M = 300
-export function shouldReappear(distM: number, gapS: number, roadM: number | null = null) {
-  if (distM > REAPPEAR_M) return true
-  if (gapS >= 45 && distM > 120) return true
-  return roadM === null ? false : distM > 60 && roadM > distM * 2.5 + 60
+// Vehicles never jump or fade on a road map: after lost signal or a big jump they drive to the new
+// place along the roads, catching up (src/core/drive.ts catchUpSpeed). People sharing their
+// position are never moved onto roads, so for them a long jump (over 150 m, or faster than about
+// 90 km/h) cross-fades into place instead of sliding across buildings or the sea.
+export const PERSON_JUMP_M = 150
+export function personJumped(distM: number, gapS: number) {
+  return distM > PERSON_JUMP_M || (gapS > 0 && distM > 30 && distM / gapS > 25)
 }
-

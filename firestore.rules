@@ -178,6 +178,21 @@ service cloud.firestore {
       allow delete: if adminOf(resource.data.get('centerId', 'main'));
     }
 
+    // Off duty: a center driver using the app as a citizen. Their taxi keeps its place in the queue
+    // but gets no offers (freeTaxi in requests). No personal data: a flag, who set it, when. The
+    // taxi's driver, or its center's staff, set it; never deleted (set back to false).
+    match /duty/{taxiId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasOnly(['offDuty', 'by', 'at'])
+        && request.resource.data.offDuty is bool
+        && request.resource.data.by == email()
+        && request.resource.data.at == request.time
+        && ((isDriver() && taxiId == myTaxi())
+          || (exists(/databases/$(database)/documents/taxis/$(taxiId))
+            && staffOf(get(/databases/$(database)/documents/taxis/$(taxiId)).data.get('centerId', 'main'))));
+    }
+
     // What the public map shows: no phone numbers. Kept in step with taxis by the admin screens.
     // ---- Private vehicles for hire (people and companies, not a center's queue). The owner applies
     // (status pending); any operator approves, rejects or suspends with a reason; every decision is
@@ -646,11 +661,13 @@ service cloud.firestore {
         return next().acceptedBy == prev().acceptedBy && next().offerTo == prev().offerTo
           && next().skipped == prev().skipped && next().offerAt == prev().offerAt && sameTrip();
       }
-      // A taxi that may take a trip: not suspended, and (one at a time) its vehicle not out on
-      // private hire. Reads the taxi once (rules stop at 1000 expressions).
+      // A taxi that may take a trip: not suspended, (one at a time) its vehicle not out on private
+      // hire, and its driver not off duty. Reads the taxi once (rules stop at 1000 expressions).
       function freeTaxi(id) {
         let t = get(/databases/$(database)/documents/taxis/$(id)).data;
-        return !('suspended' in t) && !exists(/databases/$(database)/documents/publicVehicles/$(t.get('vehicleId', '-')));
+        let d = /databases/$(database)/documents/duty/$(id);
+        return !('suspended' in t) && !exists(/databases/$(database)/documents/publicVehicles/$(t.get('vehicleId', '-')))
+          && (!exists(d) || get(d).data.get('offDuty', false) != true);
       }
       function myRide() {
         return isDriver() && prev().acceptedBy == myTaxi();

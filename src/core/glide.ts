@@ -10,6 +10,9 @@ export interface Glide {
   start: number // ms when this glide began
   dur: number // ms it takes
   heading: number // degrees clockwise from north, the way it is going
+  // A speed plan (catching up, src/core/drive.ts driveProfile): metres along `path` every `dt`
+  // seconds. Without it the glide is a steady speed easing to a stop at the end.
+  prof?: { dt: number; d: number[] }
 }
 
 export const MIN_GLIDE_MS = 800
@@ -68,11 +71,24 @@ export function roundCorners(path: [number, number][], r = CORNER_M): [number, n
   return out
 }
 
-export function glideState(g: Glide, now: number): { at: [number, number]; a: [number, number]; b: [number, number]; heading: number } {
+// Metres along the glide's path at `now`.
+export function glideDist(g: Glide, now: number) {
+  const total = g.cum[g.cum.length - 1] ?? 0
+  if (g.prof) {
+    const d = g.prof.d
+    const x = Math.max(0, (now - g.start) / 1000 / g.prof.dt)
+    const i = Math.floor(x)
+    if (i >= d.length - 1) return d[d.length - 1] ?? total
+    return d[i]! + (d[i + 1]! - d[i]!) * (x - i)
+  }
   const f = g.dur > 0 ? easeDrive(Math.min(1, Math.max(0, (now - g.start) / g.dur))) : 1
+  return f * total
+}
+
+export function glideState(g: Glide, now: number): { at: [number, number]; a: [number, number]; b: [number, number]; heading: number } {
   const total = g.cum[g.cum.length - 1] ?? 0
   if (g.path.length < 2 || total === 0) return { at: g.to, a: g.from, b: g.to, heading: g.heading }
-  const d = f * total
+  const d = glideDist(g, now)
   let i = 0
   while (i < g.cum.length - 2 && g.cum[i + 1]! < d) i++
   const a = g.path[i]!
@@ -89,8 +105,7 @@ export const glideAt = (g: Glide, now: number) => glideState(g, now).at
 export function turnAhead(g: Glide, now: number, lookM = 30): { angle: number; dist: number } {
   const total = g.cum[g.cum.length - 1] ?? 0
   if (g.path.length < 3 || total === 0) return { angle: 0, dist: Infinity }
-  const f = g.dur > 0 ? easeDrive(Math.min(1, Math.max(0, (now - g.start) / g.dur))) : 1
-  const d = f * total
+  const d = glideDist(g, now)
   let i = 0
   while (i < g.cum.length - 2 && g.cum[i + 1]! <= d) i++
   const here = bearing(g.path[i]!, g.path[i + 1]!)
@@ -101,11 +116,40 @@ export function turnAhead(g: Glide, now: number, lookM = 30): { angle: number; d
   return { angle: 0, dist: Infinity }
 }
 
-// Its speed now (m/s), for leaning.
-export function glideSpeed(g: Glide) {
+// Its speed now (m/s), for leaning and indicators.
+export function glideSpeed(g: Glide, now: number) {
+  if (g.prof) return (glideDist(g, now + 100) - glideDist(g, now)) / 0.1
   const total = g.cum[g.cum.length - 1] ?? 0
   return g.dur > 0 ? total / (g.dur / 1000) : 0
 }
+
+// Brake lights: slowing down now (or stopped at the end).
+export function glideBraking(g: Glide, now: number) {
+  if (now >= g.start + g.dur) return true
+  if (g.prof) return glideSpeed(g, now + 200) < glideSpeed(g, now) - 0.05
+  return (now - g.start) / g.dur > EASE_FROM
+}
+
+// Catching up along the roads (src/core/drive.ts driveProfile): from where it is shown now along
+// `path` (its first point is that shown position), following the speed plan `prof` worked out for
+// that same path. The corners are rounded and the plan stretched to match.
+export function driveGlide(prev: Glide | null, path: [number, number][], now: number, prof: { dt: number; d: number[] }): Glide {
+  const from = prev ? glideAt(prev, now) : path[0]!
+  const raw: [number, number][] = [from, ...path.slice(1)]
+  const pts = roundCorners(raw)
+  const cum = [0]
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1]! + metres(pts[i - 1]!, pts[i]!))
+  const total = cum[cum.length - 1] ?? 0
+  const rawTotal = prof.d[prof.d.length - 1] ?? 0
+  const scale = rawTotal > 0 ? total / rawTotal : 0
+  const d = prof.d.map((x) => x * scale)
+  const to = pts[pts.length - 1] ?? from
+  const heading = pts.length >= 2 ? bearing(pts[pts.length - 2]!, to) : (prev?.heading ?? 0)
+  return { from, to, path: pts, cum, start: now, dur: Math.max(0, (d.length - 1) * prof.dt * 1000), heading, prof: { dt: prof.dt, d } }
+}
+
+// Stand still at `at`, facing `heading` (a cross-fade into place, or the first report).
+export const standGlide = (at: [number, number], heading: number, now: number): Glide => ({ from: at, to: at, path: [at], cum: [0], start: now, dur: 0, heading })
 
 // A new report arrived: glide on from where it is shown now. The glide lasts as long as the gap
 // since the last report (so it keeps moving until the next one), within limits. The heading is the

@@ -77,15 +77,20 @@ export function snapToRoad(g: RoadGraph, p: readonly [number, number], maxM = 15
   return best
 }
 
-// The way the road goes at a snapped point (degrees clockwise from north), picking whichever of its
-// two directions is closest to `wanted` (how the vehicle was going), so a parked vehicle lines up
-// with the road instead of sitting across it.
+// The way the road goes at a snapped point (degrees clockwise from north), so a stopped vehicle
+// lines up with the road instead of sitting across it. On a one-way road only the way it may be
+// driven (never facing the wrong way); on a two-way road whichever way is closest to `wanted` (how
+// the vehicle was going).
 export function alongRoad(g: RoadGraph, s: Snapped, wanted: number): number {
   const a = g.nodes[s.i]!
   const b = g.nodes[s.j]!
   const k = Math.cos((((a[0] + b[0]) / 2) * Math.PI) / 180)
   const road = ((Math.atan2((b[1] - a[1]) * k, b[0] - a[0]) * 180) / Math.PI + 360) % 360
   const back = (road + 180) % 360
+  const ij = (g.next[s.i] ?? []).includes(s.j)
+  const ji = (g.next[s.j] ?? []).includes(s.i)
+  if (ij && !ji) return road
+  if (ji && !ij) return back
   const off = (h: number) => Math.abs(((h - wanted + 540) % 360) - 180)
   return off(road) <= off(back) ? road : back
 }
@@ -102,7 +107,9 @@ export function roadAhead(g: RoadGraph, s: Snapped, heading: number, want: numbe
   const m = (a: readonly [number, number], b: readonly [number, number]) =>
     Math.hypot((b[0] - a[0]) * 111_320, (b[1] - a[1]) * 111_320 * Math.cos((a[0] * Math.PI) / 180))
   // Toward whichever end of its road it is facing (and only if that way is allowed).
-  const towardJ = off(bearingTo(s.at, g.nodes[s.j]!)) <= off(bearingTo(s.at, g.nodes[s.i]!))
+  const ij = (g.next[s.i] ?? []).includes(s.j)
+  const ji = (g.next[s.j] ?? []).includes(s.i)
+  const towardJ = ij && !ji ? true : ji && !ij ? false : off(bearingTo(s.at, g.nodes[s.j]!)) <= off(bearingTo(s.at, g.nodes[s.i]!))
   let prev = towardJ ? s.i : s.j
   let cur = towardJ ? s.j : s.i
   const out: [number, number][] = [s.at, g.nodes[cur]! as [number, number]]

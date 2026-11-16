@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { filterReading, newTracker, shouldReappear } from './gpsFilter'
+import { filterReading, newTracker, personJumped } from './gpsFilter'
 import { forward, makeLine, nextStop, pointAt, project, stretch } from './routeLine'
 
 const MAX = 40 / 3.6 // 40 km/h
@@ -33,13 +33,12 @@ describe('GPS: stay calm about odd readings', () => {
   })
 })
 
-describe('lost signal: fade out and reappear instead of sliding across the map', () => {
-  it('reappears after a big jump or a long gap', () => {
-    expect(shouldReappear(80, 10)).toBe(false) // normal driving
-    expect(shouldReappear(500, 10)).toBe(true) // a big jump
-    expect(shouldReappear(150, 60)).toBe(true) // a minute without signal
-    expect(shouldReappear(100, 10, 400)).toBe(true) // the roads there are far longer: can't have driven it
-    expect(shouldReappear(100, 10, 140)).toBe(false)
+describe('a person sharing their position: a long jump cross-fades', () => {
+  it('only after a big jump or an impossible speed', () => {
+    expect(personJumped(80, 10)).toBe(false) // cycling
+    expect(personJumped(500, 60)).toBe(true) // a big jump
+    expect(personJumped(100, 2)).toBe(true) // 50 m/s: a GPS glitch confirmed
+    expect(personJumped(20, 0.5)).toBe(false) // a small step
   })
 })
 

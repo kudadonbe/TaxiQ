@@ -12,7 +12,8 @@ There are two kinds of vehicle:
   they are not.
 
 Already built (v2.4.0): real size, gliding, rounded corners, keep left, staying on the road, and
-lining up with the road when stopped.
+lining up with the road when stopped. Since 2026-11-16: catch-up driving instead of fading,
+always along the road, one-way-aware alignment, rear-axle turning and zoom badges.
 
 ## 1. Speed: by place and road
 
@@ -48,6 +49,8 @@ Speed always changes smoothly: no instant starts or stops, and no jolts.
 - **Indicators:** an amber blinker on the turning side starts about 3 s (or 30 m) before a turn, flashing about 1.5 times a second, and stops after the turn.
 - **Keep left:** the left lane on two-way roads, the middle of one-way roads (built).
 - **Never backwards:** a vehicle never moves back along its path. There's no reversing in v2.
+- **Turning like a real car (built, 2026-11-16):** front-wheel steering, the "kinematic bicycle model" (`src/core/kinematics.ts`). The **front axle** follows the path (the route, in its lane); the **rear axle** trails one wheelbase behind, always pulled toward the front axle, so it cuts slightly inside every corner (longer vehicles swing wider). The heading is the line rear → front, and the vehicle is drawn half way between the axles. It can only turn by moving forward: stopped, it never turns on the spot. Wheelbases: car 2.6 m, van and pickup 3.0 m, bus 6 m, motorbike and e-bike 1.3 m. Used for private vehicles and buses (MapView) and the demo taxis, roaming and on rides (`withAxles` in `positions.ts`). Bikes still lean. Lane changes (a two-way road into a one-way one) are eased, not a sideways hop.
+- **Never the wrong way on a one-way street:** routes follow one-way streets, and a vehicle lined up with its road (`alongRoad`) or predicted along it (`roadAhead`) only ever faces the way a one-way road may be driven; on a two-way road it faces the way closest to how it was going.
 
 ## 4. Junctions: slow and give way
 
@@ -65,6 +68,8 @@ Speed always changes smoothly: no instant starts or stops, and no jolts.
 
 - **Reject impossible readings:** a reading that would need more than about 1.5× the vehicle's top speed, jumps over 150 m, or goes backwards along the path is held, not shown.
 - **Confirm:** a held position is accepted only when **2–3 readings agree**; then the vehicle drives there smoothly along the road, never jumping.
+- **Catch-up driving, never a fade or a jump (2026-11-16):** after lost signal or a big jump the vehicle **drives** to its new place along the road route (`findRoute` in taxi mode, so one-way streets are followed), a bit faster than normal: fast enough to get there in about 10 s, never more than **1.5× the road's limit** and never below it (`catchUpSpeed`), with the normal driving rules: gentle acceleration from its current speed, slowing for corners, easing to a stop (`driveProfile` in `src/core/drive.ts`, `driveGlide` in `src/core/glide.ts`, `moveVehicle` in MapView). It is used whenever a normal glide would be faster than the road allows (`needsCatchUp`). **Always along the road, never across it:** the old fallback to a straight line when the road route was much longer than the hop (over 2.5×) is gone for vehicles; a long route is just driven faster. Buses catch up along their own route line, forward only; far behind their line, along the roads.
+- **Cross-fade only without a road route:** when there is no road route at all (another island, roads not loaded), a short hop (up to 30 m beside a road, 80 m with no roads near) glides straight and anything longer cross-fades into place (0.7 s: a copy fades out where it was while the vehicle fades in), standing along its road, never sliding across the sea or buildings. A catch-up that would take over 30 s (about 500 m at 40 km/h) also cross-fades. People sharing their location are never moved onto roads; a long jump of theirs (over 150 m, or faster than about 90 km/h) cross-fades (`personJumped` in `src/core/gpsFilter.ts`).
 - **Stay calm:** small wobbles while parked (under 8 m) are ignored, so a parked vehicle doesn't creep or spin.
 - **Never backwards:** along its route or road, a vehicle's shown position only moves forward. It can turn back only when readings clearly show a U-turn.
 
@@ -88,13 +93,14 @@ Speed always changes smoothly: no instant starts or stops, and no jolts.
 - **Headlights at night:** from dusk to dawn (by the viewer's local time, 18:00–06:00), a soft beam in front of each vehicle.
 - **Ground shadow:** a soft shadow under each vehicle (part built).
 - **Real size** for the zoom (built).
+- **Zoom badges (built, 2026-11-16):** zoomed out, where the real-size shape would be under 24 px long, every vehicle (demo taxis, private vehicles, buses) is drawn as a round 24 px badge in its colour with its type's icon and a small arrow on the rim pointing the way it is going (heading minus the map's bearing); above that, the real-size top-down shape with indicators and brake lights. The switch is where the two are the same size, so it doesn't jump. Labels (taxi number, price, bus route number) stay above the badge. People sharing their location keep their round icon at every zoom; on a bike, e-bike or motorbike it is bigger and darker, and anyone moving shows a direction arrow.
 
 ## 10. Build steps
 
 Each step goes to localhost for checking first.
 
 1. ✅ **Speed, acceleration and turning** (built): limits by place and road (§1), acceleration by type (§2), slowing for corners, wide or tight turns, bikes leaning, indicators (§3), and never backwards. Covers the demo taxis (roaming and on rides) fully, plus indicators and lean for real-GPS vehicles and buses. TaxiQ Game cars come later: they must move identically on every phone, so they need a deterministic version.
-2. ✅ **GPS filtering and route prediction** (built): After lost signal or a big jump (over 300 m; over 120 m after 45 s with no reading; or roads far longer than the hop), the vehicle fades out where it was and fades in slowly at the new place, along the road, instead of sliding across the map (`shouldReappear`, `reappear` in MapView). hold-then-confirm (§6, `src/core/gpsFilter.ts`); each bus matched to its own route line, built from its stops in order and joined along the roads (RTL's `roadshape` service wasn't answering), moving only forward and coasting toward the next stop (`src/core/routeLine.ts`); private vehicles coast along the road ahead (`roadAhead`).
+2. ✅ **GPS filtering and route prediction** (built): After lost signal or a big jump the vehicle catches up by driving there along the roads (§6; this replaced the earlier fade out and in, `shouldReappear` / `reappear`, on 2026-11-16). hold-then-confirm (§6, `src/core/gpsFilter.ts`); each bus matched to its own route line, built from its stops in order and joined along the roads (RTL's `roadshape` service wasn't answering), moving only forward and coasting toward the next stop (`src/core/routeLine.ts`); private vehicles coast along the road ahead (`roadAhead`).
 3. ✅ **Junctions, distance and overtaking** (built, demo taxis: `traffic()` in `src/positions.ts`): a 2-second gap, never through each other, overtaking on straight two-way roads of 80 m or more with nothing coming, and giving way at junctions (main road first, then first to arrive, 6 s at most). Bikes filtering past applies when there are simulated bikes (game cars later).
 4. ✅ **Stops, parking and lights** (built): parked taxis at the left edge, preferring parking aisles; taxis on a ride stop and wait 15 s at the pickup, pulled over at the destination; parked private vehicles prefer a parking aisle within 25 m (`snapParked`); brake lights, headlights from 18:00 to 06:00 and a ground shadow on every vehicle. Real buses wait at stops as their GPS shows (predictions stop at the next stop).
 

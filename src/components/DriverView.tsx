@@ -10,6 +10,7 @@ import { announce } from '../announce'
 import { useAvailableVehicle } from '../availability'
 import { queueRef } from '../centers'
 import { useDriverRides, useNow } from '../useRides'
+import { setOffDuty, useOffDuty } from '../duty'
 
 // Driver screen: their taxi, its place in the queue, ride offers (accept/decline) and accepted rides.
 export function DriverView({ taxis }: { taxis: PublicTaxi[] }) {
@@ -48,6 +49,8 @@ export function DriverView({ taxis }: { taxis: PublicTaxi[] }) {
   // The same vehicle out on private hire: no taxi offers until private hire is switched off.
   const { availableId } = useAvailableVehicle()
   const onPrivate = !!me?.vehicleId && availableId === me.vehicleId
+  // Off duty (set while using the app as a citizen): the taxi keeps its place but gets no offers.
+  const offDuty = useOffDuty(fb, taxiId)
   // Dev: act as the driver of any taxi (stored as taxiId on the dev's own roles entry).
   const actAs = (id: string) => {
     if (!fb || !email) return
@@ -91,9 +94,33 @@ export function DriverView({ taxis }: { taxis: PublicTaxi[] }) {
       <section className={`rounded-xl p-4 ${me?.suspended ? 'bg-rose-600 text-white' : 'bg-slate-900 text-white'}`}>
         <p className="text-4xl font-black tabular-nums">{t.driverTitle(me?.taxiNo ?? '?')}</p>
         <p className="mt-1 text-sm opacity-80">{me ? (lang === 'dv' && me.nameDv ? me.nameDv : me.name) : ''}</p>
-        <p className="mt-2 font-semibold">{me?.suspended ? t.suspended : position > 0 ? t.queuePosition(position) : ''}</p>
+        {me?.suspended ? (
+          <p className="mt-2 font-semibold">{t.suspended}</p>
+        ) : (
+          position > 0 && (
+            // Counts only: never who the other taxis are.
+            <p className="mt-2">
+              <span className="block text-lg font-bold">{t.dutyPosition(position, order.length)}</span>
+              <span className="block text-sm opacity-80">{t.dutyAhead(position - 1)}</span>
+            </p>
+          )
+        )}
       </section>
 
+      {offDuty && (
+        <div className="space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-900" aria-live="polite">
+          <p className="font-bold">{t.dutyOff}</p>
+          <p className="text-sm">{t.dutyOffNote}</p>
+          <button
+            type="button"
+            disabled={busy === 'duty'}
+            onClick={() => fb && email && act('duty', () => setOffDuty(fb, taxiId, email, false))}
+            className="min-h-12 w-full rounded-xl bg-emerald-500 font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-40"
+          >
+            {t.dutyGoOn}
+          </button>
+        </div>
+      )}
       {onPrivate && <p className="rounded-xl border border-amber-300 bg-amber-50 p-3 font-semibold text-amber-900">{t.driverOnPrivate}</p>}
       {error && <p className="text-sm font-semibold text-rose-700">{t.saveError(error)}</p>}
 

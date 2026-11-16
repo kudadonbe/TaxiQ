@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { easeDrive, glideAt, glideState, MAX_GLIDE_MS, nextGlide, OVERRUN, roundCorners, turnToward } from './glide'
+import { catchUpSpeed, driveProfile } from './drive'
+import { driveGlide, easeDrive, glideAt, glideBraking, glideSpeed, glideState, MAX_GLIDE_MS, nextGlide, OVERRUN, roundCorners, standGlide, turnToward } from './glide'
 
 const A: [number, number] = [4.17, 73.5]
 const B: [number, number] = [4.171, 73.5] // ~111 m north
@@ -66,5 +67,27 @@ describe('vehicles glide between reports, like driving', () => {
   it('turns smoothly the shortest way round', () => {
     const h = turnToward(350, 10, 125) // halfway in 125 ms
     expect(h).toBeCloseTo(0, 6)
+  })
+})
+
+describe('catching up: driving there along the roads, never a jump', () => {
+  const corner: [number, number] = [4.171, 73.5]
+  const end: [number, number] = [4.171, 73.502] // ~111 m north, then ~222 m east
+  it('follows the speed plan along the rounded route, from where it is shown', () => {
+    const prev = standGlide(A, 0, 0)
+    const raw: [number, number][] = [A, corner, end]
+    const g = driveGlide(prev, raw, 1000, driveProfile(raw, 'car', 0, catchUpSpeed(333, 30)))
+    expect(glideAt(g, 1000)).toEqual(A)
+    expect(glideAt(g, 1000 + g.dur)[1]).toBeCloseTo(end[1], 6)
+    expect(g.dur).toBeGreaterThan(20_000) // 333 m at no more than 45 km/h, slowing for the corner
+    let last = glideAt(g, 1000)
+    for (let t = 1000; t <= 1000 + g.dur; t += 16) {
+      const p = glideAt(g, t)
+      const step = Math.hypot((p[0] - last[0]) * 111_320, (p[1] - last[1]) * 111_320)
+      expect(step).toBeLessThan(0.25) // at most 15 m/s: no fast drag
+      last = p
+    }
+    expect(glideSpeed(g, 1000 + g.dur * 0.5)).toBeGreaterThan(1)
+    expect(glideBraking(g, 1000 + g.dur + 1)).toBe(true)
   })
 })
