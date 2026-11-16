@@ -19,6 +19,14 @@ property, identity and payments) is in `plans/digital-raajje-vision.md` on the `
   **To check on a real phone:** the wake lock, the catch-up driving after lost signal, and the
   Dhivehi wording of the new labels (wake*, duty*, drivingShort).
 
+- [x] **v2.8.0**: vehicle model library (80 models, 12 top-down shapes, model picker; the map draws
+  each private vehicle as its model at its real length and wheelbase), bicycles, map category chips
+  (All, Taxi, Bus, Private, Services; buses not fetched when hidden), full-map mode (menus slide
+  away; back with the handle, an edge swipe or a long press; landscape layout), My vehicles moved
+  into My account under What I offer. **To check on a phone:** the swipes and long press (iOS may
+  take a left-edge swipe as Back), landscape, the Dhivehi of the new labels (chip*, fullmap*,
+  model*, acctOffer*).
+
 ## Needs a decision or an outside step
 
 - [ ] **Automatic deploy** ([PR #2](https://github.com/kudadonbe/TaxiQ/pull/2), `ci-deploy`): the
@@ -31,8 +39,7 @@ property, identity and payments) is in `plans/digital-raajje-vision.md` on the `
 - [ ] **Rufiyaa sign** (U+20C2): our own tiny font from the MMA's official artwork (owner sends it).
 - [ ] **Project name**: "Digital Raajje" suggested; check domains, app stores, trademark register.
 - [ ] **The exact "can't offer while driving" message** the owner saw (to fix the right note).
-- [ ] **Mobile-first redesign questions:** gestures to hide/show the menus (suggested: a full-map
-  button or an edge swipe to hide; a long press, an edge swipe or a corner handle to bring back);
+- [ ] **Signed-out map question:**
   signed-out visitors see private vehicles **anonymously** (type, colour, price; no name) and
   services publicly (owners' consent wording updated).
 - [ ] **Address updates by residents:** who may suggest (anyone signed in, or only nearby); whether
@@ -46,20 +53,12 @@ property, identity and payments) is in `plans/digital-raajje-vision.md` on the `
 
 ## Next (agreed, after the current batch)
 
-- [ ] **Vehicle model library:** `vehicleModels` (make, model, years, real length and width, seats,
-  wheelbase, shape); about 12 top-down shapes (hatchback, sedan, SUV, van, minibus, pickup, lorry,
-  bus, scooter, motorbike, e-bike, bicycle); a model picker in My vehicles; the map uses the model's
-  shape and size. Bicycle as a type.
-- [ ] **Map category chips:** All, Taxi, Bus, Private, Services (then Rentals, Stays, Shops and the
-  registries); each chip with its own panel. Replaces today's map-key switches.
 - [ ] **Taxis always in taxi colours** on the map (over the model's shape); a tap card with the car's
   real photo, plate, model and colour; a car also offered as private hire is drawn in its real
   colour in the Private view. Vehicle photos in Storage (Blaze) or small in Firestore, operator
   checked.
-- [ ] **Mobile-first redesign:** menus that slide away for a full-screen map (header and tabs too),
-  a slim header on phones, landscape layout (side rail, side panels), an **Offer** tab for vehicles
-  and services together (one Available switch, Can I take rides? there), the map for signed-out
-  visitors.
+- [ ] **Mobile-first, the rest:** the map for signed-out visitors (anonymous private vehicles,
+  public services, with consent wording); one Available switch for vehicles and services.
 - [ ] **Taxi centers register themselves** (the owner, with the Transport Authority licence number;
   a platform admin approves; the owner becomes its admin); centers on the map with their **logo**
   (small square, approved), Hire from this center.

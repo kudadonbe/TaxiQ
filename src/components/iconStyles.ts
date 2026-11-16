@@ -14,7 +14,7 @@ export const ROLE_ICONS: Record<'citizen' | 'driver' | 'operator' | 'owner', Luc
 export const MOVING_ICONS: Record<Moving, LucideIcon> = { walk: Footprints, run: PersonStanding, bike: Bike, ebike: Scooter, motorbike: Motorbike, taxi: CarTaxiFront }
 
 // Private vehicles for hire.
-export const VEHICLE_ICONS: Record<VehicleType, LucideIcon> = { car: Car, van: Van, pickup: Truck, motorbike: Motorbike, ebike: Scooter }
+export const VEHICLE_ICONS: Record<VehicleType, LucideIcon> = { car: Car, van: Van, pickup: Truck, motorbike: Motorbike, ebike: Scooter, bicycle: Bike }
 
 // Services on the map (mechanics, tyres, towing...).
 export const SERVICE_ICONS: Record<ServiceKind, LucideIcon> = { mechanic: Wrench, tyre: CircleDot, battery: BatteryCharging, towing: Truck, carwash: Droplets, ac: Snowflake, parts: Cog, fuel: Fuel, ebike: PlugZap }

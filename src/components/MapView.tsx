@@ -1,4 +1,4 @@
-import { Bus as BusIcon, CarTaxiFront, Footprints, Hand, Info, LifeBuoy, LocateFixed, MapPin, Phone, Radar, Route as RouteIcon, X, type LucideIcon } from 'lucide-react'
+import { Bus as BusIcon, CarTaxiFront, Footprints, Hand, Info, LifeBuoy, LocateFixed, MapPin, Maximize2, Menu, Phone, Radar, Route as RouteIcon, X, type LucideIcon } from 'lucide-react'
 import { PlaceTypeIcon } from './icons'
 import { ic } from './iconStyles'
 import type { Feature, LineString } from 'geojson'
@@ -18,13 +18,15 @@ import { graphFromLines } from '../core/osmRoads'
 import { getArea, lastSpot, moveToLocation, offerRoads, useArea } from '../roadArea'
 import type { Taxi } from '../types'
 import type { Person } from '../usePresence'
-import type { PublicVehicle, Rider } from '../vehicles'
+import type { PublicVehicle } from '../vehicles'
 import { useLiveBuses, type Bus, type BusRoute } from '../buses'
 import { MOVING_ICONS, SERVICE_ICONS, VEHICLE_ICONS } from './iconStyles'
 import type { PublicService } from '../services'
 import { nearestHelp, SERVICE_KINDS, todayHours, type ServiceKind } from '../core/services'
 import { bearing, coastGlide, driveGlide, glideAt, glideBraking, glideSpeed, glideState, MAX_GLIDE_MS, MIN_GLIDE_MS, nextGlide, OVERRUN, standGlide, turnAhead, type Glide } from '../core/glide'
 import { CATCH_UP_GIVE_UP_S, catchUpSpeed, driveProfile, indicator, leanDegrees, needsCatchUp, roadLimitKmh, type DriveType } from '../core/drive'
+import { DEFAULT_DIMS, dimsFor } from '../core/vehicleModels'
+import { SHAPE_PX, shapeSvg } from './vehicleShapes'
 import { axleCentre, axleHeading, followFront, placeAxles, WHEELBASE_M, type Axles } from '../core/kinematics'
 import { isTwoWay, LANE_OFFSET_M, toTheLeft, twoWayBetween } from '../core/lanes'
 import { alongRoad, roadAhead, snapParked, snapToRoad, type Snapped } from '../core/snap'
@@ -32,6 +34,9 @@ import { filterReading, newTracker, personJumped, type Tracker } from '../core/g
 import { forward, makeLine, nextStop, pointAt, project, stretch, type RouteLine } from '../core/routeLine'
 import { createRoot, type Root } from 'react-dom/client'
 import { loadPlots, plotPopup, plotsGeoJSON, type Plot } from './plotLayer'
+import { MapChips } from './MapChips'
+import { chipShows, loadChip, saveChip, type MapChipId, type MarkerKind } from '../mapChips'
+import { useSwipe } from './useSwipe'
 
 type Status = 'idle' | 'answered' | 'suspended'
 
@@ -87,6 +92,10 @@ interface Props {
   // Services for drivers (mechanics, tyres, towing...): approved fixed places and mobile helpers
   // who are Available. Given (even empty), the map shows the Services layer and Help near me.
   services?: PublicService[]
+  // Full map: every menu slides away (App's header too) and only the map, its vehicles and services
+  // show, with a small handle to bring the menus back. App keeps it for the session.
+  mapOnly?: boolean
+  onMapOnly?: (on: boolean) => void
 }
 
 // A small round-cornered button in the map's tool row (opens one panel).
@@ -186,78 +195,27 @@ const CAR_SVG = `<svg viewBox="0 0 20 36" width="20" height="36" aria-hidden="tr
   <rect x="14" y="2.5" width="3" height="2" rx="1" fill="#fef9c3"/>
 </svg>`
 
-// A rider seen from above, sitting at (8, y): the owner's own choice (off by default). Helmet only;
-// a man (broad shoulders); a woman (narrower shoulders, a scarf trailing behind); a young rider
-// (smaller). Static markup, no user data.
-function riderSvg(rider: Rider, y: number) {
-  if (rider === 'man') return `<ellipse cx="8" cy="${y + 2.2}" rx="5.4" ry="2.6" fill="#334155"/><circle cx="8" cy="${y}" r="3.1" fill="#0f172a"/>`
-  if (rider === 'woman')
-    return `<ellipse cx="8" cy="${y + 2.2}" rx="4.3" ry="2.3" fill="#475569"/><path d="M5.6 ${y + 1} C6 ${y + 7} 7 ${y + 10} 8 ${y + 10.5} C9 ${y + 10} 10 ${y + 7} 10.4 ${y + 1} Z" fill="#be185d" opacity=".92"/><circle cx="8" cy="${y}" r="3" fill="#0f172a"/><path d="M5.2 ${y} A2.9 2.9 0 0 1 10.8 ${y}" fill="none" stroke="#be185d" stroke-width="1.4"/>`
-  if (rider === 'young') return `<ellipse cx="8" cy="${y + 1.8}" rx="3.5" ry="1.9" fill="#334155"/><circle cx="8" cy="${y}" r="2.5" fill="#0f172a"/>`
-  return `<circle cx="8" cy="${y}" r="3.6" fill="#0f172a" opacity=".85"/>`
-}
-// Top-down motorbike or e-bike, nose up, body in currentColor, with its rider.
-function bikeSvg(type: 'motorbike' | 'ebike', rider: Rider) {
-  if (type === 'ebike')
-    return `<svg viewBox="0 0 16 32" width="16" height="32" aria-hidden="true">
-  <rect x="6.5" y="1" width="3" height="6" rx="1.5" fill="#0f172a"/>
-  <rect x="6.5" y="25" width="3" height="6" rx="1.5" fill="#0f172a"/>
-  <line x1="2.5" y1="8" x2="13.5" y2="8" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round"/>
-  <rect x="5.5" y="7" width="5" height="19" rx="2.5" fill="currentColor" stroke="#0f172a" stroke-width="1.1"/>
-  <rect x="6.5" y="19" width="3" height="5" rx=".8" fill="#22c55e"/>
-  ${riderSvg(rider, 13.5)}
-</svg>`
-  return `<svg viewBox="0 0 16 34" width="16" height="34" aria-hidden="true">
-  <rect x="6.5" y="1" width="3" height="7" rx="1.5" fill="#0f172a"/>
-  <rect x="6.5" y="26" width="3" height="7" rx="1.5" fill="#0f172a"/>
-  <line x1="2" y1="9" x2="14" y2="9" stroke="#0f172a" stroke-width="1.8" stroke-linecap="round"/>
-  <rect x="5" y="8" width="6" height="19" rx="3" fill="currentColor" stroke="#0f172a" stroke-width="1.2"/>
-  ${riderSvg(rider, 15.5)}
-  <circle cx="8" cy="2" r="1" fill="#fde68a"/>
-</svg>`
-}
-const vehicleSvg = (type: PublicVehicle['type'], rider: Rider) => (type === 'motorbike' || type === 'ebike' ? bikeSvg(type, rider) : VEHICLE_SVGS[type])
-
-// Top-down private vehicles, nose up so rotate() aims them along the road; body in currentColor.
-// Static markup with no user data, so innerHTML is safe here.
-const VEHICLE_SVGS: Record<'car' | 'van' | 'pickup' | 'motorbike' | 'ebike', string> = {
-  car: CAR_SVG.replace('fill="currentColor"', 'fill="currentColor"').replace('<rect x="3" y="2.5" width="3" height="2" rx="1" fill="#fef9c3"/>', '<rect x="3" y="2.5" width="3" height="2" rx="1" fill="#fde68a"/>'),
-  van: `<svg viewBox="0 0 22 40" width="22" height="40" aria-hidden="true">
-  <rect x="1.5" y="1.5" width="19" height="37" rx="4" fill="currentColor" stroke="#0f172a" stroke-width="1.5"/>
-  <path d="M4.5 8 Q11 5.5 17.5 8 L16.5 12.5 H5.5 Z" fill="#0f172a" opacity=".85"/>
-  <rect x="5" y="15" width="12" height="20" rx="1.5" fill="#0f172a" opacity=".18"/>
-  <rect x="3.5" y="2.5" width="3" height="2" rx="1" fill="#fde68a"/>
-  <rect x="15.5" y="2.5" width="3" height="2" rx="1" fill="#fde68a"/>
-</svg>`,
-  pickup: `<svg viewBox="0 0 22 40" width="22" height="40" aria-hidden="true">
-  <rect x="1.5" y="1.5" width="19" height="37" rx="5" fill="currentColor" stroke="#0f172a" stroke-width="1.5"/>
-  <path d="M4.5 8.5 Q11 6 17.5 8.5 L16.5 13 H5.5 Z" fill="#0f172a" opacity=".85"/>
-  <rect x="4" y="19" width="14" height="17" rx="1.5" fill="none" stroke="#0f172a" stroke-width="1.5" opacity=".7"/>
-  <line x1="4" y1="18" x2="18" y2="18" stroke="#0f172a" stroke-width="1.5"/>
-  <rect x="3.5" y="2.5" width="3" height="2" rx="1" fill="#fde68a"/>
-  <rect x="15.5" y="2.5" width="3" height="2" rx="1" fill="#fde68a"/>
-</svg>`,
-  motorbike: bikeSvg('motorbike', 'none'),
-  ebike: bikeSvg('ebike', 'none'),
-}
-
+// Private vehicles are drawn from the model library (src/core/vehicleModels.ts) with the shapes in
+// ./vehicleShapes (static markup, nose up, body in currentColor, the owner's rider choice; no user
+// data), at the model's real length and wheelbase.
 // Vehicles at their real length for the zoom, like a game camera, never smaller than BADGE_PX on
 // screen and with a maximum so they don't fill it. Zoomed out (an island or more in view: where the
 // real-size shape would be under BADGE_SWITCH_PX, about zoom 17.5 for a car), a round badge (BADGE_PX
 // across) with the type's icon and a direction arrow is drawn instead, so a motorbike or a bus stays
 // easy to see. At street level the top-down shape takes over at the badge's own size (no jump) and
 // grows to its true size as the map zooms in.
-type SizedVehicle = 'car' | 'van' | 'pickup' | 'motorbike' | 'ebike' | 'bus'
-const REAL_LENGTH_M: Record<SizedVehicle, number> = { car: 4.5, van: 5.2, pickup: 5.3, motorbike: 2.1, ebike: 1.8, bus: 12 }
-const DRAWN_PX: Record<SizedVehicle, number> = { car: 36, van: 40, pickup: 40, motorbike: 34, ebike: 32, bus: 56 } // SVG height
+const TAXI_LENGTH_M = 4.5
+const TAXI_DRAWN_PX = 36 // CAR_SVG height
+const BUS_LENGTH_M = 12
+const BUS_DRAWN_PX = 56 // BUS_SVG height
 const BADGE_PX = 24
 const BADGE_SWITCH_PX = 6
-function realPx(m: MlMap, type: SizedVehicle) {
+function realPx(m: MlMap, lengthM: number) {
   const lat = m.getCenter().lat
   const metresPerPx = (40_075_016.686 * Math.cos((lat * Math.PI) / 180)) / (512 * 2 ** m.getZoom())
-  return (REAL_LENGTH_M[type] ?? 4.5) / metresPerPx
+  return lengthM / metresPerPx
 }
-const realScale = (px: number, type: SizedVehicle) => Math.max(BADGE_PX, Math.min(px, 160)) / (DRAWN_PX[type] ?? 36)
+const realScale = (px: number, drawnPx: number) => Math.max(BADGE_PX, Math.min(px, 160)) / drawnPx
 
 // The zoomed-out badge: a round disc in the vehicle's colour with its type's icon (rendered by
 // React into the marker) and a small arrow on its rim that points the way it is going.
@@ -288,14 +246,14 @@ function inkFor(hex: string) {
   return 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255) > 150 ? '#0f172a' : '#ffffff'
 }
 // Draw a vehicle at this zoom: the badge (arrow turned by `rel` degrees) or the real-size shape.
-function drawVehicle(root: HTMLElement, shape: HTMLElement, badge: Badge, px: number, type: SizedVehicle, rel: number, extra = '') {
+function drawVehicle(root: HTMLElement, shape: HTMLElement, badge: Badge, px: number, drawnPx: number, rel: number, extra = '') {
   const asBadge = px < BADGE_SWITCH_PX
   if (root.classList.contains('as-badge') !== asBadge) {
     root.classList.toggle('as-badge', asBadge)
     shape.style.display = asBadge ? 'none' : ''
   }
   if (asBadge) badge.dir.style.transform = `rotate(${rel}deg)`
-  else shape.style.transform = `rotate(${rel}deg) scale(${realScale(px, type)})${extra}`
+  else shape.style.transform = `rotate(${rel}deg) scale(${realScale(px, drawnPx)})${extra}`
 }
 
 // No road route at all (another island, roads not loaded), or too far to watch it drive there: a
@@ -335,6 +293,9 @@ interface VehicleEntry {
   coasted: number
   snap: Snapped | null
   axles: Axles | null // real-car turning (src/core/kinematics.ts)
+  len: number // real length (m), wheelbase (m) and the shape's drawn height (px)
+  wb: number
+  drawnPx: number
   lane: number // metres left of the road's middle now (eased between two-way and one-way roads)
 }
 
@@ -508,7 +469,7 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
 // Live map of taxis, on MapLibre: rotate (two fingers / right-drag), tilt, pinch zoom, compass and
 // "my location" like Google Maps. Markers are driven imperatively so 60fps position updates don't
 // re-render React.
-export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, activeTrip, onHireFrom, people = [], vehicles = [], buses: busesProp, onHireVehicle, focusVehicle = null, myUid = null, privateRide, shareControl, driving = false, onTripMetres, services: servicesProp }: Props) {
+export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, activeTrip, onHireFrom, people = [], vehicles = [], buses: busesProp, onHireVehicle, focusVehicle = null, myUid = null, privateRide, shareControl, driving = false, onTripMetres, services: servicesProp, mapOnly = false, onMapOnly }: Props) {
   const { lang, t, driverName } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const map = useRef<MlMap | null>(null)
@@ -576,8 +537,12 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   // Places for search, labels and pin names: the viewer's area (e.g. Malé) on the real app's map;
   // the game map stays on Kulhudhuffushi.
   const placesKey = followsViewer ? (regionAt(area.center)?.id ?? 'home') : 'home'
-  // Live RTL buses: only on the real app's map, in the Greater Malé area, while Buses is on.
-  const [showBuses, setShowBuses] = useState(true)
+  // Category chips (full screen only): one at a time, remembered on the device. The Bus chip only
+  // where buses can show (the real app's map), Services only where the map has them.
+  const [chipState, setChipState] = useState<MapChipId>(loadChip)
+  const chipIds: MapChipId[] = ['all', 'taxi', ...(followsViewer || busesProp ? (['bus'] as const) : []), 'private', ...(servicesProp ? (['services'] as const) : [])]
+  const chip: MapChipId = fullscreen && chipIds.includes(chipState) ? chipState : 'all'
+  const shows = (k: MarkerKind) => chipShows(chip, k)
   // RTL buses: wherever the map is looking in Greater Malé (or the viewer is there).
   const [viewRegion, setViewRegion] = useState<string | null>(null)
   useEffect(() => {
@@ -593,8 +558,10 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       m.off('moveend', look)
     }
   }, [ready])
+  // Live RTL buses: only on the real app's map, in the Greater Malé area, and only while the chip
+  // shows buses (All or Bus); otherwise the feed isn't asked at all.
   const busArea = followsViewer && (placesKey === 'male' || viewRegion === 'male')
-  const liveBuses = useLiveBuses(busArea && showBuses)
+  const liveBuses = useLiveBuses(busArea && shows('bus'))
   const placesHere = () => (followRef.current ? loadPlacesAround(getArea().center) : loadPlaces())
 
   // Create the map once.
@@ -871,7 +838,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       const follow = following.current && latest.get(following.current)
       if (follow) m.setCenter([follow.lng, follow.lat])
       const bearing = m.getBearing()
-      const px = realPx(m, 'car')
+      const px = realPx(m, TAXI_LENGTH_M)
       for (const [id, entry] of markers.current) {
         const p = latest.get(id)
         if (!p) {
@@ -882,7 +849,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
           continue
         }
         entry.marker.setLngLat([p.lng, p.lat])
-        drawVehicle(entry.parts.root, entry.parts.car, entry.parts.badge, px, 'car', p.heading - bearing)
+        drawVehicle(entry.parts.root, entry.parts.car, entry.parts.badge, px, TAXI_DRAWN_PX, p.heading - bearing)
         setSignal(entry.parts.car, p.signal)
         entry.parts.car.classList.toggle('braking', !!p.braking)
         if (!entry.onMap) {
@@ -1172,7 +1139,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         price.className = 'vehicle-marker-price'
         el.append(shape, badge.el, price)
         const marker = new maplibregl.Marker({ element: el, rotationAlignment: 'viewport', pitchAlignment: 'viewport' }).setLngLat(ll(v.at)).addTo(m)
-        entry = { marker, shape, badge, price, type: '', glide: null, lastReport: null, atKey: '', shownHeading: v.heading || 0, onRoad: false, lean: 0, tracker: newTracker(), s: null, speed: 0, coasted: 0, snap: null, axles: null, lane: 0 }
+        entry = { marker, shape, badge, price, type: '', glide: null, lastReport: null, atKey: '', shownHeading: v.heading || 0, onRoad: false, lean: 0, tracker: newTracker(), s: null, speed: 0, coasted: 0, snap: null, axles: null, lane: 0, len: DEFAULT_DIMS.car.length, wb: DEFAULT_DIMS.car.wheelbase, drawnPx: SHAPE_PX.hatchback.h }
         vehicleMarkers.current.set(v.id, entry)
       }
       const e = entry
@@ -1219,10 +1186,14 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       vel.classList.toggle('mine', !!myUidRef.current && v.ownerUid === myUidRef.current)
       vel.style.opacity = v.level !== 'active' ? '0.7' : '1'
       vel.title = v.level !== 'active' ? vLabels.current.level(v.level) : ''
-      const look = `${v.type}:${v.rider}`
+      const look = `${v.type}:${v.rider}:${v.modelId ?? ''}`
       if (e.type !== look) {
         e.type = look
-        e.shape.innerHTML = withIndicators(vehicleSvg(v.type, v.rider)) // static markup, no user data
+        const dims = dimsFor(v.type, v.modelId)
+        e.len = dims.length
+        e.wb = dims.wheelbase
+        e.drawnPx = SHAPE_PX[dims.shape].h
+        e.shape.innerHTML = withIndicators(shapeSvg(dims.shape, 'currentColor', v.rider)) // our own markup, no user data
         e.shape.dataset.type = v.type
       }
       e.marker.getElement().onclick = (ev) => {
@@ -1273,10 +1244,9 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   // closed now is faded, a resting mobile helper a little. Tap for its card (one panel, below).
   // The icon is rendered by React into the marker; the name goes in as an attribute, never HTML.
   const services = servicesProp ?? NO_SERVICES
-  const [showServices, setShowServices] = useState(true)
   const serviceMarkers = useRef(new Map<string, { marker: Marker; root: Root; kind: string }>())
   const openServiceRef = useRef<(id: string) => void>(() => {})
-  const servicesKey = showServices ? JSON.stringify(services) : '[]'
+  const servicesKey = JSON.stringify(services)
   useEffect(() => {
     const m = map.current
     if (!m || !ready) return
@@ -1356,7 +1326,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         price.className = 'vehicle-marker-price bus-route'
         el.append(shape, badge.el, price)
         const marker = new maplibregl.Marker({ element: el, rotationAlignment: 'viewport', pitchAlignment: 'viewport' }).setLngLat(ll(b.at)).addTo(m)
-        e = { marker, shape, badge, price, type: 'bus', glide: null, lastReport: null, atKey: '', shownHeading: 0, onRoad: false, lean: 0, tracker: newTracker(), s: null, speed: 0, coasted: 0, snap: null, axles: null, lane: 0 }
+        e = { marker, shape, badge, price, type: 'bus', glide: null, lastReport: null, atKey: '', shownHeading: 0, onRoad: false, lean: 0, tracker: newTracker(), s: null, speed: 0, coasted: 0, snap: null, axles: null, lane: 0, len: BUS_LENGTH_M, wb: WHEELBASE_M.bus, drawnPx: BUS_DRAWN_PX }
         vehicleMarkers.current.set(key, e)
       }
       const entry = e
@@ -1445,6 +1415,56 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     }
   }, [busesKey, ready])
 
+  // Category chips: hide the markers the chip leaves out by their element's display (never removed,
+  // so they keep moving). The viewer's own ride (taxi or private vehicle) always stays. Runs after
+  // the marker effects above on every render, and only touches an element when it changes.
+  const rideTaxi = activeTrip?.taxiId
+  const rideVehicle = privateRide?.vehicleId
+  useEffect(() => {
+    const vis = (el: HTMLElement, on: boolean) => {
+      const d = on ? '' : 'none'
+      if (el.style.display !== d) el.style.display = d
+    }
+    for (const [id, e] of markers.current) vis(e.parts.root, chipShows(chip, 'taxi') || id === rideTaxi)
+    for (const [id, e] of vehicleMarkers.current) vis(e.marker.getElement(), id.startsWith('b:') ? chipShows(chip, 'bus') : chipShows(chip, 'private') || id === rideVehicle)
+    for (const e of peopleMarkers.current.values()) vis(e.marker.getElement(), chipShows(chip, 'person'))
+    for (const e of serviceMarkers.current.values()) vis(e.marker.getElement(), chipShows(chip, 'service'))
+  })
+  // A new chip: close a vehicle's menu, and stop following one the chip hides.
+  useEffect(() => {
+    popup.current?.remove()
+    const f = following.current
+    if (!f) return
+    const kind: MarkerKind = f.startsWith('b:') ? 'bus' : f.startsWith('v:') ? 'private' : 'taxi'
+    if (!chipShows(chip, kind) && f !== rideTaxi && f !== `v:${rideVehicle}`) followRefFn.current(null)
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [chip])
+  // Bus chip: how many buses are in view (for "No buses in this area"). Until the feed has had time
+  // to answer (one sweep of the routes), an empty list isn't taken as none.
+  const [busesHere, setBusesHere] = useState(0)
+  const [busWaited, setBusWaited] = useState(false)
+  useEffect(() => {
+    if (chip !== 'bus') return
+    setBusWaited(false)
+    const timer = setTimeout(() => setBusWaited(true), 20_000)
+    return () => clearTimeout(timer)
+  }, [chip])
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready || chip !== 'bus') return
+    const list = JSON.parse(busesKey) as Bus[]
+    const count = () => {
+      const b = m.getBounds()
+      setBusesHere(list.filter((x) => b.contains(ll(x.at))).length)
+    }
+    count()
+    m.on('moveend', count)
+    return () => {
+      m.off('moveend', count)
+    }
+  }, [busesKey, chip, ready])
+  const noBuses = chip === 'bus' && (!busArea || ((busWaited || buses.length > 0) && busesHere === 0))
+
   // Every frame: move each private vehicle and bus (and each person sharing) along its glide, turn it
   // like a real vehicle (relative to the map's rotation), and keep a followed vehicle in the middle.
   useEffect(() => {
@@ -1489,8 +1509,8 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         // stays exactly as it is (never turning on the spot); placed afresh, it stands along its road.
         const st = glideState(e.glide, now)
         const moving = e.glide.path.length >= 2 && now < e.glide.start + e.glide.dur
-        const kind = e.type.split(':')[0] as SizedVehicle
-        const wb = WHEELBASE_M[kind] ?? WHEELBASE_M.car
+        const kind = e.type.split(':')[0]
+        const wb = e.wb
         const g = graphRef.current
         if (moving || !e.axles) {
           const twoWay = moving ? twoWayBetween(g, st.a, st.b) : e.snap ? isTwoWay(g, e.snap.i, e.snap.j) : true
@@ -1513,12 +1533,12 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         // Brake lights while slowing down or standing still.
         e.shape.classList.toggle('braking', glideBraking(e.glide, now))
         let squeeze = ''
-        if (kind === 'motorbike' || kind === 'ebike') {
+        if (kind === 'motorbike' || kind === 'ebike' || kind === 'bicycle') {
           const rate = dt > 0 ? (((e.shownHeading - before + 540) % 360) - 180) / (dt / 1000) : 0
           e.lean += (leanDegrees(rate, speed) - e.lean) * Math.min(1, dt / 200)
           squeeze = ` scaleX(${(1 - Math.abs(e.lean) / 90).toFixed(3)})`
         }
-        drawVehicle(e.marker.getElement(), e.shape, e.badge, realPx(m, kind), kind, e.shownHeading - bearingNow, squeeze)
+        drawVehicle(e.marker.getElement(), e.shape, e.badge, realPx(m, e.len), e.drawnPx, e.shownHeading - bearingNow, squeeze)
         if (following.current === (id.startsWith('b:') ? id : `v:${id}`)) m.setCenter(ll(at))
       }
       // People: along their glide; the arrow shows the way while they're moving.
@@ -1728,6 +1748,104 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     if (active === 'hire') onPanelOpenChange?.(false)
     else setOpenPanel(null)
   }
+  // A chip: Services opens Help near me as its panel (folding the hire form away).
+  const chooseChip = (id: MapChipId) => {
+    setChipState(id)
+    saveChip(id)
+    if (id === 'services') {
+      setOpenPanel('help')
+      if (panel && panelOpen) onPanelOpenChange?.(false)
+    } else if (openPanel === 'help') setOpenPanel(null)
+  }
+
+  // Full map: every menu slides away; only the map, its markers and MapLibre's own controls stay.
+  const hidden = fullscreen && mapOnly && !pinMode
+  useEffect(() => {
+    if (!hidden) return
+    // Fold whatever is open (the hire form keeps its details) and close a vehicle's menu.
+    setOpenPanel(null)
+    if (panelOpen) onPanelOpenChange?.(false)
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [hidden])
+  const enterFull = () => onMapOnly?.(true)
+  // Swipe the column toward the left edge, or a bottom card down, to slide the menus away.
+  const swipeColumn = useSwipe((dir) => dir === 'left' && enterFull())
+  const swipeCard = useSwipe((dir) => dir === 'down' && enterFull())
+  // Bring the menus back: a swipe in from the left edge or up from the bottom edge (starting within
+  // 20 px of it), or a long press (600 ms, moving under 10 px) on an empty part of the map.
+  const exitRef = useRef(onMapOnly)
+  useEffect(() => {
+    exitRef.current = onMapOnly
+  })
+  useEffect(() => {
+    if (!hidden) return
+    const exit = () => exitRef.current?.(false)
+    let edge: { x: number; y: number; from: 'left' | 'bottom' } | null = null
+    const touchStart = (e: TouchEvent) => {
+      const p = e.touches[0]
+      edge = null
+      if (e.touches.length !== 1 || !p) return
+      if (p.clientX <= 20) edge = { x: p.clientX, y: p.clientY, from: 'left' }
+      else if (p.clientY >= window.innerHeight - 20) edge = { x: p.clientX, y: p.clientY, from: 'bottom' }
+    }
+    const touchEnd = (e: TouchEvent) => {
+      const p = e.changedTouches[0]
+      const s = edge
+      edge = null
+      if (!s || !p) return
+      const dx = p.clientX - s.x
+      const dy = p.clientY - s.y
+      if ((s.from === 'left' && dx > 60 && dx > Math.abs(dy)) || (s.from === 'bottom' && -dy > 60 && -dy > Math.abs(dx))) exit()
+    }
+    // Long press on the map itself (its canvas), not on a marker or a control.
+    const canvas = map.current?.getCanvas()
+    let press: { id: number; x: number; y: number; timer: number } | null = null
+    let pointers = 0
+    const cancel = () => {
+      if (press) clearTimeout(press.timer)
+      press = null
+    }
+    const down = (e: PointerEvent) => {
+      pointers++
+      cancel()
+      if (pointers !== 1 || e.target !== canvas) return
+      press = { id: e.pointerId, x: e.clientX, y: e.clientY, timer: window.setTimeout(() => {
+        press = null
+        exit()
+      }, 600) }
+    }
+    const move = (e: PointerEvent) => {
+      if (press && e.pointerId === press.id && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 10) cancel()
+    }
+    const up = () => {
+      pointers = Math.max(0, pointers - 1)
+      cancel()
+    }
+    window.addEventListener('touchstart', touchStart, { passive: true })
+    window.addEventListener('touchend', touchEnd, { passive: true })
+    canvas?.addEventListener('pointerdown', down)
+    window.addEventListener('pointermove', move, { passive: true })
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
+    return () => {
+      cancel()
+      window.removeEventListener('touchstart', touchStart)
+      window.removeEventListener('touchend', touchEnd)
+      canvas?.removeEventListener('pointerdown', down)
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
+    }
+  }, [hidden])
+  // What slides away in full map: transform only (the map never resizes), no motion if asked.
+  const slide = 'transition-transform duration-200 ease-out motion-reduce:transition-none'
+  const followText = followId ? (followId.startsWith('v:') ? t.followingVehicle(t.vehTypes[vehicles.find((x) => `v:${x.id}` === followId)?.type ?? 'car']) : followId.startsWith('b:') ? t.followingVehicle('bus') : t.followingTaxi(taxis.find((x) => x.id === followId)?.taxiNo ?? '')) : ''
+
+  // The bottom status cards (ride, booked vehicle, trip): on the right in a phone's landscape.
+  const cardClass = `absolute z-[5] flex items-center gap-3 rounded-2xl border border-white/60 bg-white/70 p-3 shadow-xl backdrop-blur-[3px] left-2 right-12 bottom-8 sm:right-auto sm:w-96 ${fullscreen ? `land:left-auto! land:right-14! land:w-64! ${slide}` : ''} ${hidden ? 'translate-y-[calc(100%+3rem)]' : ''}`
+  // In full map, a ride in progress or a followed vehicle still shows, as a slim pill.
+  const pillText = ride && activeTrip ? `${ride.phase === 'coming' ? t.rideComing : ride.phase === 'riding' ? t.rideRiding : t.rideArrived}${ride.phase !== 'arrived' ? ` · ${ride.minutes} ${t.minutes}` : ''}` : privateCard ? privateCard.text : followText
+
   const legend = (
       <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 text-xs ${fullscreen ? '' : 'px-1 sm:text-sm'}`}>
         <span className="flex items-center gap-1.5">
@@ -1743,23 +1861,11 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
           <input type="checkbox" checked={showPlots} onChange={(e) => setShowPlots(e.target.checked)} className="size-4 accent-emerald-600" />
           {t.plotMap}
         </label>
-        {busArea && (
-          <label className="flex min-h-8 cursor-pointer items-center gap-1.5 font-medium">
-            <input type="checkbox" checked={showBuses} onChange={(e) => setShowBuses(e.target.checked)} className="size-4 accent-emerald-600" />
-            {t.busesToggle}
-          </label>
-        )}
-        {servicesProp && (
-          <label className="flex min-h-8 cursor-pointer items-center gap-1.5 font-medium">
-            <input type="checkbox" checked={showServices} onChange={(e) => setShowServices(e.target.checked)} className="size-4 accent-emerald-600" />
-            {t.svcLayer}
-          </label>
-        )}
       </div>
   )
 
   return (
-    <section className={`${fullscreen ? 'relative h-full w-full' : 'space-y-2 sm:space-y-3'} ${night ? 'map-night' : ''}`}>
+    <section className={`${fullscreen ? 'map-full relative h-full w-full' : 'space-y-2 sm:space-y-3'} ${night ? 'map-night' : ''}`}>
       {!fullscreen && legend}
       <div className={fullscreen ? 'absolute inset-0' : 'relative'}>
         <div
@@ -1777,7 +1883,13 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
             Show me, Hire) and status chips, then at most ONE open panel, each with its own close.
             It never covers the map controls on the right or the status card at the bottom. */}
         {fullscreen && !pinMode && (
-          <div className="pointer-events-none absolute left-2 right-14 top-16 bottom-28 z-[6] flex flex-col gap-2 sm:right-auto sm:w-96">
+          <div
+            className={`pointer-events-none absolute left-2 right-14 top-[calc(var(--map-top,0px)+4rem)] bottom-28 z-[6] flex flex-col gap-2 sm:right-auto sm:w-96 land:right-auto! land:bottom-2! land:w-72! ${slide} ${hidden ? '-translate-x-[calc(100%+1rem)]' : ''}`}
+            inert={hidden}
+            {...swipeColumn}
+          >
+            {/* Category chips: one at a time (All, Taxi, Bus, Private, Services). */}
+            <MapChips chips={chipIds} active={chip} onChoose={chooseChip} />
             <div className="pointer-events-auto flex flex-wrap items-center gap-1.5">
               <ToolButton active={active === 'key'} onClick={() => toggle('key')} label={t.mapKey}>
                 <Info className="size-4" aria-hidden="true" />
@@ -1797,13 +1909,24 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
                   <LifeBuoy className="size-4 text-amber-600" aria-hidden="true" />
                 </ToolButton>
               )}
+              {onMapOnly && (
+                <button
+                  type="button"
+                  onClick={enterFull}
+                  aria-label={t.fullmapEnter}
+                  title={t.fullmapEnter}
+                  className="grid min-h-10 min-w-10 place-items-center rounded-full border border-white/60 bg-white/70 text-slate-800 shadow backdrop-blur-[3px]"
+                >
+                  <Maximize2 className="size-4" aria-hidden="true" />
+                </button>
+              )}
             </div>
             {/* Status chips: one short line each. */}
             {followId && (
               <Chip>
                 <LocateFixed className="size-4 shrink-0 text-sky-600" aria-hidden="true" />
                 <span className="min-w-0 flex-1 truncate font-semibold">
-                  {followId.startsWith('v:') ? t.followingVehicle(t.vehTypes[vehicles.find((x) => `v:${x.id}` === followId)?.type ?? 'car']) : followId.startsWith('b:') ? t.followingVehicle('bus') : t.followingTaxi(taxis.find((x) => x.id === followId)?.taxiNo ?? '')}
+                  {followText}
                 </span>
                 <button type="button" onClick={() => follow(null)} className="shrink-0 rounded-lg bg-slate-900 px-2 py-1 text-xs font-bold text-white">
                   {t.stopFollowing}
@@ -1827,6 +1950,12 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
                 <span className="min-w-0 flex-1 truncate font-semibold text-emerald-800" title={t.drivingNote}>
                   {t.drivingShort}
                 </span>
+              </Chip>
+            )}
+            {noBuses && (
+              <Chip>
+                <BusIcon className="size-4 shrink-0 text-slate-500" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-700">{t.chipNoBuses}</span>
               </Chip>
             )}
             {locationOff && (
@@ -1858,7 +1987,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
                   {active === 'share' && shareControl}
                   {active === 'help' && (
                     <div className="space-y-2">
-                      <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1" role="group" aria-label={t.svcKindsLabel}>
+                      <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1" role="group" aria-label={t.svcKindsLabel} data-noswipe="">
                         {[null, ...SERVICE_KINDS].map((k) => {
                           const Icon = k ? SERVICE_ICONS[k] : LifeBuoy
                           return (
@@ -1917,6 +2046,32 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
           </div>
         )}
 
+        {/* Full map: a small handle brings the menus back (bottom-left, clear of the map's own
+            buttons on the right); a ride or a followed vehicle stays as a slim pill. */}
+        {hidden && (
+          <>
+            <button
+              type="button"
+              onClick={() => onMapOnly?.(false)}
+              aria-label={t.fullmapExit}
+              title={`${t.fullmapExit}. ${t.fullmapHint}`}
+              className="absolute bottom-3 left-2 z-[6] grid size-11 place-items-center rounded-full border border-white/60 bg-white/60 text-slate-800 shadow-lg backdrop-blur-[3px]"
+            >
+              <Menu className="size-5" aria-hidden="true" />
+            </button>
+            {pillText && (
+              <button
+                type="button"
+                onClick={() => onMapOnly?.(false)}
+                className="absolute left-2 top-2 z-[6] flex max-w-[calc(100%-4.5rem)] items-center gap-1.5 rounded-full border border-white/60 bg-white/70 px-3 py-1 text-xs font-bold shadow backdrop-blur-[3px]"
+              >
+                {ride && activeTrip ? <CarTaxiFront className="size-4 shrink-0 text-emerald-700" aria-hidden="true" /> : <LocateFixed className="size-4 shrink-0 text-sky-600" aria-hidden="true" />}
+                <span className="truncate">{pillText}</span>
+              </button>
+            )}
+          </>
+        )}
+
         {/* Pin mode: a pin in the middle of the map, and a bar to confirm the place. */}
         {pinMode && (
           <>
@@ -1946,7 +2101,9 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         {/* A booked private vehicle: where it is, on its real position, and Show my vehicle. */}
         {privateCard && (
           <div
-            className={`absolute z-[5] flex items-center gap-3 rounded-2xl border border-white/60 bg-white/70 p-3 shadow-xl backdrop-blur-[3px] left-2 right-12 bottom-8 sm:right-auto sm:w-96`}
+            className={cardClass}
+            inert={hidden}
+            {...swipeCard}
             role="status"
           >
             <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-slate-900 text-yellow-300">
@@ -1962,7 +2119,9 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         {/* The ride in progress: where the taxi is in the trip, and Show my taxi. */}
         {ride && activeTrip && (
           <div
-            className={`absolute z-[5] flex items-center gap-3 rounded-2xl border border-white/60 bg-white/70 p-3 shadow-xl backdrop-blur-[3px] left-2 right-12 bottom-8 sm:right-auto sm:w-96`}
+            className={cardClass}
+            inert={hidden}
+            {...swipeCard}
             role="status"
           >
             <CarTaxiFront className="size-6 shrink-0 text-emerald-700" aria-hidden="true" />
@@ -1979,7 +2138,9 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         {/* The trip: distance, time and travel mode, floating at the bottom like a ride app. */}
         {tripInfo && !ride && (
           <div
-            className={`absolute z-[5] flex items-center gap-3 rounded-2xl border border-white/60 bg-white/70 p-3 shadow-xl backdrop-blur-[3px] left-2 right-12 bottom-8 sm:right-auto sm:w-96`}
+            className={cardClass}
+            inert={hidden}
+            {...swipeCard}
           >
             <div className="min-w-0 flex-1" dir="ltr">
               <p className="text-lg font-black tabular-nums">
@@ -2012,7 +2173,11 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         )}
 
         {/* Place search, floating over the map. */}
-        <div className={`absolute left-2 right-14 top-2 z-[7] sm:right-auto ${fullscreen ? 'sm:w-96' : 'sm:w-80'}`}>
+        <div
+          className={`absolute left-2 right-14 z-[7] sm:right-auto ${fullscreen ? `top-[calc(var(--map-top,0px)+0.5rem)] sm:w-96 land:right-auto! land:w-72! ${slide} ${hidden ? '-translate-x-[calc(100%+1rem)]' : ''}` : 'top-2 sm:w-80'}`}
+          inert={hidden}
+          {...(fullscreen ? swipeColumn : {})}
+        >
           <div className="flex items-center rounded-xl border border-slate-300 bg-white shadow-lg">
             <input
               type="search"

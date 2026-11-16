@@ -2,7 +2,7 @@
 // road, gentle acceleration and braking by vehicle type, slowing for corners, wider or tighter
 // turns, bikes leaning, and indicators before a turn. Pure functions.
 
-export type DriveType = 'car' | 'van' | 'pickup' | 'bus' | 'motorbike' | 'ebike'
+export type DriveType = 'car' | 'van' | 'pickup' | 'bus' | 'motorbike' | 'ebike' | 'bicycle'
 
 const kmh = (x: number) => x / 3.6
 
@@ -27,6 +27,7 @@ export const HANDLING: Record<DriveType, { capKmh: number; speedShare: number; a
   bus: { capKmh: 35, speedShare: 0.85, accel: kmh(30) / 9, brake: 1.8, cornerM: 10, corner90Kmh: 10, leans: false },
   motorbike: { capKmh: 60, speedShare: 1, accel: kmh(30) / 3.5, brake: 3, cornerM: 3, corner90Kmh: 14, leans: true },
   ebike: { capKmh: 25, speedShare: 1, accel: kmh(30) / 5, brake: 2.5, cornerM: 3, corner90Kmh: 13, leans: true },
+  bicycle: { capKmh: 20, speedShare: 1, accel: kmh(20) / 6, brake: 2.5, cornerM: 2.5, corner90Kmh: 12, leans: true },
 }
 
 // The speed a vehicle aims for on a road: the limit (or its type's cap), times its driver's own

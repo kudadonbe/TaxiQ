@@ -1,4 +1,4 @@
-import { CarTaxiFront, MapPin, Plus, ShieldAlert } from 'lucide-react'
+import { Check, CarTaxiFront, ChevronDown, MapPin, Plus, Search, ShieldAlert } from 'lucide-react'
 import { Switch } from './Switch'
 import { useDriverRides, useMyRide, usePublicTaxis } from '../useRides'
 import { useMyPrivateRide } from '../privateRides'
@@ -6,8 +6,10 @@ import { useState } from 'react'
 import { useAuth } from '../auth'
 import { useI18n } from '../i18n'
 import { useAvailableVehicle } from '../availability'
-import { applyVehicle, askToBeTaxi, DEFAULT_SEATS, editApproved, needsRecheck, RIDERS, setPrice, setRider, useMyVehicles, vehicleErrors, VEHICLE_TYPES, withdrawVehicle, type Vehicle, type VehicleDetails, type VehicleType } from '../vehicles'
+import { applyVehicle, askToBeTaxi, DEFAULT_SEATS, editApproved, hasRider, needsRecheck, RIDERS, type Rider, setPrice, setRider, useMyVehicles, vehicleErrors, VEHICLE_TYPES, withdrawVehicle, type Vehicle, type VehicleDetails, type VehicleType } from '../vehicles'
 import { VEHICLE_ICONS } from './iconStyles'
+import { dimsFor, modelById, modelLabel, searchModels, type VehicleModel } from '../core/vehicleModels'
+import { colourHex, shapeSvg, svgDataUrl } from './vehicleShapes'
 
 const STATUS_CLASS: Record<Vehicle['status'], string> = {
   pending: 'bg-amber-100 text-amber-900',
@@ -80,6 +82,7 @@ function VehicleCard({ v, onEdit, onWithdraw, onShowOnMap }: { v: Vehicle; onEdi
           <p className="text-xs text-slate-500">
             {v.colour} · {t.vehSeats(v.seats)}
           </p>
+          {modelById(v.modelId) && <p className="text-xs text-slate-500">{t.modelShown(modelLabel(modelById(v.modelId)!))}</p>}
         </div>
         <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${STATUS_CLASS[v.status]}`}>{t.vehStatus[v.status]}</span>
       </div>
@@ -132,7 +135,7 @@ function VehicleCard({ v, onEdit, onWithdraw, onShowOnMap }: { v: Vehicle; onEdi
             </button>
           )}
           {isOn && avail.error && <p className="text-xs font-semibold text-rose-700">{avail.error === 'location_denied' ? t.shareDenied : t.saveError(avail.error)}</p>}
-          {(v.type === 'motorbike' || v.type === 'ebike') && (
+          {hasRider(v.type) && (
             <div>
               <p className="text-sm font-medium">{t.vehRider}</p>
               <p className="text-xs text-slate-500">{t.vehRiderNote}</p>
@@ -212,7 +215,7 @@ function VehicleForm({ me, existing, onDone }: { me: { uid: string; name: string
   return (
     <section className="space-y-3 rounded-xl border-2 border-emerald-300 bg-white p-4">
       <h3 className="font-bold">{existing ? t.vehEdit : t.vehOffer}</h3>
-      <div className="grid grid-cols-5 gap-1" role="group" aria-label={t.vehType}>
+      <div className="grid grid-cols-3 gap-1 sm:grid-cols-6" role="group" aria-label={t.vehType}>
         {VEHICLE_TYPES.map((type: VehicleType) => {
           const Icon = VEHICLE_ICONS[type]
           return (
@@ -220,7 +223,7 @@ function VehicleForm({ me, existing, onDone }: { me: { uid: string; name: string
               key={type}
               type="button"
               aria-pressed={d.type === type}
-              onClick={() => setD({ ...d, type, seats: DEFAULT_SEATS[type] })}
+              onClick={() => d.type !== type && setD({ ...d, type, seats: DEFAULT_SEATS[type], modelId: null })}
               className={`grid min-h-16 place-items-center gap-1 rounded-lg p-1 text-xs font-semibold ${d.type === type ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700'}`}
             >
               <Icon className="size-5" aria-hidden="true" />
@@ -229,10 +232,17 @@ function VehicleForm({ me, existing, onDone }: { me: { uid: string; name: string
           )
         })}
       </div>
+      <ModelPicker
+        type={d.type}
+        modelId={d.modelId ?? null}
+        fill={colourHex(d.colour)}
+        rider={existing?.rider ?? 'none'}
+        onPick={(m) => setD({ ...d, modelId: m?.id ?? null, seats: m && !hasRider(d.type) ? Math.min(20, m.seats) : d.seats })}
+      />
       <div className="grid gap-3 sm:grid-cols-2">
         {field('reg', t.vehReg, <input value={d.reg} maxLength={12} dir="ltr" onChange={(e) => setD({ ...d, reg: e.target.value })} className={box} />)}
         {field('colour', t.vehColour, <input value={d.colour} maxLength={24} onChange={(e) => setD({ ...d, colour: e.target.value })} className={box} />)}
-        {d.type !== 'motorbike' && d.type !== 'ebike' && field('seats', t.vehSeatsLabel, <input type="number" min={1} max={20} value={d.seats} onChange={(e) => setD({ ...d, seats: Number(e.target.value) })} className={box} />)}
+        {!hasRider(d.type) && field('seats', t.vehSeatsLabel, <input type="number" min={1} max={20} value={d.seats} onChange={(e) => setD({ ...d, seats: Number(e.target.value) })} className={box} />)}
         {field('phone', t.yourPhone, <input type="tel" inputMode="numeric" maxLength={7} value={d.phone} dir="ltr" onChange={(e) => setD({ ...d, phone: e.target.value.replace(/\D/g, '') })} className={box} />)}
         {field('priceBase', t.vehPriceBase, <input type="number" min={0} max={10000} value={d.priceBase} onChange={(e) => setD({ ...d, priceBase: Number(e.target.value) })} className={box} />)}
         {field('pricePerKm', t.vehPricePerKm, <input type="number" min={0} max={1000} value={d.pricePerKm} onChange={(e) => setD({ ...d, pricePerKm: Number(e.target.value) })} className={box} />)}
@@ -262,5 +272,68 @@ function VehicleForm({ me, existing, onDone }: { me: { uid: string; name: string
         </button>
       </div>
     </section>
+  )
+}
+
+// A shape preview: our own constant SVG with a checked hex colour, shown as a data: URL image (an
+// image can't run scripts, and nothing typed by a person goes into the markup).
+function ShapePreview({ shape, fill, rider }: { shape: VehicleModel['shape']; fill: string; rider: Rider }) {
+  return <img src={svgDataUrl(shapeSvg(shape, fill, rider))} alt="" aria-hidden="true" className="h-10 w-6 shrink-0 object-contain" />
+}
+
+// The model picker: the chosen type's models, searchable, plus Other / not listed (no model).
+function ModelPicker({ type, modelId, fill, rider, onPick }: { type: VehicleDetails['type']; modelId: string | null; fill: string; rider: Rider; onPick: (m: VehicleModel | null) => void }) {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const chosen = modelById(modelId)
+  const list = searchModels(q, type)
+  const row = 'flex min-h-11 w-full items-center gap-3 rounded-lg px-2 text-start text-sm'
+  const pick = (m: VehicleModel | null) => {
+    onPick(m)
+    setOpen(false)
+    setQ('')
+  }
+  return (
+    <div>
+      <span className="text-sm font-medium">{t.modelLabel}</span>
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="mt-1 flex min-h-12 w-full items-center gap-3 rounded-lg border border-slate-300 px-3 text-start">
+        <ShapePreview shape={chosen?.shape ?? dimsFor(type).shape} fill={fill} rider={rider} />
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold" dir="auto">
+          {chosen ? t.modelShown(modelLabel(chosen)) : t.modelOther}
+        </span>
+        <ChevronDown className={`size-4 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
+      </button>
+      <p className="mt-1 text-xs text-slate-500">{t.modelNote}</p>
+      {open && (
+        <div className="mt-2 space-y-1 rounded-xl border border-slate-200 bg-slate-50 p-2">
+          <label className="flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3">
+            <Search className="size-4 shrink-0 text-slate-500" aria-hidden="true" />
+            <input value={q} maxLength={40} onChange={(e) => setQ(e.target.value)} placeholder={t.modelSearch} aria-label={t.modelSearch} dir="ltr" className="min-w-0 flex-1 bg-transparent text-base outline-none" />
+          </label>
+          <ul className="max-h-72 space-y-0.5 overflow-y-auto">
+            {list.map((m) => (
+              <li key={m.id}>
+                <button type="button" aria-pressed={m.id === modelId} onClick={() => pick(m)} className={`${row} ${m.id === modelId ? 'bg-emerald-100 font-bold' : 'hover:bg-white'}`}>
+                  <ShapePreview shape={m.shape} fill={fill} rider={rider} />
+                  <span className="min-w-0 flex-1 truncate" dir="ltr">
+                    {modelLabel(m)}
+                  </span>
+                  {m.id === modelId && <Check className="size-4 shrink-0" aria-hidden="true" />}
+                </button>
+              </li>
+            ))}
+            {list.length === 0 && <li className="px-2 py-3 text-sm text-slate-500">{t.modelNoMatch}</li>}
+            <li>
+              <button type="button" aria-pressed={!chosen} onClick={() => pick(null)} className={`${row} ${!chosen ? 'bg-emerald-100 font-bold' : 'hover:bg-white'}`}>
+                <ShapePreview shape={dimsFor(type).shape} fill={fill} rider={rider} />
+                <span className="min-w-0 flex-1">{t.modelOther}</span>
+                {!chosen && <Check className="size-4 shrink-0" aria-hidden="true" />}
+              </button>
+            </li>
+          </ul>
+        </div>
+      )}
+    </div>
   )
 }

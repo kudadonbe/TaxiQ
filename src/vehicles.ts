@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { BEAT_MS, beatLevel, isFresh, WAKE_METRES, type BeatLevel } from './core/heartbeat'
 import { logActivity } from './activity'
+import { modelById } from './core/vehicleModels'
+import { isModelId } from './validate'
 
 // Private vehicles for hire (people and companies, not a center's queue). See firestore.rules:
 //   vehicles/{id}        the application and record (owner and staff read; has the phone number)
@@ -10,11 +12,13 @@ import { logActivity } from './activity'
 
 type Fb = typeof import('./firebase')
 
-export type VehicleType = 'car' | 'van' | 'pickup' | 'motorbike' | 'ebike'
-export const VEHICLE_TYPES: VehicleType[] = ['car', 'van', 'pickup', 'motorbike', 'ebike']
-export const DEFAULT_SEATS: Record<VehicleType, number> = { car: 4, van: 8, pickup: 2, motorbike: 1, ebike: 1 }
+export type VehicleType = 'car' | 'van' | 'pickup' | 'motorbike' | 'ebike' | 'bicycle'
+export const VEHICLE_TYPES: VehicleType[] = ['car', 'van', 'pickup', 'motorbike', 'ebike', 'bicycle']
+export const DEFAULT_SEATS: Record<VehicleType, number> = { car: 4, van: 8, pickup: 2, motorbike: 1, ebike: 1, bicycle: 1 }
+// Two-wheelers: one seat on the form, and the owner may choose a rider to show on the map.
+export const hasRider = (type: VehicleType) => type === 'motorbike' || type === 'ebike' || type === 'bicycle'
 export type VehicleStatus = 'pending' | 'approved' | 'rejected' | 'suspended'
-// Who is shown riding a motorbike or e-bike on the map: the owner's own choice, off by default.
+// Who is shown riding a motorbike, e-bike or bicycle on the map: the owner's own choice, off by default.
 export type Rider = 'none' | 'man' | 'woman' | 'young'
 export const RIDERS: Rider[] = ['none', 'man', 'woman', 'young']
 const riderOf = (x: unknown): Rider => RIDERS.find((r) => r === x) ?? 'none'
@@ -28,6 +32,9 @@ export interface VehicleDetails {
   pricePerKm: number // MVR a km (0 = a flat price)
   phone: string
   note: string
+  // The real model (src/core/vehicleModels.ts), so the map draws its shape at its size; null or
+  // absent: Other / not listed.
+  modelId?: string | null
 }
 export interface Vehicle extends VehicleDetails {
   id: string
@@ -58,6 +65,7 @@ export interface PublicVehicle {
   updatedAt: number
   level: BeatLevel
   rider: Rider
+  modelId: string | null
   since: number // ms: when it became available (or came back from its last trip): the private queue
 }
 export interface LogEntry {
@@ -73,6 +81,7 @@ const ms = (x: unknown) => (x && typeof (x as { toMillis?: () => number }).toMil
 const str = (x: unknown, n = 120) => (typeof x === 'string' ? x.slice(0, n) : '')
 const num = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : 0)
 const typeOf = (x: unknown) => VEHICLE_TYPES.find((t) => t === x)
+const modelOf = (x: unknown) => (typeof x === 'string' && isModelId(x) ? x : null)
 
 // Allow-list checks for the application form (the rules check the same).
 export function vehicleErrors(d: VehicleDetails): Partial<Record<keyof VehicleDetails, true>> {
@@ -84,6 +93,8 @@ export function vehicleErrors(d: VehicleDetails): Partial<Record<keyof VehicleDe
   if (!(d.pricePerKm >= 0 && d.pricePerKm <= 1000)) e.pricePerKm = true
   if (!/^\d{7}$/.test(d.phone.trim())) e.phone = true
   if (d.note.length > 120) e.note = true
+  // A known model, of the chosen type.
+  if (!isModelId(d.modelId) || (d.modelId && modelById(d.modelId)?.type !== d.type)) e.modelId = true
   return e
 }
 
@@ -114,6 +125,7 @@ function parseVehicle(id: string, x: Record<string, unknown>): Vehicle | null {
     taxiId: typeof x.taxiId === 'string' ? x.taxiId : null,
     taxiRequestAt: x.taxiRequest && typeof x.taxiRequest === 'object' ? ms((x.taxiRequest as Record<string, unknown>).at) || Date.now() : null,
     rider: riderOf(x.rider),
+    modelId: modelOf(x.modelId),
   }
 }
 
@@ -162,7 +174,7 @@ export function usePublicVehicles(fb: Fb | null, signedIn: boolean): PublicVehic
       const type = typeOf(x.type)
       const at = Array.isArray(x.at) && x.at.length === 2 && x.at.every((n: unknown) => typeof n === 'number') ? ([x.at[0], x.at[1]] as [number, number]) : null
       if (!type || !at) return null
-      return { id, ownerUid: str(x.ownerUid, 128), type, colour: str(x.colour, 24), seats: num(x.seats), firstName: str(x.firstName, 40), priceBase: num(x.priceBase), pricePerKm: num(x.pricePerKm), at, heading: num(x.heading), level: (['active', 'rest', 'nap', 'sleep'] as const).find((l) => l === x.level) ?? 'active', rider: riderOf(x.rider), updatedAt: ms(x.updatedAt), since: ms(x.since) || ms(x.updatedAt) }
+      return { id, ownerUid: str(x.ownerUid, 128), type, colour: str(x.colour, 24), seats: num(x.seats), firstName: str(x.firstName, 40), priceBase: num(x.priceBase), pricePerKm: num(x.pricePerKm), at, heading: num(x.heading), level: (['active', 'rest', 'nap', 'sleep'] as const).find((l) => l === x.level) ?? 'active', rider: riderOf(x.rider), modelId: modelOf(x.modelId), updatedAt: ms(x.updatedAt), since: ms(x.since) || ms(x.updatedAt) }
     },
     [],
   )
@@ -186,6 +198,7 @@ const clean = (d: VehicleDetails & { rider?: Rider }) => ({
   phone: d.phone.trim(),
   note: d.note.trim(),
   rider: d.rider ?? 'none',
+  modelId: d.modelId ?? null,
 })
 
 // The owner applies, or edits and sends back for approval.
@@ -199,12 +212,12 @@ export async function applyVehicle(fb: Fb, me: { uid: string; name: string; emai
   logActivity(fb, me.uid, existing ? 'vehicleEdited' : 'vehicleApplied', me.email, clean(d).reg)
 }
 // An approved vehicle: price, rider, colour, phone and note change straight away; a new
-// registration, type or seats sends it back to Pending for an operator to check again (and it comes
+// registration, type, seats or model sends it back to Pending for an operator to check again (and it comes
 // off the map until approved).
-export const BIG_CHANGES: (keyof VehicleDetails)[] = ['reg', 'type', 'seats']
+export const BIG_CHANGES: (keyof VehicleDetails)[] = ['reg', 'type', 'seats', 'modelId']
 export function needsRecheck(v: Vehicle, d: VehicleDetails) {
   const c = clean(d)
-  return c.reg !== v.reg || c.type !== v.type || c.seats !== v.seats
+  return c.reg !== v.reg || c.type !== v.type || c.seats !== v.seats || c.modelId !== (v.modelId ?? null)
 }
 export async function editApproved(fb: Fb, v: Vehicle, d: VehicleDetails, email: string) {
   const c = clean(d)
@@ -271,7 +284,7 @@ export async function decideVehicle(fb: Fb, v: Vehicle, status: 'approved' | 're
 export function useAvailability(fb: Fb | null, v: Vehicle | null, firstName: string) {
   const [error, setError] = useState<string | null>(null)
   const id = v && v.status === 'approved' ? v.id : null
-  const shape = v ? JSON.stringify({ ownerUid: v.ownerUid, type: v.type, colour: v.colour, seats: v.seats, priceBase: v.priceBase, pricePerKm: v.pricePerKm, rider: v.type === 'motorbike' || v.type === 'ebike' ? v.rider : 'none' }) : ''
+  const shape = v ? JSON.stringify({ ownerUid: v.ownerUid, type: v.type, colour: v.colour, seats: v.seats, priceBase: v.priceBase, pricePerKm: v.pricePerKm, rider: hasRider(v.type) ? v.rider : 'none', modelId: v.modelId ?? null }) : ''
   useEffect(() => {
     if (!fb || !id || !('geolocation' in navigator)) return
     const ref = fb.doc(fb.db, 'publicVehicles', id)

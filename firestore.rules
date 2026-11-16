@@ -198,8 +198,13 @@ service cloud.firestore {
     // (status pending); any operator approves, rejects or suspends with a reason; every decision is
     // logged (vehicleLog, append-only). The owner sets their price. While an approved vehicle is
     // available, its owner's device shows it on the map (publicVehicles, no phone number).
+    // A vehicle's model (src/core/vehicleModels.ts): absent, null, or a model id's form.
+    function modelOk(m) {
+      return m == null || (m is string && m.size() <= 40 && m.matches('^[a-z0-9-]+$'));
+    }
     function vehicleDetails(d) {
-      return d.type in ['car', 'van', 'pickup', 'motorbike', 'ebike']
+      return d.type in ['car', 'van', 'pickup', 'motorbike', 'ebike', 'bicycle']
+        && modelOk(d.get('modelId', null))
         && str(d.reg, 12) && d.reg.size() > 0
         && str(d.colour, 24)
         && d.seats is int && d.seats >= 1 && d.seats <= 20
@@ -211,7 +216,7 @@ service cloud.firestore {
         && d.get('rider', 'none') in ['none', 'man', 'woman', 'young'];
     }
     function vehicleKeys() {
-      return ['ownerUid', 'ownerName', 'kind', 'type', 'reg', 'colour', 'seats', 'priceBase', 'pricePerKm', 'phone', 'note', 'rider',
+      return ['ownerUid', 'ownerName', 'kind', 'type', 'reg', 'colour', 'seats', 'priceBase', 'pricePerKm', 'phone', 'note', 'rider', 'modelId',
         'status', 'reason', 'decidedBy', 'decidedAt', 'createdAt', 'updatedAt', 'taxiId', 'taxiRequest'];
     }
     match /vehicles/{vehicleId} {
@@ -237,11 +242,11 @@ service cloud.firestore {
           && vehicleDetails(request.resource.data)
           && ((resource.data.status in ['pending', 'rejected'] && request.resource.data.status == 'pending' && request.resource.data.reason == '')
             // Approved: price, rider, colour, phone and note change straight away; anything else
-            // (registration, type, seats) sends it back to Pending for an operator to check.
+            // (registration, type, seats, model) sends it back to Pending for an operator to check.
             || (resource.data.status == 'approved'
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['priceBase', 'pricePerKm', 'rider', 'colour', 'phone', 'note', 'updatedAt']))
             || (resource.data.status == 'approved' && request.resource.data.status == 'pending' && request.resource.data.reason == ''
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['type', 'reg', 'seats', 'colour', 'phone', 'note', 'priceBase', 'pricePerKm', 'rider', 'status', 'reason', 'updatedAt']))
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['type', 'reg', 'seats', 'modelId', 'colour', 'phone', 'note', 'priceBase', 'pricePerKm', 'rider', 'status', 'reason', 'updatedAt']))
             // Approved: ask to run it as a center taxi too (or take the request back).
             || (resource.data.status == 'approved' && resource.data.get('taxiId', null) == null
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['taxiRequest', 'updatedAt'])
@@ -394,7 +399,7 @@ service cloud.firestore {
       allow create, update: if signedIn()
         && get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.ownerUid == request.auth.uid
         && get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.status == 'approved'
-        && request.resource.data.keys().hasOnly(['ownerUid', 'type', 'colour', 'seats', 'firstName', 'priceBase', 'pricePerKm', 'at', 'heading', 'level', 'rider', 'since', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['ownerUid', 'type', 'modelId', 'colour', 'seats', 'firstName', 'priceBase', 'pricePerKm', 'at', 'heading', 'level', 'rider', 'since', 'updatedAt'])
         // Its place in the private queue: set now (switched on, or back from a trip), or kept.
         && (!('since' in request.resource.data) || request.resource.data.since == request.time
           || (resource != null && request.resource.data.since == resource.data.get('since', null)))
@@ -403,7 +408,8 @@ service cloud.firestore {
         && request.resource.data.ownerUid == request.auth.uid
         // Two checks: the person has the Private driver role, and the vehicle is approved.
         && canPrivate()
-        && request.resource.data.type in ['car', 'van', 'pickup', 'motorbike', 'ebike']
+        && request.resource.data.type in ['car', 'van', 'pickup', 'motorbike', 'ebike', 'bicycle']
+        && modelOk(request.resource.data.get('modelId', null))
         && str(request.resource.data.firstName, 40)
         && request.resource.data.at is list && request.resource.data.at.size() == 2
         && request.resource.data.updatedAt == request.time;

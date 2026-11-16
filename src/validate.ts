@@ -1,4 +1,5 @@
 import type { CallInfo, SuspendReason, Suspension, Taxi } from './types'
+import { isKnownModel, MODEL_ID_RE } from './core/vehicleModels'
 
 // Allow-list validation for taxi records. Used by the admin form and when reading localStorage,
 // so anything that reaches the UI has passed the same rules.
@@ -74,6 +75,10 @@ export function parseStoredTaxi(value: unknown): Taxi | null {
 // basic punctuation only; no angle brackets, quotes-as-markup or control characters.
 const freeText = /^[\p{L}\p{M}\p{N} .,'/#()&+:;\-\u060C]{0,120}$/u
 export const isFreeText = (s: string) => freeText.test(s)
+
+// A private vehicle's model (src/core/vehicleModels.ts): absent, or a known model id (the rules
+// check the id's form: at most 40 of a-z, 0-9 and dashes).
+export const isModelId = (x: unknown): boolean => x == null || (typeof x === 'string' && MODEL_ID_RE.test(x) && isKnownModel(x))
 
 export const SUSPEND_REASONS: readonly SuspendReason[] = ['conduct', 'fees', 'other']
 

@@ -1,6 +1,7 @@
-import { ArrowUpDown, BookOpen, Car, CarTaxiFront, Eye, Gamepad2, Hand, Languages, ListOrdered, LogIn, LogOut, Map as MapIcon, MapPin, Pencil, PersonStanding, Settings2, Undo2, UserRound, type LucideIcon } from 'lucide-react'
+import { ArrowUpDown, BookOpen, CarTaxiFront, Eye, Gamepad2, Hand, Languages, ListOrdered, LogIn, LogOut, Map as MapIcon, MapPin, Pencil, PersonStanding, Settings2, Undo2, UserRound, type LucideIcon } from 'lucide-react'
 import { ic } from './components/iconStyles'
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useSwipe } from './components/useSwipe'
 import { useAuth } from './auth'
 import { AdminPanel } from './components/AdminPanel'
 import { CallPanel } from './components/CallPanel'
@@ -57,18 +58,19 @@ const DEMO_HOST = location.hostname.endsWith('github.io')
 //   public   signed out, or signed in without a role: the map and Hire a taxi
 //   dev      full access, for testing: every screen, incl. driver (any taxi) and hire
 type Mode = 'demo' | 'staff' | 'driver' | 'public' | 'dev'
-type View = 'queue' | 'map' | 'admin' | 'driver' | 'hire' | 'game' | 'vehicles' | 'account' | 'corpus'
+type View = 'queue' | 'map' | 'admin' | 'driver' | 'hire' | 'game' | 'account' | 'corpus'
 
 const EMPTY = new Set<string>()
 
 // Each tab's icon (phones show the icon with a small label; wide screens the icon and the name).
+const FULLMAP_KEY = 'taxiq.fullMap'
+
 const TAB_ICONS: Record<View, (l: Record<View, string>) => { Icon: LucideIcon; label: string }> = {
   queue: (l) => ({ Icon: ListOrdered, label: l.queue }),
   map: (l) => ({ Icon: MapIcon, label: l.map }),
   admin: (l) => ({ Icon: Settings2, label: l.admin }),
   driver: (l) => ({ Icon: CarTaxiFront, label: l.driver }),
   hire: (l) => ({ Icon: l.hire === l.map ? MapIcon : Hand, label: l.hire }),
-  vehicles: (l) => ({ Icon: Car, label: l.vehicles }),
   account: (l) => ({ Icon: UserRound, label: l.account }),
   corpus: (l) => ({ Icon: BookOpen, label: l.corpus }),
   game: (l) => ({ Icon: Gamepad2, label: l.game }),
@@ -260,7 +262,7 @@ export default function App() {
   // TaxiQ Game is open to everyone on the live site (not the demo host).
   // My account: everyone signed in (not the demo host).
   // The Dhivehi corpus: corpus editors only (platform admins, or roles/{email}.corpus).
-  const game: View[] = DEMO_HOST ? [] : ['vehicles', ...(signedIn ? (['account'] as View[]) : []), ...(auth.corpusEditor && !citizen ? (['corpus'] as View[]) : []), 'game']
+  const game: View[] = DEMO_HOST ? [] : [...(signedIn ? (['account'] as View[]) : []), ...(auth.corpusEditor && !citizen ? (['corpus'] as View[]) : []), 'game']
   const tabs: View[] =
     mode === 'dev'
       ? ['queue', 'map', 'admin', 'driver', 'hire', ...game]
@@ -277,10 +279,51 @@ export default function App() {
   const view: View = tabs.includes(viewState) ? viewState : (tabs[0] ?? 'map')
   const { lang, t, toggleLang, driverName, setDvFixes } = useI18n()
   // Without a staff role, the Hire screen is the full-screen map (taxis, vehicles, hiring): call it Map.
-  const tabLabels = { queue: t.queue, map: t.map, admin: t.admin, driver: t.driver, hire: mode === 'public' && !DEMO_HOST ? t.map : t.hireTab, vehicles: t.vehTab, account: t.acctTab, corpus: t.corpusTab, game: t.gameTab }
+  const tabLabels = { queue: t.queue, map: t.map, admin: t.admin, driver: t.driver, hire: mode === 'public' && !DEMO_HOST ? t.map : t.hireTab, account: t.acctTab, corpus: t.corpusTab, game: t.gameTab }
   // The map views fill the screen under the header; everything else floats over the map.
   // Only the map screens fill the screen (no page scroll); My vehicles and the game scroll normally.
-  const fullMap = view === 'map' || (view !== 'game' && view !== 'vehicles' && view !== 'account' && view !== 'corpus' && (mode === 'public' || view === 'hire'))
+  const fullMap = view === 'map' || (view !== 'game' && view !== 'account' && view !== 'corpus' && (mode === 'public' || view === 'hire'))
+  // Full map: the header (and every menu over the map) slides away, leaving only the map. Kept for
+  // the session; switching tabs leaves it.
+  const [mapOnlyState, setMapOnlyState] = useState(() => {
+    try {
+      return sessionStorage.getItem(FULLMAP_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  const setMapOnly = (on: boolean) => {
+    setMapOnlyState(on)
+    try {
+      sessionStorage.setItem(FULLMAP_KEY, on ? '1' : '0')
+    } catch {
+      // Storage blocked: it lasts until the page closes.
+    }
+  }
+  const lastView = useRef(view)
+  useEffect(() => {
+    if (lastView.current === view) return
+    lastView.current = view
+    setMapOnlyState(false)
+    try {
+      sessionStorage.setItem(FULLMAP_KEY, '0')
+    } catch {
+      // Storage blocked.
+    }
+  }, [view])
+  const mapOnly = fullMap && mapOnlyState
+  // The header floats over the full-screen map; its height goes to --map-top so the map's own
+  // overlays sit below it (0 in full map, as it slides up). The map itself never resizes.
+  const headerRef = useRef<HTMLElement>(null)
+  const [headerH, setHeaderH] = useState(0)
+  useEffect(() => {
+    const el = headerRef.current
+    if (!el || !fullMap) return
+    const ro = new ResizeObserver(() => setHeaderH(el.offsetHeight))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [fullMap])
+  const swipeHeader = useSwipe((dir) => dir === 'up' && fullMap && setMapOnly(true))
   const [editingTranslations, setEditingTranslations] = useState(false)
   const canTranslate = !DEMO_HOST && (role === 'admin' || role === 'dev')
 
@@ -297,11 +340,19 @@ export default function App() {
   const operatorScreens = mode === 'demo' || mode === 'staff' || mode === 'dev'
 
   return (
-    <div className={`bg-slate-100 text-slate-900 ${fullMap ? 'flex h-dvh flex-col overflow-hidden' : 'min-h-dvh'}`}>
+    <div
+      className={`bg-slate-100 text-slate-900 ${fullMap ? 'relative flex h-dvh flex-col overflow-hidden' : 'min-h-dvh'}`}
+      style={fullMap ? ({ '--map-top': `${mapOnly ? 0 : headerH}px` } as CSSProperties) : undefined}
+    >
       {editingTranslations && canTranslate && <TranslationEditor onClose={() => setEditingTranslations(false)} />}
       {signedIn && !DEMO_HOST && <IncomingRides />}
-      <header className="sticky top-0 z-[1200] border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-4 py-2 sm:py-3">
+      <header
+        ref={headerRef}
+        className={`z-[1200] border-b border-slate-200 bg-white ${fullMap ? `absolute inset-x-0 top-0 transition-transform duration-200 ease-out motion-reduce:transition-none ${mapOnly ? '-translate-y-full' : ''}` : 'sticky top-0'}`}
+        inert={mapOnly}
+        {...(fullMap ? swipeHeader : {})}
+      >
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-4 py-2 sm:py-3 land:py-1">
           <h1 className="flex shrink-0 items-center gap-2 text-xl font-black tracking-tight" dir="ltr">
             <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="size-8 sm:size-9" />
             <span>
@@ -425,14 +476,14 @@ export default function App() {
                 onClick={() => setView(v)}
                 aria-current={view === v ? 'page' : undefined}
                 aria-label={TAB_ICONS[v](tabLabels).label}
-                className={`relative min-h-12 min-w-0 rounded-lg px-1 font-semibold sm:min-h-10 sm:px-3 ${view === v ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                className={`relative min-h-12 min-w-0 rounded-lg px-1 font-semibold sm:min-h-10 sm:px-3 land:min-h-9 ${view === v ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
               >
                 {(() => {
                   const { Icon, label } = TAB_ICONS[v](tabLabels)
                   return (
                     <span className="flex flex-col items-center gap-0.5 sm:flex-row sm:gap-1.5">
                       <Icon className="size-5 sm:size-4" aria-hidden="true" />
-                      <span className="max-w-full truncate text-[10px] leading-tight sm:text-sm">{label}</span>
+                      <span className="max-w-full truncate text-[10px] leading-tight sm:text-sm land:hidden">{label}</span>
                     </span>
                   )
                 })()}
@@ -443,7 +494,8 @@ export default function App() {
         )}
 
         {/* Mode and account status. */}
-        <div className="mx-auto max-w-5xl px-4 pb-2 text-xs">
+        <div className="mx-auto max-w-5xl px-4 pb-2 text-xs land:pb-1">
+          <div className="land:hidden">
           {mode === 'staff' || mode === 'driver' || mode === 'dev' ? (
             <p className="flex items-center gap-2 text-emerald-800">
               <span className="rounded bg-emerald-600 px-1.5 py-0.5 font-bold text-white">{t.liveBadge}</span>
@@ -465,6 +517,7 @@ export default function App() {
               </p>
             )
           )}
+          </div>
           {dutyError && <p className="mt-1 font-semibold text-rose-700">{t.saveError(dutyError)}</p>}
           {auth.error && <p className="mt-1 font-semibold text-rose-700">{t.signInError(auth.error)}</p>}
           {operatorScreens && q.error && <p className="mt-1 font-semibold text-rose-700">{t.saveError(q.error)}</p>}
@@ -507,21 +560,20 @@ export default function App() {
         )}
       </header>
 
-      {view === 'vehicles' ? (
+      {view === 'account' ? (
         <main className="mx-auto max-w-5xl px-4 py-4 sm:py-6">
           <Suspense fallback={<p className="text-sm text-slate-500">{t.loading}</p>}>
-            <MyVehicles
-              onShowOnMap={(id) => {
-                setFocusVehicle({ id, n: Date.now() })
-                setView('hire')
-              }}
+            <MyAccount
+              onGoTo={() => setView(tabs.includes('hire') ? 'hire' : 'map')}
+              vehicles={
+                <MyVehicles
+                  onShowOnMap={(id) => {
+                    setFocusVehicle({ id, n: Date.now() })
+                    setView(tabs.includes('hire') ? 'hire' : 'map')
+                  }}
+                />
+              }
             />
-          </Suspense>
-        </main>
-      ) : view === 'account' ? (
-        <main className="mx-auto max-w-5xl px-4 py-4 sm:py-6">
-          <Suspense fallback={<p className="text-sm text-slate-500">{t.loading}</p>}>
-            <MyAccount onGoTo={(v) => setView(v === 'vehicles' ? 'vehicles' : tabs.includes('hire') ? 'hire' : 'map')} />
           </Suspense>
         </main>
       ) : view === 'corpus' ? (
@@ -541,6 +593,8 @@ export default function App() {
           <Suspense fallback={<p className="p-4 text-sm text-slate-500">{t.loading}</p>}>
             <MapView
               fullscreen
+              mapOnly={mapOnly}
+              onMapOnly={setMapOnly}
               people={people}
               vehicles={vehicles}
               services={services}
@@ -702,9 +756,9 @@ export default function App() {
         <main className="relative isolate min-h-0 flex-1">
           <Suspense fallback={<p className="p-4 text-sm text-slate-500">{t.loading}</p>}>
             {mode === 'driver' ? (
-              <MapView fullscreen people={people} vehicles={vehicles} services={services} shareControl={shareControl} taxis={mapTaxis} interested={EMPTY} pickupAt={undefined} />
+              <MapView fullscreen mapOnly={mapOnly} onMapOnly={setMapOnly} people={people} vehicles={vehicles} services={services} shareControl={shareControl} taxis={mapTaxis} interested={EMPTY} pickupAt={undefined} />
             ) : (
-              <MapView fullscreen people={people} vehicles={vehicles} services={services} shareControl={shareControl} taxis={queue} interested={interested} pickupAt={call.pickupAt} trip={call.pickupAt && call.destinationAt ? { from: call.pickupAt, to: call.destinationAt } : undefined} />
+              <MapView fullscreen mapOnly={mapOnly} onMapOnly={setMapOnly} people={people} vehicles={vehicles} services={services} shareControl={shareControl} taxis={queue} interested={interested} pickupAt={call.pickupAt} trip={call.pickupAt && call.destinationAt ? { from: call.pickupAt, to: call.destinationAt } : undefined} />
             )}
           </Suspense>
         </main>

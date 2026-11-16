@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* A phone held sideways (landscape, under 500 px tall): a slimmer header and side panels, so the
+   map keeps most of the height. */
+@custom-variant land (@media (orientation: landscape) and (max-height: 500px));
+
 /* Thaana fonts, self-hosted (copied from kudadonbe.v3). unicode-range limits them to Thaana
    and Arabic punctuation, so Latin text keeps the system font and these files only download
    when Dhivehi is on screen. */
@@ -433,4 +437,16 @@ html .maplibregl-map {
 /* Your own vehicle shows above your blue GPS dot (they are at the same place). */
 .vehicle-marker.mine {
   z-index: 3;
+}
+
+/* Full-screen maps: MapLibre's buttons sit under the app header (whose height App puts in
+   --map-top) and slide up with it in full map. */
+.map-full .maplibregl-ctrl-top-right {
+  top: var(--map-top, 0px);
+  transition: top 200ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-full .maplibregl-ctrl-top-right {
+    transition: none;
+  }
 }

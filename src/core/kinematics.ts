@@ -5,10 +5,10 @@
 // between the two axles. It can only turn by moving forward: when the front axle doesn't move,
 // nothing changes (no spinning in place). Pure functions.
 
-export type AxleType = 'car' | 'van' | 'pickup' | 'bus' | 'motorbike' | 'ebike'
+export type AxleType = 'car' | 'van' | 'pickup' | 'bus' | 'motorbike' | 'ebike' | 'bicycle'
 
 // Metres from the rear axle to the front axle.
-export const WHEELBASE_M: Record<AxleType, number> = { car: 2.6, van: 3, pickup: 3, bus: 6, motorbike: 1.3, ebike: 1.3 }
+export const WHEELBASE_M: Record<AxleType, number> = { car: 2.6, van: 3, pickup: 3, bus: 6, motorbike: 1.3, ebike: 1.3, bicycle: 1.1 }
 
 export interface Axles {
   front: [number, number] // [lat, lng]

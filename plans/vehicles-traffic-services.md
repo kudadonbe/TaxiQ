@@ -13,6 +13,9 @@ parts and guides that fit, help nearby, and a real traffic picture back. Nothing
   scooter, motorbike, e-bike, ...), drawn at its real size (`realScale`) in the owner's colour.
 - Owners pick their model in My vehicles (and when sharing traffic). The public sees the model, never
   the registration number or the owner.
+- **v2 starts with a built-in list in code** (`src/core/vehicleModels.ts`, about 80 models, shapes in
+  `src/components/vehicleShapes.ts`, `modelId` on `vehicles` and `publicVehicles`); the admin-curated
+  `vehicleModels` Firestore list comes in v3.
 
 ## 2. Traffic
 

@@ -1,4 +1,4 @@
-import { Banknote, Car, Check, CircleCheck, Copy, History, LogIn, Map as MapIcon, Route, UserRound, X } from 'lucide-react'
+import { Banknote, Car, HandCoins, Check, CircleCheck, Copy, History, LogIn, Map as MapIcon, Route, UserRound, X } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { useAuth } from '../auth'
 import { useI18n } from '../i18n'
@@ -17,7 +17,7 @@ import { MyServices } from './MyServices'
 // My account: who you are, why you can or can't take rides (and how to fix it), your bookings as a
 // passenger, your trips as a driver or owner, your money account, and your activity log.
 
-type GoTo = 'vehicles' | 'hire'
+type GoTo = 'hire'
 const card = 'space-y-3 rounded-xl border border-slate-200 bg-white p-4'
 const btn = 'inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800'
 
@@ -27,7 +27,7 @@ const PRIVATE_OPEN = ['offering', 'interest', 'confirmed', 'accepted', 'onboard'
 const PRIVATE_CANCEL = ['offering', 'interest', 'confirmed', 'accepted']
 const GONE = ['cancelled', 'expired']
 
-export function MyAccount({ onGoTo }: { onGoTo?: (view: GoTo) => void }) {
+export function MyAccount({ onGoTo, vehicles }: { onGoTo?: (view: GoTo) => void; vehicles?: ReactNode }) {
   const { fb, uid, email, name, role, canPrivate, taxiId, status, signIn } = useAuth()
   const { t, lang } = useI18n()
   const mine = useMyVehicles(fb, uid)
@@ -101,8 +101,8 @@ export function MyAccount({ onGoTo }: { onGoTo?: (view: GoTo) => void }) {
     switch (id) {
       case 'vehicle':
       case 'available':
-        return onGoTo ? (
-          <button type="button" onClick={() => onGoTo('vehicles')} className={btn}>
+        return vehicles ? (
+          <button type="button" onClick={() => document.getElementById('my-offer')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className={btn}>
             <Car className="size-4" aria-hidden="true" /> {t.acctGoVehicles}
           </button>
         ) : null
@@ -254,7 +254,14 @@ export function MyAccount({ onGoTo }: { onGoTo?: (view: GoTo) => void }) {
         <p className="text-xs text-slate-500">{t.moneyCashNote}</p>
       </section>
 
-      <MyServices />
+      <section id="my-offer" className="scroll-mt-20 space-y-4">
+        <h3 className="flex items-center gap-2 text-lg font-black">
+          <HandCoins className="size-5" aria-hidden="true" /> {t.acctOffer}
+        </h3>
+        <p className="text-sm text-slate-600">{t.acctOfferNote}</p>
+        {vehicles}
+        <MyServices />
+      </section>
 
       <section className={card}>
         <h3 className="flex items-center gap-2 font-black">
