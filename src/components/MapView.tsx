@@ -11,7 +11,7 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 maplibregl.setWorkerUrl(workerUrl)
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useI18n } from '../i18n'
-import { loadPlaces, loadPlacesAround, metresBetween, nearestPlace, regionAt, searchPlaces, type Place } from '../places'
+import { loadPlaces, loadPlacesAround, metresBetween, nearestPlace, nearestRoad, regionAt, searchPlaces, type Place } from '../places'
 import { route as findRoute, type RoadGraph, type TravelMode } from '../core/route'
 import { driveTrip, endTrip, MAP_CENTER, ROAD_GRAPH, subscribePositions, TRIP_SPEED, tripProgress, type Positions } from '../positions'
 import { graphFromLines } from '../core/osmRoads'
@@ -855,22 +855,32 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   useEffect(() => {
     const m = map.current
     if (!m || !ready || !pinMode) return
-    let all: Place[] = []
+    // The pin is usable at once (named or not); the name follows when the places around THE PIN
+    // (not the viewer) are loaded: the nearest house or landmark, else the nearest road.
+    let turn = 0
+    let live = true
+    const name = (p: Place) => `${lang === 'dv' && p.d ? p.d : p.e}${p.pc ? `, ${p.pc}` : ''}`
     const update = () => {
       const c = m.getCenter()
       const at: [number, number] = [c.lat, c.lng]
-      const best = nearestPlace(all, at)
-      setPin({ at, name: best ? `${lang === 'dv' && best.d ? best.d : best.e}${best.pc ? `, ${best.pc}` : ''}` : '' })
+      const mine = ++turn
+      setPin((old) => (old && old.at[0] === at[0] && old.at[1] === at[1] ? old : { at, name: '' }))
+      void loadPlacesAround(at)
+        .then((list) => {
+          if (!live || mine !== turn) return
+          const best = nearestPlace(list, at)
+          const road = best ? null : nearestRoad(list, at)
+          setPin({ at, name: best ? name(best) : road ? t.pinNearRoad(name(road)) : '' })
+        })
+        .catch(() => undefined)
     }
-    void placesHere().then((p) => {
-      all = p
-      update()
-    })
+    update()
     m.on('moveend', update)
     return () => {
+      live = false
       m.off('moveend', update)
     }
-  }, [ready, pinMode, lang])
+  }, [ready, pinMode, lang, t])
 
   // The ride in progress: route the taxi from where it is to the pickup, then to the destination,
   // and set it driving. Fit the map to it once; after that the viewer moves the map as they like.

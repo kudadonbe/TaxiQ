@@ -54,6 +54,31 @@ export function nearestPlace(places: Place[], at: [number, number], max = 80): P
   return best?.p ?? null
 }
 
+// The nearest road within `max` metres of a point (distance to the road's line, not just its
+// points): a fallback name for a pinned spot with no house or landmark close by.
+export function nearestRoad(places: Place[], at: [number, number], max = 60): Place | null {
+  const k = Math.cos((at[0] * Math.PI) / 180)
+  const xy = (q: [number, number]) => [(q[1] - at[1]) * 111_320 * k, (q[0] - at[0]) * 111_320] as const
+  let best: { p: Place; d: number } | null = null
+  for (const p of places) {
+    if (p.t !== 'r' || !p.e) continue
+    for (let i = 0; i < p.p.length; i++) {
+      const [ax, ay] = xy(p.p[i]!)
+      let d = Math.hypot(ax, ay)
+      if (i > 0) {
+        const [bx, by] = xy(p.p[i - 1]!)
+        const vx = ax - bx
+        const vy = ay - by
+        const len2 = vx * vx + vy * vy
+        const t = len2 ? Math.max(0, Math.min(1, -(bx * vx + by * vy) / len2)) : 0
+        d = Math.min(d, Math.hypot(bx + t * vx, by + t * vy))
+      }
+      if (d <= max && (!best || d < best.d)) best = { p, d }
+    }
+  }
+  return best?.p ?? null
+}
+
 const fold = (s: string) => s.toLowerCase().replace(/[^a-z0-9ހ-޿]/g, '')
 
 // Ranked search: exact > starts with > contains, across English, Dhivehi, the simplified key and
