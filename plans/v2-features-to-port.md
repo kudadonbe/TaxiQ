@@ -249,6 +249,8 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
 
 ## 25. Services on the map (mechanics, tyres, towing...): `40c4ea0`. v3: approval, open-now and nearest-help on the server; the rules' 'publicServices matches the approved listing' check becomes a server check.
 
+## 26. v2.7.0: road-true driving (catch-up, one-way aware, rear-axle turning, zoom badges), Use as a citizen and off duty (`duty/{taxiId}`), queue position, keep screen on: `de927b2`. v3: skip off-duty taxis in the server's queue; the client-side off-duty rule becomes a server check.
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
