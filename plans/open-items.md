@@ -12,20 +12,12 @@ property, identity and payments) is in `plans/digital-raajje-vision.md` on the `
 - [x] Services on the map (PR #3, `40c4ea0`), v2.6.0 tagged with a GitHub release; v2.5.0 tagged.
 - [x] Pick on map names the place around the pin, works at once, nearest road as fallback
   (`20716c3`).
-
-## In progress (branch `next-batch`)
-
-- [ ] **Smooth, road-true driving:** no fade out/in after lost signal (catch-up driving along the
-  roads instead, about 1.5x the limit, at most ~10 s; a cross-fade only with no road route at all);
-  never a straight line across blocks; never facing the wrong way on a one-way road; real-car
-  rotation about the rear axle (front axle follows the path; wheelbases by type).
-- [ ] **Zoom-out badges:** every vehicle and person clearly visible when zoomed out (a ~24 px badge
-  with a direction arrow), real-size shapes when zoomed in.
-- [ ] **Use as a citizen** switch for anyone with a role (this screen only); **off duty** for drivers
-  (their taxi keeps its place but gets no offers; `duty/{taxiId}`, checked by the rules).
-- [ ] Drivers see **"Position 3 of 12"** and how many taxis are ahead (counts only).
-- [ ] **Keep the screen on** while Available (Screen Wake Lock), a warning when the app was in the
-  background, and the driving note reworded ("on the map for hire").
+- [x] **v2.7.0** (`de927b2`, released 2026-11-16 with `pnpm release`, tagged, GitHub release):
+  catch-up driving along the roads instead of fading (one-way aware, rear-axle turning), zoom-out
+  badges (shapes from about zoom 17.5), Use as a citizen and off duty (`duty/{taxiId}`), queue
+  position for drivers, screen kept on while Available, background warning, driving note reworded.
+  **To check on a real phone:** the wake lock, the catch-up driving after lost signal, and the
+  Dhivehi wording of the new labels (wake*, duty*, drivingShort).
 
 ## Needs a decision or an outside step
 
