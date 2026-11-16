@@ -251,6 +251,8 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
 
 ## 26. v2.7.0: road-true driving (catch-up, one-way aware, rear-axle turning, zoom badges), Use as a citizen and off duty (`duty/{taxiId}`), queue position, keep screen on: `de927b2`. v3: skip off-duty taxis in the server's queue; the client-side off-duty rule becomes a server check.
 
+## 27. v2.8.0: vehicle model library and shapes (`modelId`), bicycles, map category chips, full-map mode, What I offer in My account: `40728c7`. v3: move the model list to an admin-curated table on the server.
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
