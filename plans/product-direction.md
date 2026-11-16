@@ -45,3 +45,5 @@ This fits v3's multi-center core: a "center" becomes a **provider** (a taxi cent
 - Providers are verified (eFaas, plus vehicle and permit documents) before going live: a new **Tier 1** data set (identity documents) with access logging.
 - Vehicle locations from private providers are personal data: same rules as taxis (shown only while working).
 - Prices and bookings go into an append-only record, like dispatches.
+
+**The bigger vision** (registries for every profession and business, shops, property, identity, payments): `plans/digital-raajje-vision.md`.
