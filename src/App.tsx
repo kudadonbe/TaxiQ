@@ -1,4 +1,4 @@
-import { ArrowUpDown, BookOpen, CarTaxiFront, Eye, Gamepad2, Hand, Languages, ListOrdered, LogIn, LogOut, Map as MapIcon, MapPin, Pencil, PersonStanding, Settings2, Undo2, UserRound, type LucideIcon } from 'lucide-react'
+import { ArrowUpDown, BookOpen, CarTaxiFront, EllipsisVertical, Eye, Gamepad2, Hand, Languages, ListOrdered, LogIn, LogOut, Map as MapIcon, MapPin, Pencil, PersonStanding, Settings2, Undo2, UserRound, type LucideIcon } from 'lucide-react'
 import { ic } from './components/iconStyles'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useSwipe } from './components/useSwipe'
@@ -23,7 +23,7 @@ import { TaxiFaresPanel } from './components/TaxiFaresPanel'
 import { useVoiceClips } from './voiceClips'
 import { MAIN, moveToMainCenter, useCenters } from './centers'
 import { CentersPanel } from './components/CentersPanel'
-import { Building2 } from 'lucide-react'
+import { Building2, X } from 'lucide-react'
 import { IncomingRides } from './components/IncomingRides'
 import { PeoplePanel } from './components/PeoplePanel'
 import { useI18n } from './i18n'
@@ -285,6 +285,7 @@ export default function App() {
   const fullMap = view === 'map' || (view !== 'game' && view !== 'account' && view !== 'corpus' && (mode === 'public' || view === 'hire'))
   // Full map: the header (and every menu over the map) slides away, leaving only the map. Kept for
   // the session; switching tabs leaves it.
+  const [moreOpen, setMoreOpen] = useState(false)
   const [mapOnlyState, setMapOnlyState] = useState(() => {
     try {
       return sessionStorage.getItem(FULLMAP_KEY) === '1'
@@ -339,6 +340,34 @@ export default function App() {
   }, [fb, setDvFixes])
   const operatorScreens = mode === 'demo' || mode === 'staff' || mode === 'dev'
 
+  const renderTabs = (cls: string) => (
+    <nav className={`${cls} gap-1 text-sm ${({ 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4', 5: 'grid-cols-5', 6: 'grid-cols-6', 7: 'grid-cols-7' } as Record<number, string>)[tabs.length] ?? 'grid-cols-3'}`} aria-label={t.nav}>
+            {tabs.map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => {
+                  setView(v)
+                  setMoreOpen(false)
+                }}
+                aria-current={view === v ? 'page' : undefined}
+                aria-label={TAB_ICONS[v](tabLabels).label}
+                className={`relative min-h-12 min-w-0 rounded-lg px-1 font-semibold sm:min-h-10 sm:px-3 land:min-h-9 ${view === v ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+              >
+                {(() => {
+                  const { Icon, label } = TAB_ICONS[v](tabLabels)
+                  return (
+                    <span className="flex flex-col items-center gap-0.5 sm:flex-row sm:gap-1.5">
+                      <Icon className="size-5 sm:size-4" aria-hidden="true" />
+                      <span className="max-w-full truncate text-[10px] leading-tight sm:text-sm land:hidden">{label}</span>
+                    </span>
+                  )
+                })()}
+                {v === 'queue' && <span className="absolute end-1 top-0.5 text-[10px] tabular-nums opacity-70 sm:hidden">{queue.length}</span>}
+              </button>
+            ))}
+          </nav>
+  )
   return (
     <div
       className={`bg-slate-100 text-slate-900 ${fullMap ? 'relative flex h-dvh flex-col overflow-hidden' : 'min-h-dvh'}`}
@@ -352,14 +381,14 @@ export default function App() {
         inert={mapOnly}
         {...(fullMap ? swipeHeader : {})}
       >
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-4 py-2 sm:py-3 land:py-1">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-1 px-2 py-1.5 sm:gap-2 sm:px-4 sm:py-3 land:py-1">
           <h1 className="flex shrink-0 items-center gap-2 text-xl font-black tracking-tight" dir="ltr">
-            <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="size-8 sm:size-9" />
-            <span>
+            <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="size-7 sm:size-9" />
+            <span className="sr-only sm:not-sr-only">
               Taxi<span className="text-emerald-600">Q</span>
             </span>
           </h1>
-          <div className="flex items-center gap-1 text-sm sm:gap-2">
+          <div className="hidden items-center gap-1 text-sm sm:flex sm:gap-2">
             {operatorScreens && (
               <>
                 <span className="hidden rounded-full bg-slate-100 px-3 py-1 font-medium tabular-nums sm:inline">{t.inQueue(queue.length)}</span>
@@ -465,37 +494,168 @@ export default function App() {
                 </button>
               ))}
           </div>
-        </div>
-
-        {tabs.length > 0 && (
-          <nav className={`mx-auto grid max-w-5xl gap-1 px-4 pb-2 text-sm sm:flex ${({ 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4', 5: 'grid-cols-5', 6: 'grid-cols-6', 7: 'grid-cols-7' } as Record<number, string>)[tabs.length] ?? 'grid-cols-3'}`} aria-label={t.nav}>
-            {tabs.map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => setView(v)}
-                aria-current={view === v ? 'page' : undefined}
-                aria-label={TAB_ICONS[v](tabLabels).label}
-                className={`relative min-h-12 min-w-0 rounded-lg px-1 font-semibold sm:min-h-10 sm:px-3 land:min-h-9 ${view === v ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
-              >
-                {(() => {
-                  const { Icon, label } = TAB_ICONS[v](tabLabels)
-                  return (
-                    <span className="flex flex-col items-center gap-0.5 sm:flex-row sm:gap-1.5">
-                      <Icon className="size-5 sm:size-4" aria-hidden="true" />
-                      <span className="max-w-full truncate text-[10px] leading-tight sm:text-sm land:hidden">{label}</span>
-                    </span>
-                  )
-                })()}
-                {v === 'queue' && <span className="absolute end-1 top-0.5 text-[10px] tabular-nums opacity-70 sm:hidden">{queue.length}</span>}
+          {/* Phones: one row (the taxi icon, the tabs, Undo for operators, and More). */}
+          {tabs.length > 0 && renderTabs('grid min-w-0 flex-1 sm:hidden')}
+          <div className="flex shrink-0 items-center sm:hidden">
+            {operatorScreens && (
+              <button type="button" onClick={undo} disabled={!canUndo || callInProgress} aria-label={t.undo} title={t.undo} className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-lg text-slate-700 disabled:opacity-40">
+                <Undo2 className="size-4" aria-hidden="true" />
               </button>
-            ))}
-          </nav>
+            )}
+            <button
+              type="button"
+              onClick={() => setMoreOpen((o) => !o)}
+              aria-expanded={moreOpen}
+              aria-label={t.moreMenu}
+              title={t.moreMenu}
+              className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100"
+            >
+              {moreOpen ? <X className="size-5" aria-hidden="true" /> : <EllipsisVertical className="size-5" aria-hidden="true" />}
+            </button>
+          </div>
+        </div>
+        {moreOpen && (
+          <>
+            <button type="button" aria-label={t.moreClose} onClick={() => setMoreOpen(false)} className="fixed inset-0 z-[1290] cursor-default bg-slate-900/10 sm:hidden" />
+            <div className="absolute end-2 top-full z-[1300] mt-1 w-72 max-w-[calc(100vw-1rem)] space-y-3 rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-lg sm:hidden">
+              <div className="text-xs">
+          {mode === 'staff' || mode === 'driver' || mode === 'dev' ? (
+            <p className="flex items-center gap-2 text-emerald-800">
+              <span className="rounded bg-emerald-600 px-1.5 py-0.5 font-bold text-white">{t.liveBadge}</span>
+              <bdi dir="ltr" className="truncate">
+                {auth.email}
+              </bdi>
+              <span className="text-slate-500">· {t.roles[auth.role!]}</span>
+            </p>
+          ) : mode === 'demo' ? (
+            <p className="flex items-center gap-2 text-slate-500">
+              <span className="rounded bg-slate-200 px-1.5 py-0.5 font-bold text-slate-700">{t.demoBadge}</span>
+              <span>{t.demoNote}</span>
+            </p>
+          ) : (
+            signedIn && (
+              <p className="text-slate-500">
+                <bdi dir="ltr">{auth.email}</bdi>
+                {citizen && <span className="font-semibold text-sky-800"> · {t.dutyAsCitizen}</span>}
+              </p>
+            )
+          )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+            {operatorScreens && (
+              <>
+                <span className="hidden rounded-full bg-slate-100 px-3 py-1 font-medium tabular-nums sm:inline">{t.inQueue(queue.length)}</span>
+                <button
+                  type="button"
+                  onClick={undo}
+                  disabled={!canUndo || callInProgress}
+                  aria-label={t.undo}
+                  title={t.undo}
+                  className="inline-flex min-h-10 min-w-10 items-center justify-center gap-1 rounded-lg px-2 font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40 sm:px-3"
+                >
+                  <Undo2 className="size-4" aria-hidden="true" />
+                  <span>{t.undo}</span>
+                </button>
+              </>
+            )}
+            {live && auth.isPlatform && centers.length > 1 && (
+              <label className="flex items-center gap-1">
+                <Building2 className="size-4 text-slate-500" aria-hidden="true" />
+                <select
+                  value={staffCenter}
+                  onChange={(e) => setPickedCenter(e.target.value)}
+                  aria-label={t.centerPick}
+                  title={t.centerPick}
+                  className="min-h-10 max-w-[9rem] rounded-lg border border-slate-200 bg-white px-1 text-sm font-semibold"
+                >
+                  {centers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {lang === 'dv' && c.nameDv ? c.nameDv : c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {isDev && (
+              <label className="flex items-center gap-1">
+                <Eye className={`size-4 ${viewAs === 'dev' ? 'text-slate-500' : 'text-fuchsia-600'}`} aria-hidden="true" />
+              <select
+                value={viewAs}
+                onChange={(e) => setViewAs(e.target.value as ViewAs)}
+                aria-label={t.viewAs}
+                title={t.viewAs}
+                className={`min-h-10 rounded-lg border px-1 text-sm font-semibold ${viewAs === 'dev' ? 'border-slate-200 bg-white' : 'border-fuchsia-400 bg-fuchsia-50 text-fuchsia-800'}`}
+              >
+                {VIEW_AS.map((v) => (
+                  <option key={v} value={v}>
+                    {t.viewAsRoles[v]}
+                  </option>
+                ))}
+              </select>
+              </label>
+            )}
+            {canCitizen && (
+              <button
+                type="button"
+                onClick={() => void toggleCitizen()}
+                aria-pressed={citizen}
+                aria-label={citizen ? t.dutyBackToRole : t.dutyUseAsCitizen}
+                title={citizen ? t.dutyBackToRole : t.dutyUseAsCitizen}
+                className={`inline-flex min-h-10 min-w-10 items-center justify-center gap-1 rounded-lg border px-2 font-medium sm:px-3 ${citizen ? 'border-sky-400 bg-sky-50 text-sky-800' : 'border-slate-200 text-slate-700 hover:bg-slate-100'}`}
+              >
+                <PersonStanding className="size-4" aria-hidden="true" />
+                <span>{citizen ? t.dutyBackToRole : t.dutyUseAsCitizen}</span>
+              </button>
+            )}
+            {canTranslate && (
+              <button
+                type="button"
+                onClick={() => setEditingTranslations(true)}
+                title={t.translations}
+                aria-label={t.translations}
+                className="min-h-10 rounded-lg border border-slate-200 px-3 hover:bg-slate-100"
+              >
+                <Pencil className="size-4" aria-hidden="true" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={toggleLang}
+              lang={lang === 'en' ? 'dv' : 'en'}
+              aria-label={t.switchTo}
+              title={t.switchTo}
+              className="inline-flex min-h-10 min-w-10 items-center justify-center gap-1 rounded-lg border border-slate-200 px-2 font-medium text-slate-700 hover:bg-slate-100 sm:px-3"
+            >
+              <Languages className="size-4" aria-hidden="true" />
+              <span>{t.switchTo}</span>
+            </button>
+            {!DEMO_HOST &&
+              (signedIn ? (
+                <button type="button" onClick={auth.signOut} title={auth.email ?? ''} aria-label={t.signOut} className="inline-flex min-h-10 min-w-10 items-center justify-center gap-1 rounded-lg px-2 font-medium text-slate-700 hover:bg-slate-100">
+                  <LogOut className="size-4" aria-hidden="true" />
+                  <span>{t.signOut}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={auth.signIn}
+                  disabled={auth.status === 'loading'}
+                  className="inline-flex min-h-10 items-center gap-1 rounded-lg bg-slate-900 px-3 font-semibold text-white hover:bg-slate-700 disabled:opacity-40"
+                >
+                  <LogIn className="size-4" aria-hidden="true" />
+                  {t.signIn}
+                </button>
+              ))}
+              </div>
+            </div>
+          </>
         )}
+
+        {tabs.length > 0 && renderTabs('mx-auto hidden max-w-5xl px-4 pb-2 sm:flex')}
 
         {/* Mode and account status. */}
         <div className="mx-auto max-w-5xl px-4 pb-2 text-xs land:pb-1">
-          <div className="land:hidden">
+          <div className="hidden sm:block land:hidden">
           {mode === 'staff' || mode === 'driver' || mode === 'dev' ? (
             <p className="flex items-center gap-2 text-emerald-800">
               <span className="rounded bg-emerald-600 px-1.5 py-0.5 font-bold text-white">{t.liveBadge}</span>
