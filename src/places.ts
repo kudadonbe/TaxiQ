@@ -1,7 +1,11 @@
-// House / road / landmark names for map search: Kulhudhuffushi, plus other areas (REGIONS).
-// Kulhudhuffushi Data: src/data/places.json, built by
-// scripts/import-places.py from the Kulhudhuffushi City Council map (via mapkf.vercel.app, with
-// permission). Loaded on demand so the map opens without it.
+// House / road / landmark names for map search, map labels and pin names, by area (AREAS).
+// Kulhudhuffushi: the Kulhudhuffushi City Council map (via mapkf.vercel.app, with permission),
+// scripts/import-places.py. Malé area: Malé City Council (Malé lots) and HDC (Hulhumalé lots and
+// buildings), used with permission, scripts/import-male.py; Maldives Post postcodes,
+// scripts/import-postcodes.py. scripts/split-places.py splits them into small tiles
+// (src/data/places/<area>/, format in src/core/placeTiles.ts), and only the tiles needed are loaded.
+
+import { decodeRows, filesAround, fold, originOf, placeId, type Row } from './core/placeTiles'
 
 export type PlaceType = 'h' | 'r' | 'l' | 'p' // house, road, landmark, unnamed plot
 
@@ -15,31 +19,80 @@ export interface Place {
   p: [number, number][] // lat/lng points (roads have several)
 }
 
-let cache: Promise<Place[]> | null = null
+// Every tile file, lazily: one small chunk each.
+const FILES = import.meta.glob<Row[]>('./data/places/*/*.json', { import: 'default' })
 
-export function loadPlaces(): Promise<Place[]> {
-  cache ??= import('./data/places.json').then((m) => m.default as Place[])
-  return cache
+interface Area {
+  id: string
+  box: [number, number, number, number] // south, west, north, east
+  whole: boolean // small enough to load whole every time (labels across the island)
+  files: Map<string, () => Promise<Row[]>>
+  list: Place[] // what is loaded so far; grows as tiles load (callers may keep it)
+  loading: Map<string, Promise<void>>
+  seen: Set<string>
 }
+const area = (id: string, box: Area['box'], whole = false): Area => {
+  const files = new Map<string, () => Promise<Row[]>>()
+  const dir = `./data/places/${id}/`
+  for (const [path, load] of Object.entries(FILES)) if (path.startsWith(dir)) files.set(path.slice(dir.length, -5), load)
+  return { id, box, whole, files, list: [], loading: new Map(), seen: new Set() }
+}
+// The first is home: Kulhudhuffushi (about 90 KB gzipped, so always whole), used when the viewer is
+// in no area with house data. The Malé area (about 260 KB) loads by tiles.
+const AREAS = [area('kdh', [6.6, 73.05, 6.645, 73.09], true), area('male', [4.12, 73.4, 4.27, 73.57])]
+const HOME = AREAS[0]!
 
-// Other areas with house data, loaded only when the map is there.
-// Malé area: Malé City Council (Malé lots) and HDC (Hulhumalé lots and buildings), used with
-// permission; built by scripts/import-male.py.
-const REGIONS: { id: string; box: [number, number, number, number]; load: () => Promise<Place[]> }[] = [
-  { id: 'male', box: [4.12, 73.4, 4.27, 73.57], load: () => import('./data/places-male.json').then((m) => m.default as Place[]) },
-]
-const regionCache = new Map<string, Promise<Place[]>>()
 export const regionAt = (at: readonly [number, number] | undefined) =>
-  at ? REGIONS.find((r) => at[0] >= r.box[0] && at[0] <= r.box[2] && at[1] >= r.box[1] && at[1] <= r.box[3]) : undefined
+  at ? AREAS.find((r) => at[0] >= r.box[0] && at[0] <= r.box[2] && at[1] >= r.box[1] && at[1] <= r.box[3]) : undefined
 
-// Places for search and naming around a point: Kulhudhuffushi's, plus that area's when we have them.
-export function loadPlacesAround(at: readonly [number, number] | undefined): Promise<Place[]> {
-  const r = regionAt(at)
-  if (!r) return loadPlaces()
-  let p = regionCache.get(r.id)
-  if (!p) regionCache.set(r.id, (p = r.load()))
-  return Promise.all([p, loadPlaces()]).then(([a, b]) => [...a, ...b])
+function loadFile(a: Area, name: string): Promise<void> {
+  let p = a.loading.get(name)
+  const load = a.files.get(name)
+  if (!p && load) {
+    p = load().then((rows) => {
+      for (const place of decodeRows(rows, originOf(name))) {
+        if (place.t === 'r') {
+          const id = placeId(place)
+          if (a.seen.has(id)) continue
+          a.seen.add(id)
+        }
+        a.list.push(place)
+      }
+    })
+    p.catch(() => a.loading.delete(name)) // try again next time
+    a.loading.set(name, p)
+  }
+  return p ?? Promise.resolve()
 }
+
+// A whole area (for search, which must find any house in it). A new array, so React sees it change.
+function loadArea(a: Area): Promise<Place[]> {
+  return Promise.all([...a.files.keys()].map((name) => loadFile(a, name))).then(() => [...a.list])
+}
+
+// All of Kulhudhuffushi (the game and the game map).
+export const loadPlaces = (): Promise<Place[]> => loadArea(HOME)
+
+// How far around a point to load names: covers a phone's view at label zoom (18) around it.
+export const AROUND_DEG = 0.003
+
+// A search box has focus: the caller wants names for search, so load the whole area.
+// (MapView's search box loads places on focus through loadPlacesAround.)
+const searching = () => typeof document !== 'undefined' && document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'search'
+
+// Places for naming and labels around a point: the tiles within AROUND_DEG of it, in its area.
+// The list returned keeps growing as other tiles of that area load (a pin, a search), so labels kept
+// from it fill in. In Kulhudhuffushi or outside any area: all of Kulhudhuffushi, as before. Called
+// while a search box has focus: the whole area (as loadPlacesForSearch).
+export function loadPlacesAround(at: readonly [number, number] | undefined, r = AROUND_DEG): Promise<Place[]> {
+  const a = regionAt(at)
+  if (!a || !at) return loadPlaces()
+  if (a.whole || searching()) return loadArea(a)
+  return Promise.all(filesAround(at, r).map((name) => loadFile(a, name))).then(() => a.list)
+}
+
+// Places for search near a point: the whole area it is in (Kulhudhuffushi outside any area).
+export const loadPlacesForSearch = (at: readonly [number, number] | undefined): Promise<Place[]> => loadArea(regionAt(at) ?? HOME)
 
 // The nearest named place within `max` metres (houses and landmarks first).
 export function nearestPlace(places: Place[], at: [number, number], max = 80): Place | null {
@@ -78,8 +131,6 @@ export function nearestRoad(places: Place[], at: [number, number], max = 60): Pl
   }
   return best?.p ?? null
 }
-
-const fold = (s: string) => s.toLowerCase().replace(/[^a-z0-9ހ-޿]/g, '')
 
 // Ranked search: exact > starts with > contains, across English, Dhivehi, the simplified key and
 // plot number. Unnamed plots only match by number.

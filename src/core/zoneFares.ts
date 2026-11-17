@@ -3,7 +3,7 @@
 // these zones the center's own fare table applies (src/core/taxiFare.ts). Pure functions.
 //
 // Zones: Malé, Hulhulé (Velana airport), Hulhumalé Phase 1 and Phase 2. The boxes come from our place
-// data (src/data/places-male.json); the Phase 1 / Phase 2 border is the line that splits HDC's lots
+// data (scripts/data/places-male.json); the Phase 1 / Phase 2 border is the line that splits HDC's lots
 // (Phase 1 lots are numbered 1xxxx, Phase 2 lots 2xxxx) with no errors. Villimalé is not in the
 // published list.
 
