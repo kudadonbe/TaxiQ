@@ -6,11 +6,21 @@ import { LookPreview } from './LookPreview'
 import { MOVING_ICONS } from './iconStyles'
 import { useI18n } from '../i18n'
 import type { useShareMe, Visibility } from '../usePresence'
+import { onLookPickerAsk, takeLookPickerAsk } from '../myLook'
 
 // Show me on the map (opt-in): who may see me, how I'm moving (guessed, can be corrected), Stop.
 export function ShareMe({ me }: { me: ReturnType<typeof useShareMe> }) {
   const { t } = useI18n()
-  const [open, setOpen] = useState(false)
+  // Opened at once when Change look (the menu on your own avatar) asked for it.
+  const [open, setOpen] = useState(takeLookPickerAsk)
+  useEffect(
+    () =>
+      onLookPickerAsk(() => {
+        takeLookPickerAsk()
+        setOpen(true)
+      }),
+    [],
+  )
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 15_000)
