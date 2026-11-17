@@ -4,7 +4,7 @@
 // server, no glyphs (labels stay DOM markers in MapView). Original colours, a day and a night look.
 //
 // Data: (c) OpenStreetMap contributors (ODbL); Malé City Council lots and HDC Hulhumalé buildings and
-// lots, used with permission.
+// lots; the Kulhudhuffushi City Council plot chart. All used with permission.
 
 import type { Feature, FeatureCollection, LineString, Point, Polygon } from 'geojson'
 import type { ExpressionSpecification, GeoJSONSourceSpecification, LayerSpecification, Map as MlMap } from 'maplibre-gl'
@@ -53,14 +53,27 @@ export interface Resource {
 }
 
 // Areas drawn with TaxiQ's own map. Keep each box in step with AREAS in scripts/build-world.py.
-// Phase 1: Greater Malé. Kulhudhuffushi and the other islands come later (plans/own-map.md).
+// Phase 1: Greater Malé; phase 2: Kulhudhuffushi (also the TaxiQ World game's island). The other
+// islands come later (plans/own-map.md).
 interface WorldArea {
   id: string
   box: [number, number, number, number] // s, w, n, e
+  credit: string // whose shapes the area uses besides OpenStreetMap (map attribution)
   load: () => Promise<WorldBundle>
 }
 const WORLD_AREAS: WorldArea[] = [
-  { id: 'male', box: [4.158, 73.478, 4.252, 73.556], load: () => import('./data/world-male.json').then((m) => m.default as unknown as WorldBundle) },
+  {
+    id: 'male',
+    box: [4.158, 73.478, 4.252, 73.556],
+    credit: 'buildings: Malé City Council, <a href="https://gis.hdc.mv/">HDC</a>',
+    load: () => import('./data/world-male.json').then((m) => m.default as unknown as WorldBundle),
+  },
+  {
+    id: 'kulhudhuffushi',
+    box: [6.6, 73.05, 6.645, 73.085],
+    credit: 'houses: <a href="https://kulhudhuffushicity.gov.mv/map">Kulhudhuffushi City Council</a> plot chart',
+    load: () => import('./data/world-kulhudhuffushi.json').then((m) => m.default as unknown as WorldBundle),
+  },
 ]
 // Below this zoom the view reaches past the area's edge, so today's map shows instead.
 export const WORLD_MIN_ZOOM = 13
@@ -82,8 +95,11 @@ export function loadWorld(id: string): Promise<WorldBundle> {
   return p
 }
 
-export const WORLD_ATTRIBUTION =
-  'TaxiQ map: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors (ODbL); buildings: Malé City Council, <a href="https://gis.hdc.mv/">HDC</a>'
+// The credit on an area's world source: OpenStreetMap (ODbL) and whoever's shapes the area uses.
+export function worldAttribution(area: string): string {
+  const credit = WORLD_AREAS.find((a) => a.id === area)?.credit
+  return `TaxiQ map: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors (ODbL)${credit ? `; ${credit}` : ''}`
+}
 
 // ---- decoding ----
 
@@ -420,7 +436,7 @@ export function addWorld(m: MlMap, area: string, w: WorldBundle, beforeId: strin
     const spec: GeoJSONSourceSpecification = { type: 'geojson', data, ...(attribution ? { attribution } : {}) }
     if (!m.getSource(id)) m.addSource(id, spec)
   }
-  src(`${L.land}-src`, fc(w.land.map((s) => poly(o, s))), WORLD_ATTRIBUTION)
+  src(`${L.land}-src`, fc(w.land.map((s) => poly(o, s))), worldAttribution(area))
   src(`${L.reef}-src`, fc(w.reef.map((s) => poly(o, s))))
   src(`${L.water}-src`, fc(w.water.map((s) => poly(o, s))))
   src(`${L.sand}-src`, fc(w.sand.map((s) => poly(o, s))))

@@ -37,7 +37,12 @@ property, identity and payments) is in `plans/digital-raajje-vision.md` on the `
 - [x] **v2.10.0**: the Sinamalé Bridge in 3D (researched; `plans/own-map.md`), own-map roads fixed,
   3D figures with three.js (vehicles, taxis, riders, people with Maldivian hijab styles, work
   outfits; each person picks a look), a 2D / 3D switch. **Left:** vehicles on the bridge deck
-  (`bridgeHeightAt`), faded resting figures in 3D, the game on the own map, stepped V-piers.
+  (`bridgeHeightAt`), faded resting figures in 3D, stepped V-piers.
+
+- [x] **Own map phase 2: Kulhudhuffushi** (branch `world-kulhudhuffushi`, not merged): every house
+  from the council plot chart in 3D, OSM buildings, roads, places; the game map now uses it (2D / 3D,
+  3D figures). **Left:** real house heights, the rest of the atoll, Thilafushi and Gulhifalhu
+  (`plans/own-map.md`).
 
 ## Small items (branch `small-items`, not merged yet)
 
