@@ -255,6 +255,8 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
 
 ## 28. v2.8.1 one-row phone header; v2.9.0 TaxiQ's own 3D map for Greater Malé (`scripts/build-world.py`, `src/worldStyle.ts`): `f21273e`. v3: build and serve the world map file (PMTiles) for every island from the server.
 
+## 29. v2.10.0: 3D figures (three.js) with a person's `look`, 2D/3D switch, the Sinamalé Bridge in the world map: `56ddb6a`. v3: validate `look` on the server; serve the world map with bridges.
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
