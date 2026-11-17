@@ -8,8 +8,9 @@ const DARK = '#0f172a'
 
 export function LookPreview({ look, colour, size = 40 }: { look: FigureLook; colour: number; size?: number }) {
   const [main, second] = lookColours(colour)
-  const young = look === 'young'
-  const s = young ? 0.85 : 1
+  const child = look === 'child'
+  const young = look === 'young' || child // the same T-shirt and shorts; a child has hair, not a cap
+  const s = child ? 0.7 : young ? 0.85 : 1
   const hijab = look === 'woman-hijab' || look === 'woman-libaas' || look === 'woman-sport'
   const scarf = look === 'woman-sport' ? DARK : look === 'woman-hijab' && second === '#1e293b' ? '#334155' : second
   const shirt = look === 'man-formal' ? (main === '#f8fafc' ? '#dbeafe' : '#f8fafc') : main
@@ -55,7 +56,7 @@ export function LookPreview({ look, colour, size = 40 }: { look: FigureLook; col
           <>
             <rect x="11" y="9" width="2" height="2.5" fill={SKIN} />
             <circle cx="12" cy="6.5" r="3.6" fill={SKIN} />
-            {young ? <path d="M8.3 6 A3.8 3.8 0 0 1 15.7 6 L17.5 6.6 L8.3 6.6 Z" fill={second} /> : <path d="M8.3 6 A3.8 3.8 0 0 1 15.7 6 Z" fill={HAIR} />}
+            {young && !child ? <path d="M8.3 6 A3.8 3.8 0 0 1 15.7 6 L17.5 6.6 L8.3 6.6 Z" fill={second} /> : <path d="M8.3 6 A3.8 3.8 0 0 1 15.7 6 Z" fill={HAIR} />}
           </>
         )}
       </g>

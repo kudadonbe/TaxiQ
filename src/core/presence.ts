@@ -42,7 +42,7 @@ export const isLive = (p: { updatedAt: number; expiresAt: number; level?: BeatLe
 // remembered on the device and written with the position). 'plain' (the default) is a neutral
 // figure. Clothing colours are an index into LOOK_COLOURS (src/core/figures.ts). Keep both lists in
 // step with firestore.rules (presenceShape).
-export const PERSON_LOOKS = ['plain', 'man-casual', 'man-tshirt', 'man-formal', 'woman-hijab', 'woman-libaas', 'woman-sport', 'young'] as const
+export const PERSON_LOOKS = ['plain', 'man-casual', 'man-tshirt', 'man-formal', 'woman-hijab', 'woman-libaas', 'woman-sport', 'young', 'child'] as const
 export type PersonLook = (typeof PERSON_LOOKS)[number]
 export const LOOK_COLOUR_COUNT = 6
 export const isPersonLook = (x: unknown): x is PersonLook => typeof x === 'string' && (PERSON_LOOKS as readonly string[]).includes(x)

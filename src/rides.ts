@@ -109,6 +109,7 @@ export function asMapTaxi(p: PublicTaxi): Taxi {
     driver: { id: p.id, name: p.name, nameDv: p.nameDv, phone: '' },
     suspended: p.suspended ? { reason: 'other', note: '', at: 0 } : undefined,
     seats: p.seats,
+    ...(p.vehicleId ? { vehicleId: p.vehicleId } : {}),
     centerId: p.centerId,
   }
 }

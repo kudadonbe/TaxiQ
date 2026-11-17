@@ -38,6 +38,11 @@ describe('3D models stay low-poly', () => {
       expect(b.max.z, s).toBeLessThanOrEqual(t.height + 0.3)
     }
   })
+  it('a child is drawn at about 70% of an adult', () => {
+    const k = personParts('child', 0).height / personParts('plain', 0).height
+    expect(k).toBeGreaterThan(0.65)
+    expect(k).toBeLessThan(0.75)
+  })
   it('lamps: two at each end of a car, one of each on a bike', () => {
     expect(lampSpots('sedan').rear).toHaveLength(2)
     expect(lampSpots('sedan').front).toHaveLength(2)

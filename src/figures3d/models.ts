@@ -391,6 +391,13 @@ export function personParts(look: FigureLook, colourIndex: number): PersonParts 
       legs = SKIN
       height = 1.45
       break
+    case 'child':
+      // A T-shirt and shorts, short hair; drawn at about 70% of an adult's height (1.2 m).
+      body = [torso(main, 0.4), ...sleeves(main), box(second, 0.42, 0.22, 0.24, 0, 0, HIP - 0.18), ...headParts('hair', HAIR)]
+      arms = SKIN
+      legs = SKIN
+      height = 1.2
+      break
     case 'mechanic':
       // Blue overalls with a light stripe, and a tool bag.
       body = [torso('#1d4ed8'), box('#fde047', 0.43, 0.23, 0.05, 0, 0, HIP + 0.2), box('#b91c1c', 0.12, 0.34, 0.2, 0.36, 0.05, 0.42), box(DARK, 0.02, 0.02, 0.36, 0.3, 0.05, 0.62), ...headParts('cap', '#1e3a8a')]

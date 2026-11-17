@@ -230,6 +230,32 @@ html .maplibregl-map {
   white-space: nowrap;
 }
 
+/* The viewer's own avatar (MapView, ME): their chosen look in a white disc ringed in sky blue, a
+   heading arrow once they have moved, and a faint, still accuracy ring when the fix is rough. */
+.person-marker.me .person-marker-icon {
+  width: 32px;
+  height: 32px;
+  background: #ffffff;
+  border: 2.5px solid #0284c7;
+  overflow: hidden;
+  align-items: end;
+}
+.person-marker.me.has-dir .person-marker-dir {
+  display: block;
+  inset: -8px;
+}
+.me-accuracy {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  z-index: -1;
+  border-radius: 9999px;
+  background: rgb(2 132 199 / 0.08);
+  border: 1px solid rgb(2 132 199 / 0.35);
+  pointer-events: none;
+}
+
 /* Services for drivers (mechanics, tyres, towing...): a round amber marker with the kind's icon,
    in a 40 px tap area. A closed place is faded (opacity set in MapView); a mobile helper is ringed. */
 .service-marker {

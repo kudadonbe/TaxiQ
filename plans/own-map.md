@@ -124,8 +124,28 @@ projected height).
   overalls with a tool bag (mechanic, tyres, battery, towing...) or a delivery jacket and box
   (parts, fuel). A taxi driver look is built but not shown yet.
 - Left: the walking person faces the way they walk; a standing person faces the way they last
-  walked. Resting (faded) figures aren't faded in 3D yet. The game map isn't our own map yet, so
-  it has no 3D figures.
+  walked. The game map isn't our own map yet, so it has no 3D figures.
+
+## Map polish (branch `map-polish`)
+
+- On the Sinamalé Bridge, 3D figures ride on the deck (`bridgeHeightAt`, now with a cheap box check
+  per deck), and the flat markers and labels are lifted on screen by the deck's height at the
+  map's tilt (`liftOnDeck` in MapView), so labels sit above the raised vehicle.
+- Resting vehicles and people are see-through in 3D too (a second, transparent material).
+- A private vehicle linked as a center taxi (`publicTaxis.vehicleId`, now kept by `asMapTaxi`) is
+  drawn in taxi colours (with the roof sign on a sedan) under All and Taxi, and in its own colour
+  under Private (`paintVehicle`).
+- Tap cards: vehicles show the model, colour, seats and "Also center taxi N"; center taxis show
+  their seats, and the plate only for staff (the public projection has none). No plate or phone
+  was added to public data (the owner's identity decision); no photos (Storage needs Blaze).
+- The viewer's own avatar replaces MapLibre's blue dot (`showUserLocation: false`; the control
+  still locates, follows and re-centres): their chosen look as a flat disc with a heading arrow,
+  or a walking 3D figure, with a faint still accuracy ring when worse than 25 m. Hidden while they
+  are on the map as their own vehicle. Only on this device; nothing new is shared.
+- A **child** look (about 70% height) in Show me on the map, the 3D models and the rules.
+- Game map: MapView already switches to our own map by the view's middle (`worldAreaAt`), and the
+  game's MapView (not full screen) shows the own-map and 2D/3D switches, so it needs no code
+  change. The only blocker is data: there is no Kulhudhuffushi world area yet (phase 2 above).
 
 ## Phase 2: more of the capital region and Kulhudhuffushi
 
