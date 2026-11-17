@@ -253,6 +253,8 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
 
 ## 27. v2.8.0: vehicle model library and shapes (`modelId`), bicycles, map category chips, full-map mode, What I offer in My account: `40728c7`. v3: move the model list to an admin-curated table on the server.
 
+## 28. v2.8.1 one-row phone header; v2.9.0 TaxiQ's own 3D map for Greater Malé (`scripts/build-world.py`, `src/worldStyle.ts`): `f21273e`. v3: build and serve the world map file (PMTiles) for every island from the server.
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
