@@ -35,6 +35,74 @@ Left for phase 1:
 - Kulhudhuffushi, and with it the game map: add an `AREAS` entry that uses
   `src/data/plots.json` as house footprints.
 
+## Sinamalé Bridge (built, branch `bridge-3d`)
+
+The China-Maldives Friendship Bridge (Sinamalé Bridge), Malé to Hulhulé, drawn in 3D on the own map.
+
+### Facts (public sources; facts only, no text or images copied)
+
+- Total length about 2.0 to 2.1 km, of which about 1.39 km is over the sea. [W] [A]
+- Main bridge 760 m: six spans of (100 + 2 x 180 + 140 + 100 + 60) m, a continuous rigid frame on
+  V-shaped piers. The girder is a hybrid: concrete beams over the V-piers (cantilevers of about 65 m)
+  and steel box girders closing the middle of the spans; six closures, three concrete and three
+  steel box (sections up to about 600 t; last steel closure 9 July 2018). [S] [F] [A]
+- The approaches are girder bridges. The longest spans are 180 m; 26 piers in all, each on four or
+  more piles (steel pipe composite piles; the ground is coral limestone to 60 m and more). [H] [S]
+- Deck width 20.3 m (20 m in some reports). Two lanes for cars, two for motorcycles, plus bicycle and
+  pedestrian lanes (the lane count was argued over later; four vehicle lanes in the design). [W] [A]
+- Height: the airport's obstacle surfaces kept the structure under 45 m; described as about 20 m
+  high. Seabed to deck over 60 m; the channel is about 46 to 50 m deep at its deepest. [H] [K] [F]
+- Designer: CCCC Highway Consultants. Builder (EPC): CCCC Second Harbour Engineering (China Harbour
+  Engineering is also named). Contract 30 December 2015; opened 30 August 2018; handed over
+  12 November 2018. About US$200 to 300 million (Chinese grant and loan, and the government). [H] [A] [W]
+- Not found in public sources: navigation clearance under the main spans, exact pier shapes and
+  sizes, the colours of the deck, railings and lamp posts. Those are drawn as our own design.
+
+Sources:
+- [W] Wikipedia, Sinamalé Bridge: https://en.wikipedia.org/wiki/Sinamal%C3%A9_Bridge
+- [S] Large Span V-shaped Pier Continuous Rigid Structure Design of China-Maldives Friendship
+  Bridge (conference paper): https://structurae.net/en/literature/conference-paper/large-span-v-shaped-pier-continuous-rigid-structure-design-of-china-maldives-friendship-bridge
+- [F] Construction report (Chinese): https://www.fx361.com/page/2019/0105/20152531.shtml
+- [A] AidData project 38037: https://china.aiddata.org/projects/38037/
+- [H] Hassan Hameed, book on the bridge (sample pages): https://www.hassanhameed.com/wp-content/uploads/2019/08/Book-on-Bridge-sample-pages.pdf
+- [K] Hakai Magazine: https://hakaimagazine.com/news/protests-and-prison-time-fight-over-males-friendship-bridge/
+
+### What is built
+
+- **Line:** OSM's two one-way carriageways (bridge=viaduct, name:en Sinamalé Bridge, about 1,391 m)
+  give the deck's centre line, a point every 10 m. They are left out of the flat road lines, so no
+  road is drawn across the sea; the deck's top is the road colour, so the road reads as continuing.
+- **Main spans:** placed by fitting the span list to the main pier footings OSM maps
+  (bridge:support=pier, 5 found, all within 4 m). Their gaps (179, 138, 99 m) match the 180, 140 and
+  100 m spans, so the order from Malé is 100, 180, 180, 140, 100, 60. V-shaped piers stand at the
+  three supports either side of the 180 m spans (assumed; the 140 m span needs one too); the others
+  are twin columns with a cap beam. Approach piers every ~32 m (16 on the Malé side, 2 on the
+  Hulhulé side; 25 supports in all against 26 in the book).
+- **Profile:** 0 m at each end of the OSM bridge, parabolic vertical curves (160 m) and a steady grade
+  up to a level 20 m top over the middle of the two 180 m spans (about 3.6% from Malé, 6% from
+  Hulhulé). Simplified: the real ramps continue on land, ours meet the ground at the shore.
+- **Girder:** 2.4 m deep on the approaches, 3 m at mid-span on the main bridge, deepening to about
+  4.7 m over the V-piers (assumed sizes).
+- **Deck section** (our design within the 20.3 m width): median barrier, 7.5 m carriageway each way,
+  footpaths with railings, lamp posts every 36 m staggered on both footpaths.
+- **Data:** `bridge` in `world-male.json` (centre line, top and girder depth per point in dm, pier
+  parts, lamp points): about 9 KB raw, 2.4 KB gzipped. `src/worldStyle.ts` builds the shapes
+  (girder, slab, road, median, footpaths, railings, piers, lamps, light pools) into one
+  fill-extrusion layer `world-<area>-bridge`, with base and height per part. Day: light concrete and
+  pale-grey steel. Night: lamps glow warm and throw pools of light on the deck.
+- Also fixed: the road layers' width expression put the zoom curve inside a `match`, which MapLibre
+  refuses, so the own map's roads were not drawn at all. The zoom curve is now outside.
+
+### Follow-up: vehicles on the deck
+
+Driving is unchanged: the road graph (`src/homeRoads.ts`, Overpass, OpenFreeMap) still has the
+bridge, and vehicles on it are DOM markers at ground level, so over the raised deck they look as if
+they float at sea level under it when the map is tilted. The 3D figures layer should lift them:
+`bridgeHeightAt(lat, lng)` in `src/worldStyle.ts` gives the deck's top in metres (0 off the
+bridge) for any area added to the map. A DOM marker can't take a height, so this waits for figures
+drawn in the map (a custom 3D layer), or for an offset hack (shift the marker up on screen by the
+projected height).
+
 ## Phase 2: more of the capital region and Kulhudhuffushi
 
 - Kulhudhuffushi from OSM plus the council plot chart (plots as house footprints, about 5 m high).

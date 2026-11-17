@@ -25,6 +25,19 @@ export interface WorldBundle {
   b: [BuildingKind, number, number, Shape][]
   trees: Shape
   res: [ResourceKind, number, number, string, string][]
+  bridge?: BridgeData[]
+}
+// A raised bridge (scripts/build-world.py, "bridges"): the deck's centre line with a point every
+// ~10 m, its top and girder depth at each point (decimetres above the sea), piers and lamp posts.
+export interface BridgeData {
+  en: string
+  dv: string
+  w: number // deck width, m
+  line: Shape
+  h: number[]
+  d: number[]
+  piers: ['pier' | 'cap', number, number, Shape][]
+  lamps: Shape
 }
 type GreenKind = 'park' | 'wood' | 'grass' | 'pitch'
 type RoadClass = 'main' | 'street' | 'path' | 'runway' | 'taxiway' | 'pier'
@@ -111,6 +124,145 @@ function canopy(at: [number, number], i: number): Feature<Polygon, Props> {
   return { type: 'Feature', properties: { h: 4.5 + ((i * 104_729) % 30) / 10 }, geometry: { type: 'Polygon', coordinates: [ring(pts)] } }
 }
 
+// ---- bridges ----
+
+// Parts of a bridge, each its own colour. The deck's cross-section (metres from the centre line):
+// a median barrier, a carriageway each side (car and motorcycle lanes), footpaths and railings.
+type BridgePart = 'girder' | 'slab' | 'road' | 'median' | 'walk' | 'rail' | 'pier' | 'cap' | 'post' | 'lamp' | 'glow'
+const ROAD_HALF = 7.9
+const GIRDER_HALF = 7
+
+interface Deck {
+  pts: [number, number][] // lng, lat
+  xy: [number, number][] // metres east, north of the first point
+  h: number[] // top, m
+  half: number
+  kx: number
+}
+function deckOf(o: [number, number], b: BridgeData): Deck {
+  const pts = decode(o, b.line)
+  const kx = 111_320 * Math.cos((pts[0]![1] * Math.PI) / 180)
+  const xy = pts.map(([x, y]) => [(x - pts[0]![0]) * kx, (y - pts[0]![1]) * 111_320] as [number, number])
+  return { pts, xy, h: b.h.map((v) => v / 10), half: b.w / 2, kx }
+}
+
+// The deck's top at a point (m above the sea), and how far it is from the centre line, or null when
+// the point isn't on the deck.
+function onDeck(d: Deck, lng: number, lat: number): { h: number; across: number; toward: [number, number] } | null {
+  const px = (lng - d.pts[0]![0]) * d.kx
+  const py = (lat - d.pts[0]![1]) * 111_320
+  let best: { h: number; across: number; toward: [number, number] } | null = null
+  let bestD = Infinity
+  for (let i = 0; i + 1 < d.xy.length; i++) {
+    const [ax, ay] = d.xy[i]!
+    const [bx, by] = d.xy[i + 1]!
+    const dx = bx - ax
+    const dy = by - ay
+    const L = dx * dx + dy * dy || 1
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L))
+    const cx = ax + t * dx
+    const cy = ay + t * dy
+    const dist = Math.hypot(px - cx, py - cy)
+    if (dist < bestD) {
+      bestD = dist
+      best = { h: d.h[i]! + (d.h[i + 1]! - d.h[i]!) * t, across: dist, toward: [cx - px, cy - py] }
+    }
+  }
+  return best && best.across <= d.half + 1 ? best : null
+}
+
+const decks = new Map<string, Deck[]>() // by area
+
+// How high a bridge deck is at a point (m above the sea), or 0 off every bridge. For figures and
+// vehicles drawn in 3D, so they ride on the deck instead of the sea. Knows the bridges of every area
+// added to the map so far (addWorld).
+export function bridgeHeightAt(lat: number, lng: number): number {
+  for (const d of [...decks.values()].flat()) {
+    const hit = onDeck(d, lng, lat)
+    if (hit) return hit.h
+  }
+  return 0
+}
+
+// The bridge as extruded shapes: each with its part `k`, its base and its top (m).
+function bridgeFeatures(o: [number, number], b: BridgeData, deck: Deck): Feature<Polygon, Props>[] {
+  const out: Feature<Polygon, Props>[] = []
+  const { pts } = deck
+  // Four pieces per ~10 m step, so the deck's small height steps along a grade don't show.
+  const SUB = 4
+  const xy: [number, number][] = []
+  const h: number[] = []
+  const depth: number[] = []
+  for (let i = 0; i < deck.xy.length; i++) {
+    for (let j = 0; j < (i + 1 < deck.xy.length ? SUB : 1); j++) {
+      const f = j / SUB
+      const a = deck.xy[i]!
+      const c = deck.xy[i + 1] ?? a
+      xy.push([a[0] + (c[0] - a[0]) * f, a[1] + (c[1] - a[1]) * f])
+      h.push(deck.h[i]! + ((deck.h[i + 1] ?? deck.h[i]!) - deck.h[i]!) * f)
+      depth.push((b.d[i]! + ((b.d[i + 1] ?? b.d[i]!) - b.d[i]!) * f) / 10)
+    }
+  }
+  const toLL = (x: number, y: number): [number, number] => [pts[0]![0] + x / deck.kx, pts[0]![1] + y / 111_320]
+  // A unit normal (to the left) at each point, averaged over the segments either side.
+  const normals = xy.map((_, i) => {
+    const a = xy[Math.max(0, i - 1)]!
+    const c = xy[Math.min(xy.length - 1, i + 1)]!
+    const dx = c[0] - a[0]
+    const dy = c[1] - a[1]
+    const L = Math.hypot(dx, dy) || 1
+    return [-dy / L, dx / L] as [number, number]
+  })
+  const add = (k: BridgePart, base: number, top: number, ring: [number, number][]) => {
+    ring.push(ring[0]!)
+    out.push({ type: 'Feature', properties: { k, h: Math.round(top * 100) / 100, base: Math.round(Math.max(0, base) * 100) / 100 }, geometry: { type: 'Polygon', coordinates: [ring] } })
+  }
+  const strip = (i: number, a: number, c: number) => {
+    const p = xy[i]!
+    const q = xy[i + 1]!
+    const n = normals[i]!
+    const m = normals[i + 1]!
+    return [toLL(p[0] + n[0] * a, p[1] + n[1] * a), toLL(q[0] + m[0] * a, q[1] + m[1] * a), toLL(q[0] + m[0] * c, q[1] + m[1] * c), toLL(p[0] + n[0] * c, p[1] + n[1] * c)]
+  }
+  const half = deck.half
+  for (let i = 0; i + 1 < xy.length; i++) {
+    const top = (h[i]! + h[i + 1]!) / 2
+    const d = (depth[i]! + depth[i + 1]!) / 2
+    if (top - d > 0.2) add('girder', top - d, top - 0.55, strip(i, -GIRDER_HALF, GIRDER_HALF))
+    add('slab', top - 0.6, top - 0.05, strip(i, -half, half))
+    add('road', top - 0.06, top, strip(i, -ROAD_HALF, ROAD_HALF))
+    add('median', top, top + 0.9, strip(i, -0.35, 0.35))
+    for (const s of [1, -1]) {
+      add('walk', top - 0.06, top + 0.2, strip(i, s * ROAD_HALF, s * (half - 0.3)))
+      add('rail', top + 0.2, top + 1.3, strip(i, s * (half - 0.3), s * half))
+    }
+  }
+  for (const [k, base, top, sh] of b.piers) add(k, base / 10, top / 10, decode(o, sh))
+  // Lamp posts: a slim post, a head leaning over the road, and a pool of light on the road.
+  const square = (lng: number, lat: number, size: number): [number, number][] => {
+    const dx = size / 2 / deck.kx
+    const dy = size / 2 / 111_320
+    return [[lng - dx, lat - dy], [lng + dx, lat - dy], [lng + dx, lat + dy], [lng - dx, lat + dy]]
+  }
+  const octagon = (lng: number, lat: number, r: number): [number, number][] =>
+    Array.from({ length: 8 }, (_, j) => [lng + (Math.cos((j / 8) * Math.PI * 2) * r) / deck.kx, lat + (Math.sin((j / 8) * Math.PI * 2) * r) / 111_320] as [number, number])
+  for (const [lng, lat] of decode(o, b.lamps)) {
+    const hit = onDeck(deck, lng, lat)
+    if (!hit) continue
+    const L = Math.hypot(hit.toward[0], hit.toward[1]) || 1
+    const ux = hit.toward[0] / L
+    const uy = hit.toward[1] / L
+    const at = (m: number): [number, number] => [lng + (ux * m) / deck.kx, lat + (uy * m) / 111_320]
+    const top = hit.h + 0.2
+    add('post', top, top + 9, square(lng, lat, 0.35))
+    const [hx, hy] = at(0.9)
+    add('lamp', top + 8.7, top + 9.25, square(hx, hy, 1.1))
+    const [gx, gy] = at(4)
+    add('glow', hit.h - 0.1, hit.h + 0.03, octagon(gx, gy, 4.5))
+  }
+  return out
+}
+
 export function worldResources(w: WorldBundle): Resource[] {
   return w.res
     .filter(([k]) => (RESOURCE_KINDS as readonly string[]).includes(k))
@@ -132,6 +284,7 @@ interface Palette {
   road: Record<RoadClass, string>
   casing: Record<RoadClass, string>
   b: Record<BuildingKind, string>
+  bridge: Record<BridgePart, string>
 }
 
 const DAY: Palette = {
@@ -160,6 +313,9 @@ const DAY: Palette = {
     airport: '#cdd8e4',
     other: '#e8dccb',
   },
+  // Light concrete and pale-grey steel, the deck the same white as the roads it carries. By day the
+  // light pools are the road's own colour, so they don't show.
+  bridge: { girder: '#e2e6ea', slab: '#cfd5db', road: '#ffffff', median: '#f1efe8', walk: '#efe5cf', rail: '#8e99a5', pier: '#d6dade', cap: '#c3cad1', post: '#7f8994', lamp: '#f3efe2', glow: '#ffffff' },
 }
 
 const NIGHT: Palette = {
@@ -188,6 +344,8 @@ const NIGHT: Palette = {
     airport: '#4d5868',
     other: '#545263',
   },
+  // At night the lamps glow warm and throw pools of light on the deck; the railings catch it.
+  bridge: { girder: '#4c5567', slab: '#434c5c', road: '#6a7591', median: '#7a829a', walk: '#4f566a', rail: '#9aa5c4', pier: '#465061', cap: '#3f4858', post: '#5b6377', lamp: '#ffe28c', glow: '#b9a56e' },
 }
 
 const match = (key: string, table: Record<string, string>, fallback: string): ExpressionSpecification => ['match', ['get', key], ...Object.entries(table).flat(), fallback] as unknown as ExpressionSpecification
@@ -208,7 +366,21 @@ const metric = (m: number, minPx: number): ExpressionSpecification => [
 ]
 const ROAD_M: Record<RoadClass, number> = { main: 10, street: 6, path: 2.2, runway: 45, taxiway: 18, pier: 4 }
 const byClass = (table: Record<RoadClass, ExpressionSpecification | number>): ExpressionSpecification => ['match', ['get', 'c'], ...Object.entries(table).flat(), 1] as unknown as ExpressionSpecification
-const roadWidth = (extra: number) => byClass(Object.fromEntries(Object.entries(ROAD_M).map(([c, m]) => [c, metric(m + extra, c === 'path' ? 1 : c === 'main' ? 3 : 2)])) as Record<RoadClass, ExpressionSpecification>)
+// MapLibre allows only one zoom curve per expression and it must be on the outside, so the class
+// match goes inside each zoom stop (the same widths as `metric`).
+const roadWidth = (extra: number): ExpressionSpecification => {
+  const at = (stop: 12 | 16 | 22) =>
+    byClass(
+      Object.fromEntries(
+        Object.entries(ROAD_M).map(([c, m]) => {
+          const minPx = c === 'path' ? 1 : c === 'main' ? 3 : 2
+          const w = m + extra
+          return [c, stop === 12 ? Math.max(minPx * 0.5, w / M_PER_PX_16 / 16) : stop === 16 ? Math.max(minPx, w / M_PER_PX_16) : Math.max(minPx, (w / M_PER_PX_16) * 64)]
+        }),
+      ) as Record<RoadClass, number>,
+    )
+  return ['interpolate', ['exponential', 2], ['zoom'], 12, at(12), 16, at(16), 22, at(22)]
+}
 
 const ids = (a: string) => ({
   sea: `world-${a}-sea`,
@@ -225,6 +397,7 @@ const ids = (a: string) => ({
   road: `world-${a}-road`,
   trees: `world-${a}-trees`,
   b: `world-${a}-buildings`,
+  bridge: `world-${a}-bridge`,
 })
 
 // Add an area's layers to the map, just above `beforeId`'s layer group (under the trip line,
@@ -247,6 +420,15 @@ export function addWorld(m: MlMap, area: string, w: WorldBundle, beforeId: strin
   src(`${L.road}-src`, fc(w.roads.map(([c, s]) => line(o, s, { c }))))
   src(`${L.b}-src`, fc(w.b.map(([k, h, base, s]) => poly(o, s, { k, h, base }))))
   src(`${L.trees}-src`, fc(decode(o, w.trees).map((p, i) => canopy(p, i))))
+  const bridgeShapes: Feature<Polygon, Props>[] = []
+  const areaDecks: Deck[] = []
+  for (const b of w.bridge ?? []) {
+    const deck = deckOf(o, b)
+    areaDecks.push(deck)
+    bridgeShapes.push(...bridgeFeatures(o, b, deck))
+  }
+  decks.set(area, areaDecks)
+  src(`${L.bridge}-src`, fc(bridgeShapes))
 
   const hidden = { visibility: 'none' as const }
   const layers: LayerSpecification[] = [
@@ -285,11 +467,25 @@ export function addWorld(m: MlMap, area: string, w: WorldBundle, beforeId: strin
         'fill-extrusion-vertical-gradient': true,
       },
     },
+    {
+      // Raised bridge decks: each part from its base to its top, rising with the buildings.
+      id: L.bridge,
+      type: 'fill-extrusion',
+      source: `${L.bridge}-src`,
+      layout: hidden,
+      paint: {
+        'fill-extrusion-color': match('k', pal.bridge, pal.bridge.slab),
+        'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 13, 0, 15, ['get', 'h']],
+        'fill-extrusion-base': ['interpolate', ['linear'], ['zoom'], 13, 0, 15, ['get', 'base']],
+        'fill-extrusion-opacity': 1,
+        'fill-extrusion-vertical-gradient': true,
+      },
+    },
   ]
   for (const l of layers) m.addLayer(l, beforeId)
 }
 
-const LAYER_KEYS = ['sea', 'reef', 'lagoon', 'land', 'coast', 'sand', 'paved', 'green', 'pitchLine', 'water', 'casing', 'road', 'trees', 'b'] as const
+const LAYER_KEYS = ['sea', 'reef', 'lagoon', 'land', 'coast', 'sand', 'paved', 'green', 'pitchLine', 'water', 'casing', 'road', 'trees', 'b', 'bridge'] as const
 
 export function showWorld(m: MlMap, area: string, on: boolean) {
   const L = ids(area)
@@ -315,6 +511,7 @@ export function setWorldNight(m: MlMap, area: string, night: boolean) {
   m.setPaintProperty(L.road, 'line-color', match('c', pal.road, pal.road.street))
   m.setPaintProperty(L.trees, 'fill-extrusion-color', pal.tree)
   m.setPaintProperty(L.b, 'fill-extrusion-color', match('k', pal.b, pal.b.other))
+  if (m.getLayer(L.bridge)) m.setPaintProperty(L.bridge, 'fill-extrusion-color', match('k', pal.bridge, pal.bridge.slab))
   // A low, warm sun by day; a cool moon at night. Shapes the 3D buildings' sides.
   m.setLight(night ? { anchor: 'map', color: '#c7d2fe', intensity: 0.35, position: [1.2, 200, 50] } : { anchor: 'map', color: '#fff7e8', intensity: 0.45, position: [1.3, 210, 35] })
 }

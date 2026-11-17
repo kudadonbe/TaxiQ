@@ -34,8 +34,12 @@ where each point after the first is the difference from the one before (lng then
    "b": [[kind, height_m, base_m, shape]],  kind: house | flats | shop | mosque | dome | school |
                                                    health | gov | industry | hotel | airport | other
    "trees": [x0, y0, dx, dy, ...],
-   "res": [[kind, x, y, en, dv]]}           kind: mosque | school | hospital | clinic | harbour |
+   "res": [[kind, x, y, en, dv]],           kind: mosque | school | hospital | clinic | harbour |
                                                    jetty | shop | fuel | gov | park | pitch | beach
+   "bridge": [{"en", "dv", "w": deck width m, "line": shape (deck centre, a point every ~10 m),
+               "h": [deck top, dm above the sea, per point], "d": [girder depth dm, per point],
+               "piers": [[kind, base_dm, top_dm, shape]],   kind: pier | cap
+               "lamps": [x0, y0, dx, dy, ...]}]}            lamp posts on the footpaths
 """
 
 import gzip
@@ -423,6 +427,206 @@ class Enc:
         return out
 
 
+# ---- bridges (raised 3D decks) ----
+#
+# The Sinamalé Bridge (China-Maldives Friendship Bridge), Malé to Hulhulé. Facts and sources are in
+# plans/own-map.md ("Sinamalé Bridge"). Its line comes from OpenStreetMap: the two one-way
+# carriageways tagged bridge=viaduct, name:en "Sinamalé Bridge" (about 1.39 km, the part over the
+# sea). The deck centre runs between them. Figures marked "assumed" are ours, not from a source.
+BRIDGES = [{
+    'match': lambda t: t.get('bridge') == 'viaduct' and 'sinamal' in (t.get('name:en') or '').lower(),
+    'en': 'Sinamalé Bridge', 'dv': 'ސިނަމާލެ ބުރިޖު',
+    'width': 20.3,  # m, deck (Wikipedia, local press)
+    'top': 20.0,  # m above the sea at the crest (about 20 m high: Hakai Magazine; airport limit 45 m)
+    'crest': (2, 90),  # level top: 90 m either side of main support 2 (the middle of the 180 m spans; assumed)
+    'curve': 160,  # m, length of each parabolic vertical curve (assumed)
+    # Main bridge: six spans (100 + 2 x 180 + 140 + 100 + 60) m = 760 m, a V-shaped pier rigid
+    # frame (CCCC Highway Consultants' design paper), listed from the Malé end. Its place on the line
+    # is fitted to the main pier footings mapped in OSM (bridge:support=pier), whose gaps are 179,
+    # 138 and 99 m: the 180, 140 and 100 m spans in this order.
+    'main': [100, 180, 180, 140, 100, 60],
+    'v_piers': [1, 2, 3],  # V-shaped piers: the three either side of the 180 m spans (assumed)
+    'approach_span': 32,  # m, approach girder spans (assumed; 26 piers in all per Hameed's book)
+}]
+STEP_M = 10  # deck samples along the line
+
+
+def _metres(lat):
+    return 111_320 * math.cos(math.radians(lat)), 111_320
+
+
+def _resample(pts, step):
+    """Points every `step` metres along a (lng, lat) line, ends included."""
+    kx, ky = _metres(pts[0][1])
+    seg = [math.hypot((b[0] - a[0]) * kx, (b[1] - a[1]) * ky) for a, b in zip(pts, pts[1:])]
+    total = sum(seg)
+    n = max(2, round(total / step) + 1)
+    out, i, run = [], 0, 0.0
+    for j in range(n):
+        d = total * j / (n - 1)
+        while i < len(seg) - 1 and run + seg[i] < d:
+            run += seg[i]
+            i += 1
+        f = 0 if seg[i] == 0 else min(1.0, (d - run) / seg[i])
+        a, b = pts[i], pts[i + 1]
+        out.append((a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f))
+    return out, total
+
+
+def _profile(x, length, top, c0, c1, lv):
+    """Deck top above the sea at `x` metres along: 0 at each abutment, then a sag curve, a steady
+    grade and a crest curve up to the level top between c0 and c1 (parabolic vertical curves, like a
+    road design)."""
+    if c0 <= x <= c1:
+        return top
+    run, u = (c0, x) if x < c0 else (length - c1, length - x)
+    lv = min(lv, run / 3)
+    g = top / (run - lv)  # the steady grade
+    if u <= lv:
+        return g * u * u / (2 * lv)
+    if u <= run - lv:
+        return g * (u - lv / 2)
+    return top - g * (run - u) ** 2 / (2 * lv)
+
+
+def build_bridge(cfg, ways, footings, enc):
+    """One bridge's packed data: the deck centre line with heights, the piers and the lamp posts."""
+    if len(ways) < 1:
+        return None
+    lines = [[(p['lon'], p['lat']) for p in way['geometry']] for way in ways]
+    a = lines[0]
+    if len(lines) > 1:  # the middle of the two carriageways, sampled at the same fractions
+        b = lines[1]
+        if math.dist(a[0], b[0]) > math.dist(a[0], b[-1]):
+            b = b[::-1]
+        ra, la = _resample(a, STEP_M)
+        rb, _ = _resample(b, la / (len(ra) - 1))
+        rb = (rb + [rb[-1]] * len(ra))[:len(ra)]
+        centre = [((p[0] + q[0]) / 2, (p[1] + q[1]) / 2) for p, q in zip(ra, rb)]
+    else:
+        centre = a
+    if centre[0][0] > centre[-1][0]:  # start at the west (Malé) end
+        centre = centre[::-1]
+    centre, length = _resample(centre, STEP_M)
+    kx, ky = _metres(centre[0][1])
+    xs = [length * i / (len(centre) - 1) for i in range(len(centre))]
+
+    def along(pt):
+        """Metres along the centre line to the point nearest `pt`."""
+        best, bx = float('inf'), 0.0
+        for i in range(len(centre) - 1):
+            ax, ay = (centre[i][0] - pt[0]) * kx, (centre[i][1] - pt[1]) * ky
+            bx_, by_ = (centre[i + 1][0] - pt[0]) * kx, (centre[i + 1][1] - pt[1]) * ky
+            dx, dy = bx_ - ax, by_ - ay
+            t = max(0.0, min(1.0, -(ax * dx + ay * dy) / (dx * dx + dy * dy or 1)))
+            d = math.hypot(ax + t * dx, ay + t * dy)
+            if d < best:
+                best, bx = d, xs[i] + t * (xs[i + 1] - xs[i])
+        return bx, best
+
+    # Place the main bridge: fit its pier lines to the footings mapped in OSM, else centre it.
+    rel = [sum(cfg['main'][:i]) for i in range(len(cfg['main']) + 1)]
+    feet = [x for x, d in (along(f) for f in footings) if d < 150]
+    m0 = (length - rel[-1]) / 2
+    if feet:
+        m0 = min((sum(min(abs(f - (m + r)) for r in rel) for f in feet), m) for m in range(0, int(length - rel[-1]) + 1))[1]
+    main_x = [m0 + r for r in rel]
+    print(f'  main bridge from {m0:.0f} m ({len(feet)} OSM footings, off by at most {max((min(abs(f - x) for x in main_x) for f in feet), default=0):.0f} m)')
+    k_crest, half = cfg['crest']
+    c0, c1 = main_x[k_crest] - half, main_x[k_crest] + half
+    prof = lambda x: _profile(x, length, cfg['top'], c0, c1, cfg['curve'])
+    tops = [prof(x) for x in xs]
+
+    def at(x):
+        """Point, unit direction (east, north in metres) and deck top at x metres along."""
+        i = min(len(centre) - 2, max(0, int(x / (length / (len(centre) - 1)))))
+        f = (x - xs[i]) / (xs[i + 1] - xs[i])
+        p, q = centre[i], centre[i + 1]
+        dx, dy = (q[0] - p[0]) * kx, (q[1] - p[1]) * ky
+        d = math.hypot(dx, dy) or 1
+        return (p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f), (dx / d, dy / d), prof(x)
+
+    def box(x, along, across, off=0.0):
+        """A rectangle centred `off` metres to the left of the line at x, `along` by `across` metres."""
+        (px, py), (ux, uy), _ = at(x)
+        nx, ny = -uy, ux
+        pts = []
+        for sa, sc in ((-1, -1), (1, -1), (1, 1), (-1, 1), (-1, -1)):
+            ex = ux * sa * along / 2 + nx * (off + sc * across / 2)
+            ey = uy * sa * along / 2 + ny * (off + sc * across / 2)
+            pts.append((px + ex / kx, py + ey / ky))
+        return enc.shape(pts)
+
+    # Supports along the line: approach piers, then the main bridge's pier lines.
+    n_w = max(0, round(main_x[0] / cfg['approach_span']) - 1)
+    n_e = max(0, round((length - main_x[-1]) / cfg['approach_span']) - 1)
+    west = [m0 * (i + 1) / (n_w + 1) for i in range(n_w)]
+    east = [main_x[-1] + (length - main_x[-1]) * (i + 1) / (n_e + 1) for i in range(n_e)]
+
+    def depth(x):
+        """Girder depth: 2.4 m on the approaches; on the main bridge 3 m at mid-span, deepening to
+        5 m over the V-piers (the concrete part of the hybrid girder; assumed sizes)."""
+        if x < main_x[0] or x > main_x[-1]:
+            return 2.4
+        d = 3.0
+        for i in cfg['v_piers']:
+            k = abs(x - main_x[i])
+            if k < 65:
+                d = max(d, 3.0 + 2.0 * (1 - k / 65) ** 2)
+        return d
+
+    deps = [depth(x) for x in xs]
+    piers = []  # [kind, base_dm, top_dm, shape]
+    dm = lambda v: round(v * 10)
+
+    def column_pier(x, main):
+        (_, _, top) = at(x)
+        under = top - depth(x)
+        if under < 1.0:
+            return
+        cap = 1.6 if main else 1.2
+        piers.append(['cap', dm(under - cap), dm(under), box(x, 3.2 if main else 2.4, 15.5)])
+        for off in (-4.8, 4.8):
+            piers.append(['pier', 0, dm(under - cap), box(x, 2.6 if main else 2.0, 2.6 if main else 2.0, off)])
+
+    for x in west + east:
+        column_pier(x, False)
+    for i, x in enumerate(main_x):
+        if i in cfg['v_piers']:
+            # A V-shaped pier: a stem from the sea, then two legs leaning out along the bridge to
+            # hold the girder about 22 m each side (drawn as stacked slabs, since extrusions stand
+            # straight).
+            stem = 8.0  # above the footing (OSM maps it as a 7 m block)
+            piers.append(['pier', 0, dm(stem), box(x, 6.0, 12.0)])
+            steps = 12
+            for side in (-1, 1):
+                for j in range(steps):
+                    f0, f1 = j / steps, (j + 1) / steps
+                    off = side * (3.0 + 19.0 * (f0 + f1) / 2)
+                    _, _, top = at(x + side * 22.0)
+                    leg_top = top - depth(x + side * 22.0)
+                    z0, z1 = stem + (leg_top - stem) * f0, stem + (leg_top - stem) * f1 + 0.3
+                    piers.append(['pier', dm(z0), dm(min(z1, leg_top)), box(x + off, 3.4, 11.0)])
+        else:
+            column_pier(x, True)
+
+    # Lamp posts on both footpaths, every 36 m, staggered (assumed spacing).
+    lamps = []
+    x = 18.0
+    side = 1
+    while x < length - 10:
+        (px, py), (ux, uy), top = at(x)
+        if top > 0.5:
+            off = side * (cfg['width'] / 2 - 0.9)
+            lamps.append((px + (-uy * off) / kx, py + (ux * off) / ky))
+        x += 18.0
+        side = -side
+
+    print(f'Bridge {cfg["en"]}: {length:.0f} m, {len(centre)} deck samples, {len(piers)} pier parts, {len(lamps)} lamp posts, top {max(tops):.1f} m')
+    return {'en': cfg['en'], 'dv': cfg['dv'], 'w': cfg['width'], 'line': enc.shape(centre),
+            'h': [dm(t) for t in tops], 'd': [dm(d) for d in deps], 'piers': piers, 'lamps': enc.shape(lamps)}
+
+
 def main():
     args = [a for a in sys.argv[1:]]
     cache = None
@@ -447,6 +651,15 @@ def main():
         print(f'Council lots: {len(lots)}; HDC buildings: {len(hdc_b)}; HDC lots: {len(hdc_l)}')
 
     enc = Enc(w, s)
+    bridge_ids = set()
+    bridges = []
+    for cfg in BRIDGES:
+        ways = [el for el in osm if el['type'] == 'way' and cfg['match'](el.get('tags', {})) and el.get('geometry')]
+        bridge_ids |= {el['id'] for el in ways}
+        footings = [centroid(way_ring(el)) for el in osm if el['type'] == 'way' and el.get('tags', {}).get('bridge:support') == 'pier' and ring_ok(way_ring(el))]
+        b = build_bridge(cfg, ways, footings, enc)
+        if b:
+            bridges.append(b)
     T_LAND, T_SHAPE, T_ROAD = 0.000004, 0.0000035, 0.000003  # about 0.45, 0.4 and 0.35 m
     out = {'v': 1, 'o': [w, s], 'box': list(box), 'land': [], 'reef': [], 'water': [], 'sand': [], 'paved': [],
            'green': [], 'roads': [], 'b': [], 'trees': [], 'res': []}
@@ -497,7 +710,9 @@ def main():
         if t.get('aeroway') == 'apron' or lu in ('harbour', 'port'):
             add_poly('paved', el, T_LAND)
         hw = t.get('highway')
-        if el['type'] == 'way' and (hw or t.get('aeroway') in ('runway', 'taxiway') or t.get('man_made') in ('pier', 'breakwater', 'groyne', 'quay')):
+        if el['type'] == 'way' and el['id'] in bridge_ids:
+            pass  # drawn as a raised 3D deck (out['bridge']), not a flat line over the sea
+        elif el['type'] == 'way' and (hw or t.get('aeroway') in ('runway', 'taxiway') or t.get('man_made') in ('pier', 'breakwater', 'groyne', 'quay')):
             line = way_ring(el)
             if t.get('area') == 'yes' and ring_ok(line):
                 add_poly('paved', el, T_ROAD)
@@ -675,6 +890,7 @@ def main():
     print('Roads:', dict(Counter(r[0] for r in out['roads'])), '; green:', dict(Counter(g[0] for g in out['green'])))
     print(f'Reef {len(out["reef"])}, water {len(out["water"])}, sand {len(out["sand"])}, paved {len(out["paved"])}')
 
+    out['bridge'] = bridges
     dest = Path(__file__).resolve().parent.parent / 'src' / 'data' / f'world-{area_id}.json'
     text = json.dumps(out, ensure_ascii=False, separators=(',', ':'))
     dest.write_text(text + '\n', encoding='utf-8')
