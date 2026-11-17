@@ -43,9 +43,10 @@ service cloud.firestore {
     function myTaxi() {
       return role() in ['driver', 'dev'] ? get(roleDoc()).data.get('taxiId', '') : '';
     }
-    // May offer private hire: the Private driver role, a developer, or a center driver also allowed it.
+    // May offer private hire: the Private driver role, a developer, or a center driver or center admin
+    // also allowed it (a private driver who became a taxi center's admin keeps private hire).
     function canPrivate() {
-      return role() in ['private', 'dev'] || (role() == 'driver' && get(roleDoc()).data.get('private', false) == true);
+      return role() in ['private', 'dev'] || (role() in ['driver', 'admin'] && get(roleDoc()).data.get('private', false) == true);
     }
     function str(v, max) {
       return v is string && v.size() <= max;

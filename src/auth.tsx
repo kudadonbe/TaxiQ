@@ -108,7 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const t = snap.exists() ? snap.data().taxiId : null
         setRole(r === 'admin' || r === 'operator' || r === 'driver' || r === 'private' || r === 'dev' ? r : null)
         setTaxiId((r === 'driver' || r === 'dev') && typeof t === 'string' ? t : null)
-        setAlsoPrivate(r === 'driver' && snap.data()?.private === true)
+        setAlsoPrivate((r === 'driver' || r === 'admin') && snap.data()?.private === true)
         const c = snap.exists() ? snap.data().centerId : null
         setCenterId(typeof c === 'string' && c ? c : null)
         setCorpusFlag(snap.exists() && snap.data().corpus === true)
@@ -144,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     name: user?.name ?? null,
     role: user ? role : null,
     taxiId: user ? taxiId : null,
-    canPrivate: !!user && (role === 'private' || role === 'dev' || (role === 'driver' && alsoPrivate)),
+    canPrivate: !!user && (role === 'private' || role === 'dev' || ((role === 'driver' || role === 'admin') && alsoPrivate)),
     centerId: centerId ?? 'main',
     isPlatform: !!user && (role === 'dev' || (role === 'admin' && !centerId)),
     corpusEditor: !!user && (corpusFlag || role === 'dev' || (role === 'admin' && !centerId)),

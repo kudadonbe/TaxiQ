@@ -219,6 +219,8 @@ export async function decideCenter(fb: Fb, a: CenterApp, status: 'approved' | 'r
     b.set(fb.doc(fb.db, 'centers', a.id), { name: a.name, nameDv: a.nameDv, at: a.at, updatedBy: email.toLowerCase(), updatedAt: fb.serverTimestamp() }, { merge: true })
     const entry: Record<string, unknown> = { role: 'admin', centerId: a.id, addedBy: email.toLowerCase(), addedAt: fb.serverTimestamp() }
     if (r.corpus === true) entry.corpus = true
+    // A private driver keeps private hire as the center's admin.
+    if (was === 'private' || r.private === true) entry.private = true
     b.set(roleRef, entry)
     b.set(pub, publicShape(a, fb))
   } else {
