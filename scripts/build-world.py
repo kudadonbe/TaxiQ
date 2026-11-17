@@ -1120,6 +1120,15 @@ def main():
     dest.write_text(text + '\n', encoding='utf-8')
     print(f'-> {dest}: {len(text) / 1024:.0f} KB, {len(gzip.compress(text.encode())) / 1024:.0f} KB gzipped')
 
+    # Our own houses (src/data/houses-<area>.json) replace the plain house blocks, and are tiled for
+    # the 3D houses (scripts/build-house-tiles.py, plans/house-designs.md).
+    if (ROOT / 'src' / 'data' / f'houses-{area_id}.json').exists():
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('build_house_tiles', Path(__file__).resolve().parent / 'build-house-tiles.py')
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        mod.apply(area_id)
+
 
 if __name__ == '__main__':
     main()

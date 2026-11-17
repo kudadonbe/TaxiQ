@@ -8,6 +8,7 @@
 
 import type { Feature, FeatureCollection, LineString, Point, Polygon } from 'geojson'
 import type { ExpressionSpecification, GeoJSONSourceSpecification, LayerSpecification, Map as MlMap } from 'maplibre-gl'
+import { HOUSES3D_MIN_ZOOM } from './core/houseTiles'
 
 // The packed shape of a bundle: whole millionths of a degree from `o`, each shape delta-encoded.
 type Shape = number[]
@@ -22,7 +23,11 @@ export interface WorldBundle {
   paved: Shape[]
   green: [GreenKind, Shape][]
   roads: [RoadClass, Shape][]
-  b: [BuildingKind, number, number, Shape][]
+  // Buildings. Kinds h0..h9 are our own houses (src/data/houses-<area>.json, scripts/build-house-tiles.py)
+  // as simple blocks in their wall colour (`hp`): drawn below zoom 17 and in 2D; from zoom 17 in 3D
+  // the 3D houses (src/houses3d/) take over.
+  b: [BuildingKind | HomeKind, number, number, Shape][]
+  hp?: string[]
   trees: Shape
   res: [ResourceKind, number, number, string, string][]
   bridge?: BridgeData[]
@@ -41,6 +46,9 @@ export interface BridgeData {
 }
 type GreenKind = 'park' | 'wood' | 'grass' | 'pitch'
 type RoadClass = 'main' | 'street' | 'path' | 'runway' | 'taxiway' | 'pier'
+type HomeKind = `h${number}`
+const HOME_KINDS = Array.from({ length: 10 }, (_, i) => `h${i}`)
+const isHome: ExpressionSpecification = ['in', ['get', 'k'], ['literal', HOME_KINDS]]
 type BuildingKind = 'house' | 'flats' | 'shop' | 'mosque' | 'dome' | 'school' | 'health' | 'gov' | 'industry' | 'hotel' | 'airport' | 'other'
 export const RESOURCE_KINDS = ['mosque', 'school', 'hospital', 'clinic', 'harbour', 'jetty', 'shop', 'fuel', 'gov', 'park', 'pitch', 'beach'] as const
 export type ResourceKind = (typeof RESOURCE_KINDS)[number]
@@ -423,7 +431,23 @@ const ids = (a: string) => ({
   trees: `world-${a}-trees`,
   b: `world-${a}-buildings`,
   bridge: `world-${a}-bridge`,
+  homes: `world-${a}-homes`,
 })
+
+// Our houses' wall colours by area (the bundle's `hp`), and the same at night: mixed toward the
+// night houses' colour.
+const homePalettes = new Map<string, string[]>()
+const NIGHT_HOME = [0x4d, 0x4a, 0x5e]
+function nightOf(hex: string): string {
+  const n = parseInt(hex.slice(1), 16)
+  const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v, i) => Math.round(v * 0.3 + NIGHT_HOME[i]! * 0.7))
+  return `#${c.map((v) => v.toString(16).padStart(2, '0')).join('')}`
+}
+function homeColour(area: string, night: boolean, fallback: string): ExpressionSpecification | string {
+  const hp = (homePalettes.get(area) ?? []).filter((c) => /^#[0-9a-f]{6}$/i.test(c))
+  if (!hp.length) return fallback
+  return ['match', ['get', 'k'], ...hp.flatMap((c, i) => [`h${i}`, night ? nightOf(c) : c]), fallback] as unknown as ExpressionSpecification
+}
 
 // Add an area's layers to the map, just above `beforeId`'s layer group (under the trip line,
 // highlights and other overlays). Starts hidden; showWorld turns it on.
@@ -431,6 +455,7 @@ export function addWorld(m: MlMap, area: string, w: WorldBundle, beforeId: strin
   const L = ids(area)
   if (m.getLayer(L.sea)) return
   const o = w.o
+  homePalettes.set(area, w.hp ?? [])
   const pal = night ? NIGHT : DAY
   const src = (id: string, data: FeatureCollection, attribution?: string) => {
     const spec: GeoJSONSourceSpecification = { type: 'geojson', data, ...(attribution ? { attribution } : {}) }
@@ -482,12 +507,30 @@ export function addWorld(m: MlMap, area: string, w: WorldBundle, beforeId: strin
       id: L.b,
       type: 'fill-extrusion',
       source: `${L.b}-src`,
+      filter: ['!', isHome],
       layout: hidden,
       paint: {
         'fill-extrusion-color': match('k', pal.b, pal.b.other),
         // Buildings rise from the ground as you zoom in (flat when far out), like a game camera.
         'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 13, 0, 15, ['get', 'h']],
         'fill-extrusion-base': ['interpolate', ['linear'], ['zoom'], 13, 0, 15, ['get', 'base']],
+        'fill-extrusion-opacity': 0.96,
+        'fill-extrusion-vertical-gradient': true,
+      },
+    },
+    {
+      // Our own houses as simple blocks in their wall colour: zoomed out, and in 2D (setWorld3d);
+      // from zoom 17 in 3D the 3D houses (src/houses3d/) draw them instead, never both.
+      id: L.homes,
+      type: 'fill-extrusion',
+      source: `${L.b}-src`,
+      filter: isHome,
+      maxzoom: HOUSES3D_MIN_ZOOM,
+      layout: hidden,
+      paint: {
+        'fill-extrusion-color': homeColour(area, night, pal.b.house),
+        'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 13, 0, 15, ['get', 'h']],
+        'fill-extrusion-base': 0,
         'fill-extrusion-opacity': 0.96,
         'fill-extrusion-vertical-gradient': true,
       },
@@ -510,7 +553,7 @@ export function addWorld(m: MlMap, area: string, w: WorldBundle, beforeId: strin
   for (const l of layers) m.addLayer(l, beforeId)
 }
 
-const LAYER_KEYS = ['sea', 'reef', 'lagoon', 'land', 'coast', 'sand', 'paved', 'green', 'pitchLine', 'water', 'casing', 'road', 'trees', 'b', 'bridge'] as const
+const LAYER_KEYS = ['sea', 'reef', 'lagoon', 'land', 'coast', 'sand', 'paved', 'green', 'pitchLine', 'water', 'casing', 'road', 'trees', 'b', 'homes', 'bridge'] as const
 
 export function showWorld(m: MlMap, area: string, on: boolean) {
   const L = ids(area)
@@ -536,6 +579,7 @@ export function setWorldNight(m: MlMap, area: string, night: boolean) {
   m.setPaintProperty(L.road, 'line-color', match('c', pal.road, pal.road.street))
   m.setPaintProperty(L.trees, 'fill-extrusion-color', pal.tree)
   m.setPaintProperty(L.b, 'fill-extrusion-color', match('k', pal.b, pal.b.other))
+  if (m.getLayer(L.homes)) m.setPaintProperty(L.homes, 'fill-extrusion-color', homeColour(area, night, pal.b.house))
   if (m.getLayer(L.bridge)) m.setPaintProperty(L.bridge, 'fill-extrusion-color', match('k', pal.bridge, pal.bridge.slab))
   // A low, warm sun by day; a cool moon at night. Shapes the 3D buildings' sides.
   m.setLight(night ? { anchor: 'map', color: '#c7d2fe', intensity: 0.35, position: [1.2, 200, 50] } : { anchor: 'map', color: '#fff7e8', intensity: 0.45, position: [1.3, 210, 35] })
@@ -549,6 +593,11 @@ export function setWorld3d(m: MlMap, area: string, on: boolean) {
   const rise = (key: 'h' | 'base'): ExpressionSpecification => ['interpolate', ['linear'], ['zoom'], 13, 0, 15, ['get', key]]
   m.setPaintProperty(L.b, 'fill-extrusion-height', on ? rise('h') : 0)
   m.setPaintProperty(L.b, 'fill-extrusion-base', on ? rise('base') : 0)
+  if (m.getLayer(L.homes)) {
+    m.setPaintProperty(L.homes, 'fill-extrusion-height', on ? rise('h') : 0)
+    // In 2D the simple blocks show at every zoom (flat footprints); in 3D the 3D houses take over.
+    m.setLayerZoomRange(L.homes, 0, on ? HOUSES3D_MIN_ZOOM : 24)
+  }
   m.setPaintProperty(L.trees, 'fill-extrusion-height', on ? ['get', 'h'] : 0)
   m.setPaintProperty(L.trees, 'fill-extrusion-base', on ? 1.2 : 0)
 }

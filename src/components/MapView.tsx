@@ -48,6 +48,7 @@ import { FIG3D_MIN_ZOOM, FigureRegistry, lookColours, riderForLook, workLookFor,
 import type { VehicleShape } from '../core/vehicleModels'
 import type { Rider } from '../vehicles'
 import type { FiguresLayer } from '../figures3d/layer'
+import { useHouses3d } from '../houses3d/useHouses3d'
 
 type Status = 'idle' | 'answered' | 'suspended'
 
@@ -901,6 +902,8 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   // map's container has .fig3d, which hides the flat vehicle and person drawings (their labels,
   // taps and menus stay).
   const fig3d = view3d && figZoom && !!worldData
+  // Our own houses in 3D (src/houses3d/): same switch, from zoom 17.
+  useHouses3d(ready ? map.current : null, ready, view3d && !!worldData, night)
   useEffect(() => {
     const m = map.current
     if (!m || !ready) return
