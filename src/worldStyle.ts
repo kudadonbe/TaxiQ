@@ -138,12 +138,19 @@ interface Deck {
   h: number[] // top, m
   half: number
   kx: number
+  box: [number, number, number, number] // w, s, e, n (padded by the half width), a cheap first check
 }
 function deckOf(o: [number, number], b: BridgeData): Deck {
   const pts = decode(o, b.line)
   const kx = 111_320 * Math.cos((pts[0]![1] * Math.PI) / 180)
   const xy = pts.map(([x, y]) => [(x - pts[0]![0]) * kx, (y - pts[0]![1]) * 111_320] as [number, number])
-  return { pts, xy, h: b.h.map((v) => v / 10), half: b.w / 2, kx }
+  const half = b.w / 2
+  const padX = (half + 2) / kx
+  const padY = (half + 2) / 111_320
+  const lngs = pts.map((p) => p[0])
+  const lats = pts.map((p) => p[1])
+  const box: Deck['box'] = [Math.min(...lngs) - padX, Math.min(...lats) - padY, Math.max(...lngs) + padX, Math.max(...lats) + padY]
+  return { pts, xy, h: b.h.map((v) => v / 10), half, kx, box }
 }
 
 // The deck's top at a point (m above the sea), and how far it is from the centre line, or null when
@@ -177,10 +184,12 @@ const decks = new Map<string, Deck[]>() // by area
 // vehicles drawn in 3D, so they ride on the deck instead of the sea. Knows the bridges of every area
 // added to the map so far (addWorld).
 export function bridgeHeightAt(lat: number, lng: number): number {
-  for (const d of [...decks.values()].flat()) {
-    const hit = onDeck(d, lng, lat)
-    if (hit) return hit.h
-  }
+  for (const list of decks.values())
+    for (const d of list) {
+      if (lng < d.box[0] || lng > d.box[2] || lat < d.box[1] || lat > d.box[3]) continue
+      const hit = onDeck(d, lng, lat)
+      if (hit) return hit.h
+    }
   return 0
 }
 

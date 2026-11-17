@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BEAT_MS, beatLevel, WAKE_METRES, type BeatLevel } from './core/heartbeat'
 import { guessMoving, isLive, lookColourOf, lookOf, SHARE_MAX_MS, speedBetween, STALE_MS, UPDATE_M, UPDATE_MS, type Moving, type PersonLook } from './core/presence'
+import { loadMyLook, saveMyLook } from './myLook'
 
 // Citizens showing themselves on the map (opt-in; MDS Tier 1 personal data, see SECURITY.md).
 // presence/{uid}: with their name, readable by drivers and centers. presencePublic/{uid}: no name,
@@ -55,17 +56,6 @@ export function usePeople(fb: Fb | null, signedIn: boolean, staff: boolean, myUi
   return live ? docs.filter((d) => d.id !== myUid && isLive(d, now)).map(({ id, at, mode, name, level, look, lookColour }) => ({ id, at, mode, name, level, look, lookColour })) : []
 }
 
-// The look chosen for the 3D map, remembered on this device only.
-const LOOK_KEY = 'taxiq.look'
-function loadLook(): { look: PersonLook; colour: number } {
-  try {
-    const x = JSON.parse(localStorage.getItem(LOOK_KEY) ?? '{}') as { look?: unknown; colour?: unknown }
-    return { look: lookOf(x.look), colour: lookColourOf(x.colour) }
-  } catch {
-    return { look: 'plain', colour: 0 }
-  }
-}
-
 // This person's own sharing: start (with who may see them), change, stop. Stops by itself after an
 // hour. While sharing, the way they move is guessed from their speed unless they pick it.
 // `blocked`: the person is driving their own vehicle (they're on the map as the vehicle), so
@@ -75,7 +65,7 @@ export function useShareMe(fb: Fb | null, uid: string | null, name: string, inRi
   const [mode, setMode] = useState<Moving>('walk')
   const [picked, setPicked] = useState<Moving | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [look, setLookState] = useState(loadLook)
+  const [look, setLookState] = useState(loadMyLook)
   const latest = useRef({ name, inRide, picked, look })
   useEffect(() => {
     latest.current = { name, inRide, picked, look }
@@ -178,11 +168,7 @@ export function useShareMe(fb: Fb | null, uid: string | null, name: string, inRi
     setLook: (next: { look: PersonLook; colour: number }) => {
       setLookState(next)
       latest.current = { ...latest.current, look: next }
-      try {
-        localStorage.setItem(LOOK_KEY, JSON.stringify(next))
-      } catch {
-        // private window: kept for this visit only
-      }
+      saveMyLook(next)
       resend.current?.()
     },
     stop,

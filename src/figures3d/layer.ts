@@ -8,6 +8,7 @@
 
 import { AmbientLight, BufferGeometry, Camera, Color, DirectionalLight, InstancedBufferAttribute, InstancedMesh, Matrix4, MeshBasicMaterial, MeshLambertMaterial, Scene, WebGLRenderer, type Material } from 'three'
 import type { CustomLayerInterface, CustomRenderMethodInput, Map as MlMap } from 'maplibre-gl'
+import { bridgeHeightAt } from '../worldStyle'
 import { FIG3D_MAX, legSwing, mercator, modelKey, pickFigures, type Figure, type FigureRegistry } from '../core/figures'
 import { armGeometry, lampGeometry, legGeometry, lampSpots, LIMBS, personParts, shadowGeometry, TEMPLATES, vehicleGeometry, type PersonParts } from './models'
 
@@ -26,6 +27,8 @@ const PERSON_H = 1.7
 const MIN_VEHICLE_PX = 28
 const MIN_PERSON_PX = 24
 const MAX_BOOST = 6
+// How see-through a resting figure is (the flat drawings fade the same way).
+const GHOST = 0.45
 
 // Instances of one geometry, rebuilt every frame from scratch.
 class Pool {
@@ -111,10 +114,14 @@ export function createFiguresLayer(registry: FigureRegistry, id = 'figures-3d'):
   const solid = new MeshLambertMaterial({ vertexColors: true })
   const lit = new MeshBasicMaterial({ toneMapped: false })
   const shade = new MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22, depthWrite: false })
+  // Resting vehicles and people (no move for a while, like the faded flat drawings): see-through.
+  const ghost = new MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: GHOST })
   const models = new Map<string, Pool>()
   const people = new Map<string, PersonParts>()
   let legs: Pool
   let arms: Pool
+  let ghostLegs: Pool
+  let ghostArms: Pool
   let lamps: Pool
   let shadows: Pool
   let enabled = false
@@ -145,9 +152,10 @@ export function createFiguresLayer(registry: FigureRegistry, id = 'figures-3d'):
   }
   setLight()
 
-  const pool = (key: string, make: () => BufferGeometry) => {
-    let p = models.get(key)
-    if (!p) models.set(key, (p = new Pool(scene, make(), solid, false)))
+  const pool = (key: string, make: () => BufferGeometry, faded: boolean) => {
+    const k = faded ? `${key}:rest` : key
+    let p = models.get(k)
+    if (!p) models.set(k, (p = new Pool(scene, make(), faded ? ghost : solid, false)))
     p.used = frame
     return p
   }
@@ -160,8 +168,8 @@ export function createFiguresLayer(registry: FigureRegistry, id = 'figures-3d'):
   const L = new Matrix4()
   const local = new Matrix4()
 
-  const place = (out: Matrix4, x: number, y: number, headingDeg: number, sx: number, sy: number, sz: number, leanDeg = 0) => {
-    out.makeTranslation(x, y, 0)
+  const place = (out: Matrix4, x: number, y: number, z: number, headingDeg: number, sx: number, sy: number, sz: number, leanDeg = 0) => {
+    out.makeTranslation(x, y, z)
     out.multiply(R.makeRotationZ((-headingDeg * Math.PI) / 180))
     if (leanDeg) out.multiply(R.makeRotationY((leanDeg * Math.PI) / 180))
     return out.multiply(S.makeScale(sx, sy, sz))
@@ -172,16 +180,16 @@ export function createFiguresLayer(registry: FigureRegistry, id = 'figures-3d'):
   const AMBER = new Color('#fbbf24')
   const HEADLIGHT = new Color('#fffbe0')
 
-  const drawVehicle = (f: Figure, x: number, y: number, boost: number, now: number) => {
+  const drawVehicle = (f: Figure, x: number, y: number, z: number, boost: number, now: number) => {
     if (f.model.kind !== 'vehicle') return
     const { shape, taxi, rider } = f.model
     const t = TEMPLATES[shape]
     const body = hex(f.colour, '#475569')
-    const p = pool(`${modelKey(f.model)}:${body}`, () => vehicleGeometry(shape, body, taxi, rider))
+    const p = pool(`${modelKey(f.model)}:${body}`, () => vehicleGeometry(shape, body, taxi, rider), f.faded)
     const sx = (f.width / t.width) * boost
     const sy = (f.length / t.length) * boost
     const sz = (sx + sy) / 2
-    place(M, x, y, f.heading, sx, sy, sz, t.two ? f.lean : 0)
+    place(M, x, y, z, f.heading, sx, sy, sz, t.two ? f.lean : 0)
     p.push(M)
     shadows.push(L.copy(M).multiply(S.makeScale(t.width * 1.15, t.length * 1.05, 1)))
     // Lamps: brake lights at the back (dim tail lights at night), indicators blinking at the front
@@ -198,24 +206,25 @@ export function createFiguresLayer(registry: FigureRegistry, id = 'figures-3d'):
     }
   }
 
-  const drawPerson = (f: Figure, x: number, y: number, boost: number, now: number) => {
+  const drawPerson = (f: Figure, x: number, y: number, z: number, boost: number, now: number) => {
     if (f.model.kind !== 'person') return
     const key = modelKey(f.model)
     let parts = people.get(key)
     const { look, colour } = f.model
     if (!parts) people.set(key, (parts = personParts(look, colour)))
     const pp = parts
-    const p = pool(key, () => pp.body.clone())
+    const p = pool(key, () => pp.body.clone(), f.faded)
     const k = (pp.height / PERSON_H) * boost
-    place(M, x, y, f.heading, k, k, k)
+    place(M, x, y, z, f.heading, k, k, k)
     p.push(M)
     shadows.push(L.copy(M).multiply(S.makeScale(0.55, 0.45, 1)))
     const a = legSwing(f.speed, now, f.moving) * pp.swing
     const legC = col(pp.legs)
     const armC = col(pp.arms)
+    const [legPool, armPool] = f.faded ? [ghostLegs, ghostArms] : [legs, arms]
     for (const side of [-1, 1]) {
-      legs.push(L.copy(M).multiply(T.makeTranslation(side * LIMBS.hipX, 0, LIMBS.hipZ)).multiply(R.makeRotationX(side * a)), legC)
-      arms.push(L.copy(M).multiply(T.makeTranslation(side * LIMBS.shoulderX, 0, LIMBS.shoulderZ)).multiply(R.makeRotationX(-side * a * 0.8)), armC)
+      legPool.push(L.copy(M).multiply(T.makeTranslation(side * LIMBS.hipX, 0, LIMBS.hipZ)).multiply(R.makeRotationX(side * a)), legC)
+      armPool.push(L.copy(M).multiply(T.makeTranslation(side * LIMBS.shoulderX, 0, LIMBS.shoulderZ)).multiply(R.makeRotationX(-side * a * 0.8)), armC)
     }
   }
 
@@ -229,6 +238,8 @@ export function createFiguresLayer(registry: FigureRegistry, id = 'figures-3d'):
       renderer.autoClear = false
       legs = new Pool(scene, legGeometry(), solid, true)
       arms = new Pool(scene, armGeometry(), solid, true)
+      ghostLegs = new Pool(scene, legGeometry(), ghost, true)
+      ghostArms = new Pool(scene, armGeometry(), ghost, true)
       lamps = new Pool(scene, lampGeometry(), lit, true)
       shadows = new Pool(scene, shadowGeometry(), shade, false)
     },
@@ -237,8 +248,9 @@ export function createFiguresLayer(registry: FigureRegistry, id = 'figures-3d'):
       models.clear()
       for (const p of people.values()) p.body.dispose()
       people.clear()
-      for (const p of [legs, arms, lamps, shadows]) p?.dispose()
+      for (const p of [legs, arms, ghostLegs, ghostArms, lamps, shadows]) p?.dispose()
       solid.dispose()
+      ghost.dispose()
       lit.dispose()
       shade.dispose()
       clearTimeout(blinkTimer)
@@ -265,23 +277,25 @@ export function createFiguresLayer(registry: FigureRegistry, id = 'figures-3d'):
       const figs = pickFigures(registry.items.values(), registry.shows, [b.getSouth() - padY, b.getWest() - padX, b.getNorth() + padY, b.getEast() + padX], [centre.lat, centre.lng], FIG3D_MAX)
 
       for (const p of models.values()) p.begin()
-      for (const p of [legs, arms, lamps, shadows]) p.begin()
+      for (const p of [legs, arms, ghostLegs, ghostArms, lamps, shadows]) p.begin()
       let blinking = false
       for (const f of figs) {
         const [fx, fy] = mercator(f.at[0], f.at[1])
         const x = (fx - ox) / unit
         const y = -(fy - oy) / unit
+        // On a raised bridge deck (the Sinamalé Bridge), ride on the deck, not the sea under it.
+        const z = bridgeHeightAt(f.at[0], f.at[1])
         if (f.model.kind === 'vehicle') {
           const boost = Math.min(MAX_BOOST, Math.max(1, (MIN_VEHICLE_PX * mpp) / Math.max(1.5, f.length)))
-          drawVehicle(f, x, y, boost, now)
+          drawVehicle(f, x, y, z, boost, now)
           if (f.signal) blinking = true
         } else {
           const boost = Math.min(MAX_BOOST, Math.max(1, (MIN_PERSON_PX * mpp) / PERSON_H))
-          drawPerson(f, x, y, boost, now)
+          drawPerson(f, x, y, z, boost, now)
         }
       }
       for (const p of models.values()) p.end()
-      for (const p of [legs, arms, lamps, shadows]) p.end()
+      for (const p of [legs, arms, ghostLegs, ghostArms, lamps, shadows]) p.end()
       // Drop models not drawn for a while (a bus route colour that left the view).
       if (frame % 600 === 0) {
         for (const [k, p] of models) {

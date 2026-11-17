@@ -125,7 +125,7 @@ service cloud.firestore {
         && d.modeAuto is bool
         && d.get('level', 'active') in ['active', 'rest', 'nap', 'sleep']
         // How they look on the 3D map (PERSON_LOOKS in src/core/presence.ts) and a colour 0-5.
-        && d.get('look', 'plain') in ['plain', 'man-casual', 'man-tshirt', 'man-formal', 'woman-hijab', 'woman-libaas', 'woman-sport', 'young']
+        && d.get('look', 'plain') in ['plain', 'man-casual', 'man-tshirt', 'man-formal', 'woman-hijab', 'woman-libaas', 'woman-sport', 'young', 'child']
         && d.get('lookColour', 0) is int && d.get('lookColour', 0) >= 0 && d.get('lookColour', 0) <= 5
         && d.updatedAt == request.time
         && d.expiresAt is timestamp && d.expiresAt <= request.time + duration.value(61, 'm');

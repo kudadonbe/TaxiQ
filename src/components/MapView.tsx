@@ -16,8 +16,11 @@ import { route as findRoute, type RoadGraph, type TravelMode } from '../core/rou
 import { driveTrip, endTrip, MAP_CENTER, ROAD_GRAPH, subscribePositions, TRIP_SPEED, tripProgress, type Positions } from '../positions'
 import { graphFromLines } from '../core/osmRoads'
 import { getArea, lastSpot, moveToLocation, offerRoads, useArea } from '../roadArea'
-import type { Taxi } from '../types'
+import { seatsOf, type Taxi } from '../types'
 import type { Person } from '../usePresence'
+import { guessMoving } from '../core/presence'
+import { loadMyLook, onMyLook } from '../myLook'
+import { LookPreview } from './LookPreview'
 import type { PublicVehicle } from '../vehicles'
 import { useLiveBuses, type Bus, type BusRoute } from '../buses'
 import { MOVING_ICONS, RESOURCE_ICONS, SERVICE_ICONS, VEHICLE_ICONS } from './iconStyles'
@@ -28,7 +31,7 @@ import { CenterCard } from './CenterCard'
 import { nearestHelp, SERVICE_KINDS, todayHours, type ServiceKind } from '../core/services'
 import { bearing, coastGlide, driveGlide, glideAt, glideBraking, glideSpeed, glideState, MAX_GLIDE_MS, MIN_GLIDE_MS, nextGlide, OVERRUN, standGlide, turnAhead, type Glide } from '../core/glide'
 import { CATCH_UP_GIVE_UP_S, catchUpSpeed, driveProfile, indicator, leanDegrees, needsCatchUp, roadLimitKmh, type DriveType } from '../core/drive'
-import { DEFAULT_DIMS, dimsFor } from '../core/vehicleModels'
+import { DEFAULT_DIMS, dimsFor, modelById, modelLabel } from '../core/vehicleModels'
 import { SHAPE_PX, shapeSvg } from './vehicleShapes'
 import { axleCentre, axleHeading, followFront, placeAxles, WHEELBASE_M, type Axles } from '../core/kinematics'
 import { isTwoWay, LANE_OFFSET_M, toTheLeft, twoWayBetween } from '../core/lanes'
@@ -40,7 +43,7 @@ import { loadPlots, plotPopup, plotsGeoJSON, type Plot } from './plotLayer'
 import { MapChips } from './MapChips'
 import { chipShows, loadChip, saveChip, type MapChipId, type MarkerKind } from '../mapChips'
 import { useSwipe } from './useSwipe'
-import { addWorld, loadWorld, setWorld3d, setWorldNight, showWorld, worldAreaAt, worldResources, type Resource, type WorldBundle } from '../worldStyle'
+import { addWorld, bridgeHeightAt, loadWorld, setWorld3d, setWorldNight, showWorld, worldAreaAt, worldResources, type Resource, type WorldBundle } from '../worldStyle'
 import { FIG3D_MIN_ZOOM, FigureRegistry, lookColours, riderForLook, workLookFor, type Figure } from '../core/figures'
 import type { VehicleShape } from '../core/vehicleModels'
 import type { Rider } from '../vehicles'
@@ -228,6 +231,15 @@ function realPx(m: MlMap, lengthM: number) {
   const metresPerPx = (40_075_016.686 * Math.cos((lat * Math.PI) / 180)) / (512 * 2 ** m.getZoom())
   return lengthM / metresPerPx
 }
+// On a raised bridge deck (TaxiQ's own map), a marker's drawing and label are lifted on screen by
+// the deck's height as seen at the map's tilt, so they sit on the deck (with the 3D figures riding
+// on it), not on the sea under it. Only touches the marker when the lift changes.
+function liftOnDeck(m: MlMap, marker: Marker, at: readonly [number, number]) {
+  const h = bridgeHeightAt(at[0], at[1])
+  const px = h ? realPx(m, h) * Math.sin((m.getPitch() * Math.PI) / 180) : 0
+  const now = marker.getOffset().y
+  if (Math.abs(now + px) > 0.5) marker.setOffset([0, -px])
+}
 const realScale = (px: number, drawnPx: number) => Math.max(BADGE_PX, Math.min(px, 160)) / drawnPx
 
 // The zoomed-out badge: a round disc in the vehicle's colour with its type's icon (rendered by
@@ -311,7 +323,26 @@ interface VehicleEntry {
   drawnPx: number
   lane: number // metres left of the road's middle now (eased between two-way and one-way roads)
   // For the 3D figures layer: the shape, rider, body colour and real width.
-  fig: { shape: VehicleShape; rider: Rider; colour: string; width: number }
+  fig: { shape: VehicleShape; rider: Rider; colour: string; width: number; taxi?: boolean }
+  // Private vehicles: the owner's colour, and the center taxi it is linked to (its number), if any.
+  // A linked vehicle is drawn in taxi colours except under the Private chip (paintVehicle).
+  own?: string
+  taxiNo?: string | null
+  painted?: string
+}
+
+// A private vehicle's colours: its own, or (linked to a center taxi, outside the Private chip) the
+// taxi colours, so taxis always look like taxis. Only touches the elements when it changes.
+function paintVehicle(e: VehicleEntry, asTaxi: boolean) {
+  const colour = asTaxi ? TAXI_COLOURS.idle : (e.own ?? '#475569')
+  const key = `${colour}|${asTaxi}`
+  if (e.painted === key) return
+  e.painted = key
+  e.fig.colour = colour
+  e.fig.taxi = asTaxi
+  e.shape.style.color = colour
+  e.badge.el.style.color = colour
+  e.badge.el.style.setProperty('--badge-ink', asTaxi ? '#0f172a' : inkFor(colour))
 }
 
 // The speed limit (km/h) of the road a vehicle is snapped to.
@@ -450,12 +481,61 @@ const RIDDEN: Partial<Record<string, { shape: VehicleShape; length: number; widt
   ebike: { shape: 'ebike', length: 1.75, width: 0.65 },
   motorbike: { shape: 'scooter', length: 1.85, width: 0.7 },
 }
+// A person drawn on the map (someone sharing, or the viewer's own avatar).
+interface PersonEntry {
+  marker: Marker
+  root: Root
+  label: HTMLSpanElement
+  dir: HTMLSpanElement
+  mode: string
+  glide: Glide | null
+  lastReport: number | null
+  atKey: string
+  look: Person['look']
+  lookColour: number
+  faded: boolean
+}
+// The viewer's own avatar's key among the people (never a uid).
+const ME = '~me'
+// A faint accuracy ring around the viewer only when the fix is worse than this (m).
+const ACCURACY_RING_M = 25
+
+// A new position for a person: glide on to it, or (a jump) fade across.
+function movePerson(m: MlMap, entry: PersonEntry, at: [number, number]) {
+  const now = performance.now()
+  const shown = entry.glide ? glideAt(entry.glide, now) : at
+  const gapS = entry.lastReport === null ? 0 : (now - entry.lastReport) / 1000
+  if (entry.glide && personJumped(metresBetween(shown, at), gapS)) {
+    crossFade(m, entry.marker, shown)
+    entry.glide = standGlide(at, entry.glide.heading, now)
+  } else entry.glide = nextGlide(entry.glide, at, now, entry.lastReport)
+  entry.lastReport = now
+  entry.atKey = at.join(',')
+}
+
+// A person's flat marker: a disc with an icon (React-rendered), a direction arrow and a name label.
+function personElement(className: string) {
+  const el = document.createElement('div')
+  el.className = className
+  const disc = document.createElement('span')
+  disc.className = 'person-marker-disc'
+  const icon = document.createElement('span')
+  icon.className = 'person-marker-icon'
+  const dir = document.createElement('span')
+  dir.className = 'person-marker-dir'
+  disc.append(icon, dir)
+  const label = document.createElement('span')
+  label.className = 'person-marker-label'
+  el.append(disc, label)
+  return { el, icon, dir, label }
+}
+
 function personFigure(id: string, mode: string, look: Person['look'], colour: number, at: [number, number], heading: number, moving: boolean, speed: number, faded: boolean): Figure | null {
   if (mode === 'taxi') return null
   const ride = RIDDEN[mode]
   const base = { id, cat: 'person' as const, at, heading, moving, speed, braking: false, signal: null, lean: 0, faded }
   if (ride) return { ...base, model: { kind: 'vehicle', shape: ride.shape, rider: riderForLook(look) }, colour: lookColours(colour)[0], length: ride.length, width: ride.width }
-  return { ...base, model: { kind: 'person', look, colour }, colour: '', length: look === 'young' ? 1.45 : 1.7, width: 0.45 }
+  return { ...base, model: { kind: 'person', look, colour }, colour: '', length: look === 'young' ? 1.45 : look === 'child' ? 1.2 : 1.7, width: 0.45 }
 }
 
 // A vehicle drawing with two indicator lights at its front corners (they blink via .sig-left /
@@ -542,9 +622,9 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   useEffect(() => {
     followRefFn.current = follow
   })
-  const labels = useRef({ hire: '', follow: '', unfollow: '', suspended: '' })
+  const labels = useRef({ hire: '', follow: '', unfollow: '', suspended: '', seats: (n: number) => `${n}` })
   useEffect(() => {
-    labels.current = { hire: t.menuHire, follow: t.menuFollow, unfollow: t.menuUnfollow, suspended: t.menuSuspended }
+    labels.current = { hire: t.menuHire, follow: t.menuFollow, unfollow: t.menuUnfollow, suspended: t.menuSuspended, seats: t.vehSeats }
   }, [t])
   useEffect(() => {
     pickRef.current = onPickTaxi
@@ -664,10 +744,12 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       },
     })
     m.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true, showZoom: true }), 'top-right')
-    // The viewer's own location: a blue dot that follows every GPS change (at least every 10 s), and
-    // the map follows it until they drag it; the button re-centres and follows again.
-    const geo = new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 }, trackUserLocation: true })
+    // The viewer's own location: every GPS change (at least every 10 s) moves their avatar (drawn by
+    // us, meFix below; MapLibre's blue dot is off), and the map follows it until they drag it; the
+    // button re-centres and follows again.
+    const geo = new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 }, trackUserLocation: true, showUserLocation: false })
     m.addControl(geo, 'top-right')
+    geo.on('geolocate', (e) => meFix.current(e.coords))
     if (followRef.current) {
       geo.on('geolocate', (e) => {
         setLocationOff(false)
@@ -1053,6 +1135,13 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         title.className = 'taxi-menu-title'
         title.textContent = `${taxi.taxiNo} · ${driverName(taxi.driver)}`
         menu.append(title)
+        // Seats, and the plate only where this viewer already has it (staff: the taxi records;
+        // the public projection has no plate).
+        const about = document.createElement('p')
+        about.className = 'taxi-menu-note'
+        about.style.color = '#334155'
+        about.textContent = `${labels.current.seats(seatsOf(taxi))}${taxi.taxiReg ? ` · ${taxi.taxiReg}` : ''}`
+        menu.append(about)
         const button = (text: string, kind: 'primary' | 'plain', onClick: () => void) => {
           const b = document.createElement('button')
           b.type = 'button'
@@ -1114,6 +1203,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
           continue
         }
         entry.marker.setLngLat([p.lng, p.lat])
+        liftOnDeck(m, entry.marker, [p.lat, p.lng])
         drawVehicle(entry.parts.root, entry.parts.car, entry.parts.badge, px, TAXI_DRAWN_PX, p.heading - bearing)
         setSignal(entry.parts.car, p.signal)
         entry.parts.car.classList.toggle('braking', !!p.braking)
@@ -1328,7 +1418,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   // and anyone moving a small arrow the way they're going. Staff also see the name. Built with DOM
   // text; the icon is rendered by React into the marker. Never moved onto roads: a long jump
   // cross-fades into place.
-  const peopleMarkers = useRef(new Map<string, { marker: Marker; root: Root; label: HTMLSpanElement; dir: HTMLSpanElement; mode: string; glide: Glide | null; lastReport: number | null; atKey: string; look: Person['look']; lookColour: number; faded: boolean }>())
+  const peopleMarkers = useRef(new Map<string, PersonEntry>())
   const peopleKey = JSON.stringify(people)
   useEffect(() => {
     const m = map.current
@@ -1339,34 +1429,12 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       seen.add(p.id)
       let entry = peopleMarkers.current.get(p.id)
       if (!entry) {
-        const el = document.createElement('div')
-        el.className = 'person-marker'
-        const disc = document.createElement('span')
-        disc.className = 'person-marker-disc'
-        const icon = document.createElement('span')
-        icon.className = 'person-marker-icon'
-        const dir = document.createElement('span')
-        dir.className = 'person-marker-dir'
-        disc.append(icon, dir)
-        const label = document.createElement('span')
-        label.className = 'person-marker-label'
-        el.append(disc, label)
+        const { el, icon, dir, label } = personElement('person-marker')
         const root = createRoot(icon)
         entry = { marker: new maplibregl.Marker({ element: el }).setLngLat(ll(p.at)).addTo(m), root, label, dir, mode: '', glide: null, lastReport: null, atKey: '', look: 'plain', lookColour: 0, faded: false }
         peopleMarkers.current.set(p.id, entry)
       }
-      const pKey = p.at.join(',')
-      if (pKey !== entry.atKey) {
-        const now = performance.now()
-        const shown = entry.glide ? glideAt(entry.glide, now) : p.at
-        const gapS = entry.lastReport === null ? 0 : (now - entry.lastReport) / 1000
-        if (entry.glide && personJumped(metresBetween(shown, p.at), gapS)) {
-          crossFade(m, entry.marker, shown)
-          entry.glide = standGlide(p.at, entry.glide.heading, now)
-        } else entry.glide = nextGlide(entry.glide, p.at, now, entry.lastReport)
-        entry.lastReport = now
-        entry.atKey = pKey
-      }
+      if (p.at.join(',') !== entry.atKey) movePerson(m, entry, p.at)
       entry.label.textContent = p.name ?? ''
       entry.look = p.look
       entry.lookColour = p.lookColour
@@ -1384,7 +1452,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       }
     }
     for (const [id, entry] of peopleMarkers.current) {
-      if (seen.has(id)) continue
+      if (seen.has(id) || id === ME) continue
       figures.current.delete(`p:${id}`)
       entry.marker.remove()
       const root = entry.root
@@ -1393,17 +1461,95 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     }
   }, [peopleKey, ready])
 
+  // The viewer's own avatar, where MapLibre's blue dot was (the GeolocateControl still finds them,
+  // follows and re-centres; its dot is off): their chosen look (Show me on the map, kept on this
+  // device; Simple until chosen), a flat disc with a heading arrow, or a 3D figure that walks when
+  // they move (the people's glide and figures, under the key ME). A faint ring when the fix is
+  // rough. Only this viewer sees it; nothing is sent anywhere.
+  const meHidden = driving || (!!myUid && vehicles.some((v) => v.ownerUid === myUid))
+  const meFix = useRef<(c: GeolocationCoordinates) => void>(() => {})
+  const inRideRef = useRef(false)
+  useEffect(() => {
+    inRideRef.current = !!activeTrip || (!!privateRide && privateRide.status === 'onboard')
+  })
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready) return
+    let look = loadMyLook()
+    let entry: PersonEntry | null = null
+    const people = peopleMarkers.current
+    const figs = figures.current
+    const ring = document.createElement('span')
+    ring.className = 'me-accuracy'
+    let accuracy = 0
+    const speeds: number[] = []
+    let last: { at: [number, number]; t: number } | null = null
+    const sizeRing = () => {
+      const show = accuracy > ACCURACY_RING_M
+      ring.style.display = show ? '' : 'none'
+      if (show) ring.style.width = ring.style.height = `${Math.min(1200, realPx(m, accuracy * 2)).toFixed(0)}px`
+    }
+    const paint = () => entry?.root.render(<LookPreview look={look.look} colour={look.colour} size={24} />)
+    meFix.current = (c) => {
+      const at: [number, number] = [c.latitude, c.longitude]
+      const t = Date.now()
+      if (!entry) {
+        const { el, icon, dir, label } = personElement('person-marker me')
+        el.append(ring)
+        label.style.display = 'none'
+        entry = { marker: new maplibregl.Marker({ element: el }).setLngLat(ll(at)).addTo(m), root: createRoot(icon), label, dir, mode: 'walk', glide: null, lastReport: null, atKey: '', look: look.look, lookColour: look.colour, faded: false }
+        people.set(ME, entry)
+        paint()
+      }
+      // How they move (walking, cycling, in a taxi...) from their speed, like Show me on the map.
+      const v = c.speed !== null && Number.isFinite(c.speed) ? c.speed : last && t > last.t ? metresBetween(last.at, at) / ((t - last.t) / 1000) : 0
+      speeds.push(v)
+      if (speeds.length > 5) speeds.shift()
+      last = { at, t }
+      const mode = guessMoving(speeds, inRideRef.current)
+      if (mode !== entry.mode) {
+        entry.mode = mode
+        const el = entry.marker.getElement()
+        el.classList.toggle('in-taxi', mode === 'taxi')
+      }
+      if (at.join(',') !== entry.atKey) movePerson(m, entry, at)
+      accuracy = c.accuracy
+      sizeRing()
+    }
+    const off = onMyLook((l) => {
+      look = l
+      if (entry) {
+        entry.look = l.look
+        entry.lookColour = l.colour
+      }
+      paint()
+    })
+    m.on('zoom', sizeRing)
+    return () => {
+      off()
+      m.off('zoom', sizeRing)
+      meFix.current = () => {}
+      if (entry) {
+        entry.marker.remove()
+        const root = entry.root
+        setTimeout(() => root.unmount())
+      }
+      figs.delete(`p:${ME}`)
+      people.delete(ME)
+    }
+  }, [ready])
+
   // Private vehicles for hire: a top-down vehicle (car, van, pickup, motorbike, e-bike) in its own
   // colour, with an upright price label. Between the owner's reports it glides at a steady speed and
   // turns to face its way (src/core/glide.ts), so it drives rather than jumps. Tap for its type,
   // owner's first name and price. Text goes in with textContent only.
   const vehicleMarkers = useRef(new Map<string, VehicleEntry>())
   const vehiclesKey = JSON.stringify(vehicles)
-  const vLabels = useRef({ type: (x: string) => x, price: (b: number, k: number) => `${b} ${k}`, hire: '', follow: '', unfollow: '', level: (l: string) => l })
+  const vLabels = useRef({ type: (x: string) => x, price: (b: number, k: number) => `${b} ${k}`, hire: '', follow: '', unfollow: '', level: (l: string) => l, seats: (n: number) => `${n}`, linked: (n: string) => n })
   const hireVehicleRef = useRef(onHireVehicle)
   const myUidRef = useRef(myUid)
   useEffect(() => {
-    vLabels.current = { type: (x) => t.vehTypes[x as keyof typeof t.vehTypes] ?? x, price: t.vehPrice, hire: t.privHire, follow: t.menuFollow, unfollow: t.menuUnfollow, level: (l) => t.beatLevels[l as keyof typeof t.beatLevels] ?? l }
+    vLabels.current = { type: (x) => t.vehTypes[x as keyof typeof t.vehTypes] ?? x, price: t.vehPrice, hire: t.privHire, follow: t.menuFollow, unfollow: t.menuUnfollow, level: (l) => t.beatLevels[l as keyof typeof t.beatLevels] ?? l, seats: t.vehSeats, linked: t.menuLinkedTaxi }
     hireVehicleRef.current = onHireVehicle
     myUidRef.current = myUid
   })
@@ -1426,7 +1572,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         price.className = 'vehicle-marker-price'
         el.append(shape, badge.el, price)
         const marker = new maplibregl.Marker({ element: el, rotationAlignment: 'viewport', pitchAlignment: 'viewport' }).setLngLat(ll(v.at)).addTo(m)
-        entry = { marker, shape, badge, price, type: '', glide: null, lastReport: null, atKey: '', shownHeading: v.heading || 0, onRoad: false, lean: 0, tracker: newTracker(), s: null, speed: 0, coasted: 0, snap: null, axles: null, lane: 0, len: DEFAULT_DIMS.car.length, wb: DEFAULT_DIMS.car.wheelbase, drawnPx: SHAPE_PX.hatchback.h, fig: { shape: 'hatchback', rider: 'none', colour: '#475569', width: DEFAULT_DIMS.car.width } }
+        entry = { marker, shape, badge, price, type: '', glide: null, lastReport: null, atKey: '', shownHeading: v.heading || 0, onRoad: false, lean: 0, tracker: newTracker(), s: null, speed: 0, coasted: 0, snap: null, axles: null, lane: 0, len: DEFAULT_DIMS.car.length, wb: DEFAULT_DIMS.car.wheelbase, drawnPx: SHAPE_PX.hatchback.h, fig: { shape: 'hatchback', rider: 'none', colour: '#475569', width: DEFAULT_DIMS.car.width }, own: '#475569', taxiNo: null }
         vehicleMarkers.current.set(v.id, entry)
       }
       const e = entry
@@ -1463,11 +1609,10 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         })
         e.lastReport = now
       }
+      // Its colours are painted by the chip effect below (paintVehicle): its own, or taxi colours.
       const colour = vehicleColour(v.colour)
-      e.fig.colour = colour
-      e.shape.style.color = colour
-      e.badge.el.style.color = colour
-      e.badge.el.style.setProperty('--badge-ink', inkFor(colour))
+      if (e.own !== colour) e.painted = ''
+      e.own = colour
       setBadgeIcon(e.badge, v.type, VEHICLE_ICONS[v.type])
       e.price.textContent = vLabels.current.price(v.priceBase, v.pricePerKm)
       const vel = e.marker.getElement()
@@ -1479,6 +1624,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         e.type = look
         const dims = dimsFor(v.type, v.modelId)
         e.fig = { shape: dims.shape, rider: v.rider, colour, width: dims.width }
+        e.painted = ''
         e.len = dims.length
         e.wb = dims.wheelbase
         e.drawnPx = SHAPE_PX[dims.shape].h
@@ -1493,11 +1639,22 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         const title = document.createElement('p')
         title.className = 'taxi-menu-title'
         title.textContent = `${vLabels.current.type(v.type)}${v.firstName ? ` · ${v.firstName}` : ''}`
-        const price = document.createElement('p')
-        price.className = 'taxi-menu-note'
-        price.style.color = '#065f46'
-        price.textContent = `${v.colour ? `${v.colour} · ` : ''}${vLabels.current.price(v.priceBase, v.pricePerKm)}`
-        box.append(title, price)
+        box.append(title)
+        // What it is: the model (when the owner picked one), colour and seats, and the center taxi
+        // it also runs as. No plate: the public projection has none (the owner's choice, later).
+        const line = (text: string, colour?: string) => {
+          if (!text) return
+          const p = document.createElement('p')
+          p.className = 'taxi-menu-note'
+          p.style.color = colour ?? '#334155'
+          p.textContent = text
+          box.append(p)
+        }
+        const model = modelById(v.modelId)
+        line(model ? modelLabel(model) : '')
+        line([v.colour, v.seats > 0 ? vLabels.current.seats(v.seats) : ''].filter(Boolean).join(' · '))
+        if (e.taxiNo) line(vLabels.current.linked(e.taxiNo))
+        line(vLabels.current.price(v.priceBase, v.pricePerKm), '#065f46')
         const button = (text: string, kind: 'primary' | 'plain', onClick: () => void) => {
           const b = document.createElement('button')
           b.type = 'button'
@@ -1717,6 +1874,10 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   // the marker effects above on every render, and only touches an element when it changes.
   const rideTaxi = activeTrip?.taxiId
   const rideVehicle = privateRide?.vehicleId
+  // Private vehicles linked as center taxis (taxis.vehicleId, public in publicTaxis): vehicle id ->
+  // the taxi's center number.
+  const linkedKey = taxis.map((x) => (x.vehicleId ? `${x.vehicleId}=${x.taxiNo}` : '')).filter(Boolean).join(',')
+  const linkedTaxis = useMemo(() => new Map(linkedKey ? linkedKey.split(',').map((x) => x.split('=') as [string, string]) : []), [linkedKey])
   const shownKey = useRef('')
   useEffect(() => {
     const vis = (el: HTMLElement, on: boolean) => {
@@ -1724,14 +1885,27 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       if (el.style.display !== d) el.style.display = d
     }
     for (const [id, e] of markers.current) vis(e.parts.root, chipShows(chip, 'taxi') || id === rideTaxi)
-    for (const [id, e] of vehicleMarkers.current) vis(e.marker.getElement(), id.startsWith('b:') ? chipShows(chip, 'bus') : chipShows(chip, 'private') || id === rideVehicle)
-    for (const e of peopleMarkers.current.values()) vis(e.marker.getElement(), chipShows(chip, 'person'))
+    for (const [id, e] of vehicleMarkers.current) {
+      if (id.startsWith('b:')) {
+        vis(e.marker.getElement(), chipShows(chip, 'bus'))
+        continue
+      }
+      // A private vehicle linked as a center taxi is a taxi too: it shows under Taxi, in taxi
+      // colours, and in its own colour under Private.
+      e.taxiNo = linkedTaxis.get(id) ?? null
+      paintVehicle(e, !!e.taxiNo && chip !== 'private')
+      vis(e.marker.getElement(), chipShows(chip, 'private') || (!!e.taxiNo && chipShows(chip, 'taxi')) || id === rideVehicle)
+    }
+    // The viewer's own avatar shows under every chip, except while they're on the map as their
+    // own vehicle (then the vehicle is them).
+    for (const [id, e] of peopleMarkers.current) vis(e.marker.getElement(), id === ME ? !meHidden : chipShows(chip, 'person'))
     for (const e of serviceMarkers.current.values()) vis(e.marker.getElement(), chipShows(chip, 'service'))
     // The same for the 3D figures (the viewer's own ride always shows).
-    const key = `${chip}|${rideTaxi}|${rideVehicle}`
+    const key = `${chip}|${rideTaxi}|${rideVehicle}|${meHidden}`
     if (shownKey.current !== key) {
       shownKey.current = key
-      figures.current.shows = (f) => chipShows(chip, f.cat) || f.id === `t:${rideTaxi}` || f.id === `v:${rideVehicle}`
+      // (A linked vehicle's figure takes the taxi category outside the Private chip.)
+      figures.current.shows = (f) => (f.id === `p:${ME}` ? !meHidden : chipShows(chip, f.cat) || f.id === `t:${rideTaxi}` || f.id === `v:${rideVehicle}`)
       figures.current.touch()
       figLayer.current?.kick()
     }
@@ -1741,7 +1915,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     popup.current?.remove()
     const f = following.current
     if (!f) return
-    const kind: MarkerKind = f.startsWith('b:') ? 'bus' : f.startsWith('v:') ? 'private' : 'taxi'
+    const kind: MarkerKind = f.startsWith('b:') ? 'bus' : f.startsWith('v:') && !linkedTaxis.has(f.slice(2)) ? 'private' : 'taxi'
     if (!chipShows(chip, kind) && f !== rideTaxi && f !== `v:${rideVehicle}`) followRefFn.current(null)
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [chip])
@@ -1830,6 +2004,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         }
         const at = axleCentre(e.axles)
         e.marker.setLngLat(ll(at))
+        liftOnDeck(m, e.marker, at)
         const before = e.shownHeading
         e.shownHeading = axleHeading(e.axles)
         const speed = moving ? glideSpeed(e.glide, now) : 0
@@ -1850,8 +2025,8 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         const bus = id.startsWith('b:')
         figures.current.set({
           id: bus ? id : `v:${id}`,
-          cat: bus ? 'bus' : 'private',
-          model: { kind: 'vehicle', shape: e.fig.shape, rider: e.fig.rider },
+          cat: bus ? 'bus' : e.fig.taxi ? 'taxi' : 'private',
+          model: { kind: 'vehicle', shape: e.fig.shape, rider: e.fig.rider, taxi: e.fig.taxi },
           colour: e.fig.colour,
           at,
           heading: e.shownHeading,
@@ -1871,11 +2046,13 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         if (!e.glide) continue
         const at = glideAt(e.glide, now)
         e.marker.setLngLat(ll(at))
+        liftOnDeck(m, e.marker, at)
         const moving = e.glide.path.length >= 2 && now < e.glide.start + e.glide.dur
         const el = e.marker.getElement()
         if (el.classList.contains('moving') !== moving) el.classList.toggle('moving', moving)
         const heading = moving ? glideState(e.glide, now).heading : e.glide.heading
-        if (moving) e.dir.style.transform = `rotate(${heading - bearingNow}deg)`
+        if (moving || id === ME) e.dir.style.transform = `rotate(${heading - bearingNow}deg)`
+        if (moving && id === ME && !el.classList.contains('has-dir')) el.classList.add('has-dir')
         const fig = personFigure(`p:${id}`, e.mode, e.look, e.lookColour, at, heading, moving, moving ? glideSpeed(e.glide, now) : 0, e.faded)
         if (fig) figures.current.set(fig)
         else figures.current.delete(`p:${id}`)

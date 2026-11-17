@@ -498,6 +498,7 @@ await expect('but not a made-up type', 'b', [write('publicVehicles/v1', pubV({ t
 // How a person looks on the 3D map (src/core/presence.ts PERSON_LOOKS)
 await expect('a person shares with a chosen look and colour', 'b', [write('presence/b', pres({ look: 'woman-hijab', lookColour: 3 })), write('presencePublic/b', pub({ look: 'woman-hijab', lookColour: 3 }))], true)
 await expect('sharing without a look is still allowed', 'b', [write('presence/b', pres()), write('presencePublic/b', pub())], true)
+await expect('the child look is allowed on both copies', 'b', [write('presence/b', pres({ look: 'child', lookColour: 1 })), write('presencePublic/b', pub({ look: 'child', lookColour: 1 }))], true)
 await expect('a made-up look is refused', 'b', [write('presence/b', pres({ look: 'alien' }))], false)
 await expect('a made-up look is refused on the public copy too', 'b', [write('presencePublic/b', pub({ look: '<b>x</b>' }))], false)
 await expect('a colour outside 0-5 is refused', 'b', [write('presence/b', pres({ look: 'young', lookColour: 6 }))], false)

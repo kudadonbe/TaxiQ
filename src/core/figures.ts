@@ -40,7 +40,7 @@ export const lookColours = (i: number): [string, string] => LOOK_COLOURS[i] ?? L
 export function riderForLook(look: FigureLook): 'none' | 'man' | 'woman' | 'young' {
   if (look.startsWith('woman')) return 'woman'
   if (look.startsWith('man') || look === 'taxi-driver' || look === 'mechanic' || look === 'delivery') return 'man'
-  if (look === 'young') return 'young'
+  if (look === 'young' || look === 'child') return 'young'
   return 'none'
 }
 
