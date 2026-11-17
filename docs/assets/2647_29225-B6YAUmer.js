@@ -1,0 +1,1 @@
+var e=[[`h`,`Rtl Ferry Terminal`,`އާރުޓީއެލް  ފެރީ  ޓާމިނަލް`,`rtlferiterminal`,`436`,``,292,2469],[`h`,`Bodu Muhammadhu Kaleyfaanu Bandharu`,`ބޮޑު މުހަމްމަދު ކަލޭފާނު ބަންދަރު`,`bodumuhamadukalefanubandaru`,``,``,1698,1783],[`p`,`Plot 417`,``,``,``,``,475,2457]];export{e as default};

@@ -1,0 +1,1 @@
+var e=[[`p`,`Hulhumalé lot 21565`,``,`hulhumalelot21565`,`21565`,``,1938,180],[`p`,`Hulhumalé lot 20048`,``,`hulhumalelot20048`,`20048`,``,498,61]];export{e as default};

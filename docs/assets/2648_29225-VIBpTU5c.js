@@ -1,0 +1,1 @@
+var e=[[`h`,`Mwsc Water Line Here`,`މްވްސްކް ވަޓެރް ލިނެ ހެރެ`,`mvscvaterlinehere`,``,``,281,2381],[`h`,`Rahmathi Fannu`,`ރަށްމަތިފަންނު`,`rahmatifanu`,`392`,``,1754,1955],[`p`,`Plot 392`,``,``,``,``,173,1946],[`p`,`Plot 458`,``,``,``,``,57,2338]];export{e as default};

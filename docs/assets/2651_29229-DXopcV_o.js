@@ -1,0 +1,1 @@
+var e=[[`h`,`Theeni`,`ތީނި`,`tini`,`257`,``,185,74]];export{e as default};

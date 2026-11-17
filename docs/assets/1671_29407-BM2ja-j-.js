@@ -1,0 +1,1 @@
+var e=[[`l`,`Temporary Arabiyya School`,``,`+henveiru`,`0`,``,228,30]];export{e as default};

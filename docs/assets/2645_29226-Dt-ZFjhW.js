@@ -1,0 +1,1 @@
+var e=[[`l`,`Kulhudhuffushi Industrial Zone`,`ކުޅުދުއްފުށި އިންޑުސްޓްރިއަލް ޒޮނެ`,`kuludufusindustrialzone`,``,``,1683,2368]];export{e as default};

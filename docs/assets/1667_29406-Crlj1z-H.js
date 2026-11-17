@@ -1,0 +1,1 @@
+var e=[[`l`,`Usfasgandu`,`އުސްފަސްގަނޑު`,`+henveiru`,`343`,``,2362,209]];export{e as default};

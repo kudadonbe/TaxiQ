@@ -1,0 +1,1 @@
+var e=[[`h`,`Iskuru Bari`,`އިސްކުރު ބަރި`,`iskurubari`,``,``,265,2144],[`l`,`Hut`,`ހުޓް`,`hut`,``,``,227,2029],[`h`,`Kulhudhuffushi Port Limited`,`ކުޅުދުއްފުށި ޕޮރްޓް ލިމިޓެޑް`,`kuludufusiportlimited`,``,``,315,606],[`p`,`Plot 433`,``,``,``,``,1626,66],[`p`,`Plot 406`,``,``,``,``,28,2357]];export{e as default};

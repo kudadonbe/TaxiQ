@@ -1,0 +1,1 @@
+var e=[[`h`,`Kulhudhuffushi Airport`,`ކުޅުދުއްފުށި އައިރްޕޮރްޓް`,`kuludufusiairport`,``,``,1118,179]];export{e as default};

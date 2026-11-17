@@ -1,0 +1,1 @@
+var e=[[`l`,`Male North Harbour`,`މާލޭ ނޯތު ހާބަރ`,`+maafannu`,`250`,``,150,2164]];export{e as default};
