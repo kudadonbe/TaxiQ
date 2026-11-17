@@ -191,6 +191,16 @@ Left for phase 2:
   bundle's roads aren't fed to `offerRoads`).
 - Hanimaadhoo and the rest of the atoll are outside the box.
 
+## Our own houses in 3D (built, branch `houses-3d`)
+
+The plain house blocks in Kulhudhuffushi and the Malé area (Malé, Villimalé lots and Hulhumalé
+blocks the house dataset covers) are replaced by our own houses (`src/data/houses-<area>.json`):
+simple blocks in their wall colour below zoom 17 and in 2D, and from zoom 17 in 3D real 3D houses
+with walls, floor bands, flat, gable and hipped roofs, and close up (18.5+) boundary walls, gates,
+yards, balconies, doors, windows (lit at night) and water tanks. Drawn by a three.js custom layer
+(`src/houses3d/`) from ~280 m tiles loaded only near the view. Details, sizes and triangle counts:
+`plans/house-designs.md`. Credits unchanged (council chart, Malé City Council, HDC, OSM).
+
 ## Phase 2b: more of the capital region
 
 - Thilafushi, Gulhifalhu and the islands near Malé.

@@ -50,6 +50,7 @@ import { FIG3D_MIN_ZOOM, FigureRegistry, lookColours, riderForLook, workLookFor,
 import type { VehicleShape } from '../core/vehicleModels'
 import type { Rider } from '../vehicles'
 import type { FiguresLayer } from '../figures3d/layer'
+import { useHouses3d } from '../houses3d/useHouses3d'
 
 type Status = 'idle' | 'answered' | 'suspended'
 
@@ -865,8 +866,10 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         addWorld(m, worldArea, w, before, night)
         setWorldNight(m, worldArea, night)
         setWorld3d(m, worldArea, view3dRef.current)
+        // Hide the area we leave, in 2D too: its layers (and its sea, a full-screen background)
+        // would otherwise stay on top of the new area's and cover it.
+        if (shownWorld.current && shownWorld.current !== worldArea) showWorld(m, shownWorld.current, false)
         if (shownWorld.current !== worldArea && view3dRef.current) {
-          if (shownWorld.current) showWorld(m, shownWorld.current, false)
           // Coming in: tilt to the game view once the map has settled (a fly to the viewer would
           // cancel it); geolocateSource keeps "follow me" on.
           let tries = 3
@@ -922,6 +925,8 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   // map's container has .fig3d, which hides the flat vehicle and person drawings (their labels,
   // taps and menus stay).
   const fig3d = view3d && figZoom && !!worldData
+  // Our own houses in 3D (src/houses3d/): same switch, from zoom 17.
+  useHouses3d(ready ? map.current : null, ready, view3d && !!worldData, night)
   useEffect(() => {
     const m = map.current
     if (!m || !ready) return
