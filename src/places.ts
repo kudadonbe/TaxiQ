@@ -76,18 +76,13 @@ export const loadPlaces = (): Promise<Place[]> => loadArea(HOME)
 // How far around a point to load names: covers a phone's view at label zoom (18) around it.
 export const AROUND_DEG = 0.003
 
-// A search box has focus: the caller wants names for search, so load the whole area.
-// (MapView's search box loads places on focus through loadPlacesAround.)
-const searching = () => typeof document !== 'undefined' && document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'search'
-
 // Places for naming and labels around a point: the tiles within AROUND_DEG of it, in its area.
 // The list returned keeps growing as other tiles of that area load (a pin, a search), so labels kept
-// from it fill in. In Kulhudhuffushi or outside any area: all of Kulhudhuffushi, as before. Called
-// while a search box has focus: the whole area (as loadPlacesForSearch).
+// from it fill in. In Kulhudhuffushi or outside any area: all of Kulhudhuffushi, as before.
 export function loadPlacesAround(at: readonly [number, number] | undefined, r = AROUND_DEG): Promise<Place[]> {
   const a = regionAt(at)
   if (!a || !at) return loadPlaces()
-  if (a.whole || searching()) return loadArea(a)
+  if (a.whole) return loadArea(a)
   return Promise.all(filesAround(at, r).map((name) => loadFile(a, name))).then(() => a.list)
 }
 

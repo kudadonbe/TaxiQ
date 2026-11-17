@@ -11,7 +11,7 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 maplibregl.setWorkerUrl(workerUrl)
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useI18n } from '../i18n'
-import { loadPlaces, loadPlacesAround, metresBetween, nearestPlace, nearestRoad, regionAt, searchPlaces, type Place } from '../places'
+import { loadPlaces, loadPlacesAround, loadPlacesForSearch, metresBetween, nearestPlace, nearestRoad, regionAt, searchPlaces, type Place } from '../places'
 import { route as findRoute, type RoadGraph, type TravelMode } from '../core/route'
 import { driveTrip, endTrip, MAP_CENTER, ROAD_GRAPH, subscribePositions, TRIP_SPEED, tripProgress, type Positions } from '../positions'
 import { graphFromLines } from '../core/osmRoads'
@@ -1081,10 +1081,22 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       setPlaces(list)
       render()
     })
+    // Places load in small tiles: as the map moves (zoomed in), load the tiles in view too.
+    const more = () => {
+      if (m.getZoom() < 18) return
+      const c = m.getCenter()
+      void loadPlacesAround([c.lat, c.lng]).then((list) => {
+        if (cancelled || list.length === all.length) return
+        all = list
+        render()
+      })
+    }
     m.on('moveend', render)
+    m.on('moveend', more)
     return () => {
       cancelled = true
       m.off('moveend', render)
+      m.off('moveend', more)
       shown.forEach((x) => x.remove())
     }
     // placesHere depends on the area: re-run when it moves.
@@ -2724,7 +2736,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
             <input
               type="search"
               value={query}
-              onFocus={() => void placesHere().then(setPlaces)}
+              onFocus={() => void loadPlacesForSearch(followRef.current ? getArea().center : undefined).then(setPlaces)}
               onChange={(e) => {
                 setQuery(e.target.value)
                 setSelected(null)
