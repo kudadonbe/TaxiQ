@@ -27,6 +27,13 @@ property, identity and payments) is in `plans/digital-raajje-vision.md` on the `
   take a left-edge swipe as Back), landscape, the Dhivehi of the new labels (chip*, fullmap*,
   model*, acctOffer*).
 
+- [x] **v2.9.0**: TaxiQ's own 3D map for Greater Malé (`plans/own-map.md`): 12,384 buildings, 959
+  places people go, roads, reef, trees, day and night; OSM raster tiles hidden there. **Left:** real
+  heights, tap a building for its name, Villimalé houses, OpenFreeMap tiles still used for driving
+  roads; phase 2 Kulhudhuffushi (and the game), phase 3 every island (PMTiles, needs the owner's OK).
+  **Owner to confirm:** council/HDC permission covers drawing lot and building shapes; ODbL for the
+  published map file.
+
 ## Needs a decision or an outside step
 
 - [ ] **Automatic deploy** ([PR #2](https://github.com/kudadonbe/TaxiQ/pull/2), `ci-deploy`): the
