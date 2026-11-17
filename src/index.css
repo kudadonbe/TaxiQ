@@ -188,6 +188,8 @@ html .maplibregl-map {
   position: relative;
   display: grid;
   place-items: center;
+  pointer-events: auto; /* tap for the figure menu */
+  cursor: pointer;
 }
 /* On a bike, e-bike or motorbike: a bigger, darker disc, so they stand out when zoomed out. */
 .person-marker.fast .person-marker-icon {

@@ -19,7 +19,7 @@ import { getArea, lastSpot, moveToLocation, offerRoads, useArea } from '../roadA
 import { seatsOf, type Taxi } from '../types'
 import type { Person } from '../usePresence'
 import { guessMoving } from '../core/presence'
-import { loadMyLook, onMyLook } from '../myLook'
+import { askLookPicker, loadMyLook, onMyLook } from '../myLook'
 import { LookPreview } from './LookPreview'
 import type { PublicVehicle } from '../vehicles'
 import { useLiveBuses, type Bus, type BusRoute } from '../buses'
@@ -51,6 +51,8 @@ import type { VehicleShape } from '../core/vehicleModels'
 import type { Rider } from '../vehicles'
 import type { FiguresLayer } from '../figures3d/layer'
 import { useHouses3d } from '../houses3d/useHouses3d'
+import { figureMenu, firstName, hitFigure, type FigureHitCandidate, type FigureMenuAction, type FigureMenuHeading, type FigureSubject } from '../core/figureMenu'
+import { FigureMenu, type FigureMenuProps } from './FigureMenu'
 
 type Status = 'idle' | 'answered' | 'suspended'
 
@@ -629,13 +631,58 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   useEffect(() => {
     followRefFn.current = follow
   })
-  const labels = useRef({ hire: '', follow: '', unfollow: '', suspended: '', seats: (n: number) => `${n}` })
-  useEffect(() => {
-    labels.current = { hire: t.menuHire, follow: t.menuFollow, unfollow: t.menuUnfollow, suspended: t.menuSuspended, seats: t.vehSeats }
-  }, [t])
   useEffect(() => {
     pickRef.current = onPickTaxi
   }, [onPickTaxi])
+
+  // One tap menu for every figure on the map (src/core/figureMenu.ts picks what it asks and offers;
+  // FigureMenu draws it): a see-through popup on the figure that moves with it, one at a time,
+  // closed by X, Escape or a tap elsewhere. The words are read at tap time (tRef, menuCtx).
+  const tRef = useRef(t)
+  const menuCtx = useRef({ lang: 'en', available: false, canRoute: false, canChangeLook: false, opened: () => {}, details: (_id: string) => {}, route: (_s: PublicService) => {}, changeLook: () => {} })
+  useEffect(() => {
+    tRef.current = t
+  })
+  const showMenu = (marker: Marker, offset: number, subject: FigureSubject, words: { headingText: string; title: string; lines: FigureMenuProps['lines'] }, act: Partial<Record<FigureMenuAction, () => void>>) => {
+    popup.current?.remove()
+    const tt = tRef.current
+    const content = figureMenu(subject)
+    // A heading left empty is said by the menu's own kind ("Need a fix?", "That's you"...).
+    const said: Record<FigureMenuHeading, string> = { fix: tt.figMenuNeedFix, tyres: tt.figMenuNeedTyres, battery: tt.figMenuNeedBattery, tow: tt.figMenuNeedTow, ride: tt.figMenuNeedRide, bus: '', person: '', you: tt.figMenuThatsYou }
+    if (!words.headingText) words = { ...words, headingText: said[content.heading] }
+    const label: Record<FigureMenuAction, string> = { call: tt.svcCall, route: tt.svcRoute, details: tt.figMenuDetails, hire: subject.kind === 'vehicle' ? tt.privHire : tt.menuHire, follow: tt.menuFollow, unfollow: tt.menuUnfollow, changeLook: tt.figMenuChangeLook }
+    const el = document.createElement('div')
+    const root = createRoot(el)
+    // In the top part of the screen (under the search and the tool column) the menu opens below the
+    // figure instead of above it.
+    const m = map.current
+    const high = !!m && m.project(marker.getLngLat()).y < m.getContainer().clientHeight * 0.45
+    const p = new maplibregl.Popup({ closeButton: false, offset, className: 'taxi-menu', maxWidth: '17rem', focusAfterOpen: false, ...(high ? { anchor: 'top' as const } : {}) }).setDOMContent(el)
+    const close = () => p.remove()
+    root.render(
+      <FigureMenu
+        heading={content.heading}
+        {...words}
+        buttons={content.buttons.map((b) => ({ ...b, label: label[b.id] }))}
+        closeLabel={tt.close}
+        dir={menuCtx.current.lang === 'dv' ? 'rtl' : 'ltr'}
+        onClose={close}
+        onAction={(id) => {
+          p.remove()
+          act[id]?.()
+        }}
+      />,
+    )
+    p.on('close', () => {
+      if (popup.current === p) popup.current = null
+      setTimeout(() => root.unmount())
+    })
+    marker.setPopup(p)
+    if (!p.isOpen()) marker.togglePopup()
+    popup.current = p
+    menuCtx.current.opened()
+  }
+  const followAction = (id: string) => () => followRefFn.current(following.current === id ? null : id)
 
   const [places, setPlaces] = useState<Place[] | null>(null)
   const [showPlots, setShowPlots] = useState(true)
@@ -1165,58 +1212,24 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       parts.label.className = `absolute -top-4 left-1/2 -translate-x-1/2 rounded-full border px-1.5 text-[11px] leading-4 font-black tabular-nums shadow ${labelClass[status]}`
       parts.label.textContent = taxi.taxiNo
       parts.root.style.zIndex = status === 'answered' ? '2' : '1'
-      // Tap a car: a small menu on the car (it moves with it): the taxi and driver, then Hire this
-      // taxi (when hiring is possible) and Follow. Built with DOM text only, never HTML strings.
+      // Tap a car: "Need a ride?" with the taxi and driver, then Hire this taxi (when hiring is
+      // possible) and Follow (the figure menu, above).
       parts.root.onclick = (ev) => {
         ev.stopPropagation()
-        popup.current?.remove()
-        const menu = document.createElement('div')
-        menu.className = 'taxi-menu-body'
-        const title = document.createElement('p')
-        title.className = 'taxi-menu-title'
-        title.textContent = `${taxi.taxiNo} · ${driverName(taxi.driver)}`
-        menu.append(title)
+        const tt = tRef.current
         // Seats, and the plate only where this viewer already has it (staff: the taxi records;
         // the public projection has no plate).
-        const about = document.createElement('p')
-        about.className = 'taxi-menu-note'
-        about.style.color = '#334155'
-        about.textContent = `${labels.current.seats(seatsOf(taxi))}${taxi.taxiReg ? ` · ${taxi.taxiReg}` : ''}`
-        menu.append(about)
-        const button = (text: string, kind: 'primary' | 'plain', onClick: () => void) => {
-          const b = document.createElement('button')
-          b.type = 'button'
-          b.className = `taxi-menu-button ${kind}`
-          b.textContent = text
-          b.onclick = (e) => {
-            e.stopPropagation()
-            onClick()
-          }
-          menu.append(b)
-        }
-        if (taxi.suspended) {
-          const note = document.createElement('p')
-          note.className = 'taxi-menu-note'
-          note.textContent = labels.current.suspended
-          menu.append(note)
-        } else if (pickRef.current) {
-          button(labels.current.hire, 'primary', () => {
-            popup.current?.remove()
-            pickRef.current?.(taxi.id)
-          })
-        }
-        const isFollowed = following.current === taxi.id
-        button(isFollowed ? labels.current.unfollow : labels.current.follow, 'plain', () => {
-          followRefFn.current(isFollowed ? null : taxi.id)
-          popup.current?.remove()
-        })
-        const p = new maplibregl.Popup({ closeButton: false, offset: 24, className: 'taxi-menu', maxWidth: '16rem' }).setDOMContent(menu)
-        marker.setPopup(p)
-        p.on('close', () => {
-          if (popup.current === p) popup.current = null
-        })
-        if (!p.isOpen()) marker.togglePopup()
-        popup.current = p
+        showMenu(
+          marker,
+          24,
+          { kind: 'taxi', suspended: !!taxi.suspended, canHire: !!pickRef.current, available: menuCtx.current.available, followed: following.current === taxi.id },
+          {
+            headingText: tt.figMenuNeedRide,
+            title: `${tt.figMenuTaxiNo(taxi.taxiNo)} · ${driverName(taxi.driver)}`,
+            lines: [{ text: `${tt.vehSeats(seatsOf(taxi))}${taxi.taxiReg ? ` · ${taxi.taxiReg}` : ''}` }, { text: taxi.suspended ? tt.menuSuspended : '', tone: 'warn' }],
+          },
+          { hire: () => pickRef.current?.(taxi.id), follow: followAction(taxi.id), unfollow: followAction(taxi.id) },
+        )
       }
     }
   }, [taxis, interested, driverName])
@@ -1477,6 +1490,15 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       }
       if (p.at.join(',') !== entry.atKey) movePerson(m, entry, p.at)
       entry.label.textContent = p.name ?? ''
+      // Tap: how they look and how they move, their first name only where this viewer already has
+      // it (staff), and Follow. Never an offer.
+      const pm = entry.marker
+      pm.getElement().onclick = (ev) => {
+        ev.stopPropagation()
+        const tt = tRef.current
+        const fid = `p:${p.id}`
+        showMenu(pm, 22, { kind: 'person', followed: following.current === fid }, { headingText: tt.figLooks[p.look], title: firstName(p.name), lines: [{ text: tt.moving[p.mode] }] }, { follow: followAction(fid), unfollow: followAction(fid) })
+      }
       entry.look = p.look
       entry.lookColour = p.lookColour
       entry.faded = !!p.level && p.level !== 'active'
@@ -1538,7 +1560,15 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         const { el, icon, dir, label } = personElement('person-marker me')
         el.append(ring)
         label.style.display = 'none'
-        entry = { marker: new maplibregl.Marker({ element: el }).setLngLat(ll(at)).addTo(m), root: createRoot(icon), label, dir, mode: 'walk', glide: null, lastReport: null, atKey: '', look: look.look, lookColour: look.colour, faded: false }
+        const marker = new maplibregl.Marker({ element: el }).setLngLat(ll(at)).addTo(m)
+        // Tap yourself: "That's you", your look, and Change look (Show me's look picker).
+        el.onclick = (ev) => {
+          ev.stopPropagation()
+          const tt = tRef.current
+          const ctx = menuCtx.current
+          showMenu(marker, 24, { kind: 'me', canChangeLook: ctx.canChangeLook }, { headingText: '', title: tt.figMenuYourLook(tt.figLooks[look.look]), lines: [] }, { changeLook: () => ctx.changeLook() })
+        }
+        entry = { marker, root: createRoot(icon), label, dir, mode: 'walk', glide: null, lastReport: null, atKey: '', look: look.look, lookColour: look.colour, faded: false }
         people.set(ME, entry)
         paint()
       }
@@ -1672,50 +1702,26 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         e.shape.innerHTML = withIndicators(shapeSvg(dims.shape, 'currentColor', v.rider)) // our own markup, no user data
         e.shape.dataset.type = v.type
       }
+      // Tap: "Need a ride?" with the price, what it is (type, the owner's first name, model, colour
+      // and seats, the center taxi it also runs as; no plate: the public projection has none), then
+      // Hire this vehicle (not your own, not while you're Available) and Follow.
       e.marker.getElement().onclick = (ev) => {
         ev.stopPropagation()
-        popup.current?.remove()
-        const box = document.createElement('div')
-        box.className = 'taxi-menu-body'
-        const title = document.createElement('p')
-        title.className = 'taxi-menu-title'
-        title.textContent = `${vLabels.current.type(v.type)}${v.firstName ? ` · ${v.firstName}` : ''}`
-        box.append(title)
-        // What it is: the model (when the owner picked one), colour and seats, and the center taxi
-        // it also runs as. No plate: the public projection has none (the owner's choice, later).
-        const line = (text: string, colour?: string) => {
-          if (!text) return
-          const p = document.createElement('p')
-          p.className = 'taxi-menu-note'
-          p.style.color = colour ?? '#334155'
-          p.textContent = text
-          box.append(p)
-        }
+        const tt = tRef.current
+        const vl = vLabels.current
         const model = modelById(v.modelId)
-        line(model ? modelLabel(model) : '')
-        line([v.colour, v.seats > 0 ? vLabels.current.seats(v.seats) : ''].filter(Boolean).join(' · '))
-        if (e.taxiNo) line(vLabels.current.linked(e.taxiNo))
-        line(vLabels.current.price(v.priceBase, v.pricePerKm), '#065f46')
-        const button = (text: string, kind: 'primary' | 'plain', onClick: () => void) => {
-          const b = document.createElement('button')
-          b.type = 'button'
-          b.className = `taxi-menu-button ${kind}`
-          b.textContent = text
-          b.onclick = (x) => {
-            x.stopPropagation()
-            popup.current?.remove()
-            onClick()
-          }
-          box.append(b)
-        }
-        if (hireVehicleRef.current && v.ownerUid !== myUidRef.current) button(vLabels.current.hire, 'primary', () => hireVehicleRef.current?.(v))
         const fid = `v:${v.id}`
-        const isFollowed = following.current === fid
-        button(isFollowed ? vLabels.current.unfollow : vLabels.current.follow, 'plain', () => followRefFn.current(isFollowed ? null : fid))
-        const p = new maplibregl.Popup({ closeButton: false, offset: 20, className: 'taxi-menu', maxWidth: '16rem' }).setDOMContent(box)
-        e.marker.setPopup(p)
-        if (!p.isOpen()) e.marker.togglePopup()
-        popup.current = p
+        showMenu(
+          e.marker,
+          20,
+          { kind: 'vehicle', mine: !!myUidRef.current && v.ownerUid === myUidRef.current, canHire: !!hireVehicleRef.current, available: menuCtx.current.available, followed: following.current === fid },
+          {
+            headingText: tt.figMenuNeedRide,
+            title: `${vl.type(v.type)}${v.firstName ? ` · ${v.firstName}` : ''}`,
+            lines: [{ text: vl.price(v.priceBase, v.pricePerKm), tone: 'ok' }, { text: model ? modelLabel(model) : '' }, { text: [v.colour, v.seats > 0 ? vl.seats(v.seats) : ''].filter(Boolean).join(' · ') }, { text: e.taxiNo ? vl.linked(e.taxiNo) : '' }],
+          },
+          { hire: () => hireVehicleRef.current?.(v), follow: followAction(fid), unfollow: followAction(fid) },
+        )
       }
     }
     for (const [id, entry] of vehicleMarkers.current) {
@@ -1733,7 +1739,6 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   // The icon is rendered by React into the marker; the name goes in as an attribute, never HTML.
   const services = servicesProp ?? NO_SERVICES
   const serviceMarkers = useRef(new Map<string, { marker: Marker; root: Root; kind: string }>())
-  const openServiceRef = useRef<(id: string) => void>(() => {})
   const servicesKey = JSON.stringify(services)
   useEffect(() => {
     const m = map.current
@@ -1750,15 +1755,30 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         const icon = document.createElement('span')
         icon.className = 'service-marker-icon'
         el.append(icon)
-        el.onclick = (ev) => {
-          ev.stopPropagation()
-          openServiceRef.current(sv.id)
-        }
         entry = { marker: new maplibregl.Marker({ element: el }).setLngLat(ll(sv.at)).addTo(m), root: createRoot(icon), kind: '' }
         serviceMarkers.current.set(sv.id, entry)
       }
       entry.marker.setLngLat(ll(sv.at))
       const el = entry.marker.getElement()
+      // Tap (the marker, or a mobile helper's 3D figure): "Need a fix?" (or tyres, a battery, a tow,
+      // by the first kind) with the name, kinds and open now; Call, Route and See details (the card).
+      const marker = entry.marker
+      el.onclick = (ev) => {
+        ev.stopPropagation()
+        const tt = tRef.current
+        const ctx = menuCtx.current
+        showMenu(
+          marker,
+          sv.mode === 'mobile' ? 34 : 18,
+          { kind: 'service', kinds: sv.kinds, phone: sv.phone, canRoute: ctx.canRoute },
+          {
+            headingText: '',
+            title: ctx.lang === 'dv' && sv.nameDv ? sv.nameDv : sv.name,
+            lines: [{ text: sv.kinds.map((k) => tt.svcKinds[k] ?? k).join(' · ') }, { text: sv.mode === 'mobile' ? tt.svcAvailableNow : sv.openNow ? tt.svcOpenNow : tt.svcClosedNow, tone: sv.openNow ? 'ok' : 'warn' }],
+          },
+          { call: () => window.location.assign(`tel:${sv.phone}`), route: () => ctx.route(sv), details: () => ctx.details(sv.id) },
+        )
+      }
       el.setAttribute('aria-label', lang === 'dv' && sv.nameDv ? sv.nameDv : sv.name)
       el.style.opacity = !sv.openNow ? '0.45' : sv.mode === 'mobile' && sv.level !== 'active' ? '0.75' : '1'
       el.classList.toggle('mobile', sv.mode === 'mobile')
@@ -1794,10 +1814,6 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   const bussesRef = useRef(new Map<string, BusRoute>())
   useEffect(() => {
     bussesRef.current = new Map(buses.map((b) => [b.id, b.route]))
-  })
-  const bLabels = useRef({ follow: '', unfollow: '', lang: 'en' as string })
-  useEffect(() => {
-    bLabels.current = { follow: t.menuFollow, unfollow: t.menuUnfollow, lang }
   })
   useEffect(() => {
     const m = map.current
@@ -1874,32 +1890,13 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       entry.price.style.background = b.route.colour
       entry.marker.getElement().onclick = (ev) => {
         ev.stopPropagation()
-        popup.current?.remove()
-        const box = document.createElement('div')
-        box.className = 'taxi-menu-body'
-        const title = document.createElement('p')
-        title.className = 'taxi-menu-title'
-        title.textContent = `${b.route.number} · ${bLabels.current.lang === 'dv' && b.route.nameDv ? b.route.nameDv : b.route.name}`
-        const plate = document.createElement('p')
-        plate.className = 'taxi-menu-note'
-        plate.style.color = '#475569'
-        plate.textContent = `RTL · ${b.plate}`
-        box.append(title, plate)
-        const isFollowed = following.current === key
-        const f = document.createElement('button')
-        f.type = 'button'
-        f.className = 'taxi-menu-button plain'
-        f.textContent = isFollowed ? bLabels.current.unfollow : bLabels.current.follow
-        f.onclick = (x) => {
-          x.stopPropagation()
-          popup.current?.remove()
-          followRefFn.current(isFollowed ? null : key)
-        }
-        box.append(f)
-        const p = new maplibregl.Popup({ closeButton: false, offset: 24, className: 'taxi-menu', maxWidth: '16rem' }).setDOMContent(box)
-        entry.marker.setPopup(p)
-        if (!p.isOpen()) entry.marker.togglePopup()
-        popup.current = p
+        showMenu(
+          entry.marker,
+          24,
+          { kind: 'bus', followed: following.current === key },
+          { headingText: `${b.route.number} · ${menuCtx.current.lang === 'dv' && b.route.nameDv ? b.route.nameDv : b.route.name}`, title: `RTL · ${b.plate}`, lines: [] },
+          { follow: followAction(key), unfollow: followAction(key) },
+        )
       }
     }
     for (const [id, entry] of vehicleMarkers.current) {
@@ -1958,7 +1955,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     popup.current?.remove()
     const f = following.current
     if (!f) return
-    const kind: MarkerKind = f.startsWith('b:') ? 'bus' : f.startsWith('v:') && !linkedTaxis.has(f.slice(2)) ? 'private' : 'taxi'
+    const kind: MarkerKind = f.startsWith('p:') ? 'person' : f.startsWith('b:') ? 'bus' : f.startsWith('v:') && !linkedTaxis.has(f.slice(2)) ? 'private' : 'taxi'
     if (!chipShows(chip, kind) && f !== rideTaxi && f !== `v:${rideVehicle}`) followRefFn.current(null)
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [chip])
@@ -2099,6 +2096,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         const fig = personFigure(`p:${id}`, e.mode, e.look, e.lookColour, at, heading, moving, moving ? glideSpeed(e.glide, now) : 0, e.faded)
         if (fig) figures.current.set(fig)
         else figures.current.delete(`p:${id}`)
+        if (following.current === `p:${id}`) m.setCenter(ll(at))
       }
       figLayer.current?.kick()
       frame = requestAnimationFrame(tick)
@@ -2274,9 +2272,6 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     setOpenPanel('service')
     if (panel && panelOpen) onPanelOpenChange?.(false)
   }
-  useEffect(() => {
-    openServiceRef.current = openService
-  })
   useCenterMarkers(map, ready, centers, chipShows(chip, 'center'), lang, (id) => {
     setCtrId(id)
     setOpenPanel('center')
@@ -2323,8 +2318,81 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     // Fold whatever is open (the hire form keeps its details) and close a vehicle's menu.
     setOpenPanel(null)
     if (panelOpen) onPanelOpenChange?.(false)
+    popup.current?.remove()
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [hidden])
+  // What the figure menus need when tapped. Opening one folds the open panel (one at a time); its
+  // See details and Change look bring the menus back from the full map first.
+  useEffect(() => {
+    const fromFull = () => {
+      if (hidden) onMapOnly?.(false)
+    }
+    menuCtx.current = {
+      lang,
+      available: meHidden,
+      canRoute: !!mySpot,
+      canChangeLook: !!shareControl,
+      opened: () => {
+        setOpenPanel(null)
+        if (panel && panelOpen) onPanelOpenChange?.(false)
+      },
+      details: (id) => {
+        fromFull()
+        openService(id)
+      },
+      route: (s) => routeTo(s),
+      changeLook: () => {
+        fromFull()
+        askLookPicker()
+        setOpenPanel('share')
+        if (panelOpen) onPanelOpenChange?.(false)
+      },
+    }
+  })
+  // A panel opening closes a figure's menu.
+  useEffect(() => {
+    if (active) popup.current?.remove()
+  }, [active])
+  // Tapping a 3D figure: the flat drawing under it is hidden, so a tap on the map (empty ground for
+  // MapLibre) is checked against every figure drawn: each as an upright line on screen from where it
+  // stands to the top of its model (people at least 24 px tall, as the layer draws them), vehicles
+  // with half their length as reach. The nearest within reach gets its marker's tap (the same menu
+  // as in 2D); a tap on empty ground goes on as before.
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready) return
+    const onClick = (e: maplibregl.MapMouseEvent) => {
+      if (!m.getContainer().classList.contains('fig3d')) return
+      const reg = figures.current
+      const lift = Math.sin((m.getPitch() * Math.PI) / 180)
+      const pxPerM = realPx(m, 1)
+      const view = m.getBounds()
+      const cands: FigureHitCandidate[] = []
+      for (const f of reg.items.values()) {
+        if (!reg.shows(f) || !view.contains(ll(f.at))) continue
+        const { x, y } = m.project(ll(f.at))
+        const person = f.model.kind === 'person'
+        const len = Math.max(person ? 24 : 28, f.length * pxPerM)
+        const up = (person ? len : len * 0.3) * lift
+        cands.push({ id: f.id, base: [x, y], top: [x, y - up], r: person ? 0 : len / 2 })
+      }
+      const id = hitFigure(cands, [e.point.x, e.point.y])
+      if (!id) return
+      const rest = id.slice(2)
+      const el =
+        id.startsWith('t:') ? markers.current.get(rest)?.parts.root
+        : id.startsWith('v:') ? vehicleMarkers.current.get(rest)?.marker.getElement()
+        : id.startsWith('b:') ? vehicleMarkers.current.get(id)?.marker.getElement()
+        : id.startsWith('p:') ? peopleMarkers.current.get(rest)?.marker.getElement()
+        : id.startsWith('s:') ? serviceMarkers.current.get(rest)?.marker.getElement()
+        : undefined
+      el?.click()
+    }
+    m.on('click', onClick)
+    return () => {
+      m.off('click', onClick)
+    }
+  }, [ready])
   const enterFull = () => onMapOnly?.(true)
   // Swipe the column toward the left edge, or a bottom card down, to slide the menus away.
   const swipeColumn = useSwipe((dir) => dir === 'left' && enterFull())
@@ -2397,7 +2465,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   }, [hidden])
   // What slides away in full map: transform only (the map never resizes), no motion if asked.
   const slide = 'transition-transform duration-200 ease-out motion-reduce:transition-none'
-  const followText = followId ? (followId.startsWith('v:') ? t.followingVehicle(t.vehTypes[vehicles.find((x) => `v:${x.id}` === followId)?.type ?? 'car']) : followId.startsWith('b:') ? t.followingVehicle('bus') : t.followingTaxi(taxis.find((x) => x.id === followId)?.taxiNo ?? '')) : ''
+  const followText = followId ? (followId.startsWith('p:') ? t.figMenuFollowingPerson : followId.startsWith('v:') ? t.followingVehicle(t.vehTypes[vehicles.find((x) => `v:${x.id}` === followId)?.type ?? 'car']) : followId.startsWith('b:') ? t.followingVehicle('bus') : t.followingTaxi(taxis.find((x) => x.id === followId)?.taxiNo ?? '')) : ''
 
   // The bottom status cards (ride, booked vehicle, trip): on the right in a phone's landscape.
   const cardClass = `absolute z-[5] flex items-center gap-3 rounded-2xl border border-white/60 bg-white/70 p-3 shadow-xl backdrop-blur-[3px] left-2 right-12 bottom-8 sm:right-auto sm:w-96 ${fullscreen ? `land:left-auto! land:right-14! land:w-64! ${slide}` : ''} ${hidden ? 'translate-y-[calc(100%+3rem)]' : ''}`

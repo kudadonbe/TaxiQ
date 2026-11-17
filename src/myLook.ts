@@ -36,3 +36,21 @@ export function onMyLook(cb: (l: MyLook) => void): () => void {
   window.addEventListener(EVENT, h)
   return () => window.removeEventListener(EVENT, h)
 }
+
+// Change look (the tap menu on your own avatar): Show me on the map opens at its look picker, now
+// if it's showing, or the next time it shows.
+const ASK_EVENT = 'taxiq:look-picker'
+let asked = false
+export function askLookPicker() {
+  asked = true
+  window.dispatchEvent(new Event(ASK_EVENT))
+}
+export function takeLookPickerAsk(): boolean {
+  const was = asked
+  asked = false
+  return was
+}
+export function onLookPickerAsk(cb: () => void): () => void {
+  window.addEventListener(ASK_EVENT, cb)
+  return () => window.removeEventListener(ASK_EVENT, cb)
+}
