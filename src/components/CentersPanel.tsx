@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useAuth } from '../auth'
 import { MAIN, saveCenter, type Center } from '../centers'
 import { useI18n } from '../i18n'
+import { CenterAppsAdmin } from './CenterAppsAdmin'
 
 // Management -> Centers (platform admins and developers): the taxi centers. Each has its own queue,
 // taxis, dispatch log, fare table and staff. Add a center here, then give its admins the Admin role
@@ -25,6 +26,8 @@ export function CentersPanel({ centers }: { centers: Center[] }) {
   const box = 'mt-1 block min-h-11 w-full rounded-lg border border-slate-300 px-3 text-base'
   return (
     <div className="space-y-4">
+      <CenterAppsAdmin />
+      <h3 className="font-black">{t.mgmtCenters}</h3>
       <p className="text-sm text-slate-600">{t.centersIntro}</p>
       <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white">
         {centers.map((c) => (

@@ -37,6 +37,8 @@ interface Props {
   // Null when no private vehicle is available.
   // The road distance of the trip (metres, from the map's route), for the total price.
   tripMetres?: number | null
+  // Start with this center chosen (Hire from this center, on a center's card on the map).
+  initialCenter?: string
   onOpenPrivate?: ((b: { phone: string; pickup: string; pickupAt: [number, number]; destination: string; destinationAt: [number, number] | null; note: string; metres: number | null }) => Promise<void>) | null
 }
 
@@ -51,7 +53,7 @@ export interface DemoRide {
 
 // Public: ask for a ride. Either a specific taxi (tapped on the map) or the queue, where the offer
 // goes to each taxi in turn. Needs Google sign-in (no staff role).
-export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPinRequest, initialPickup, demoAllowed = false, demoRide = null, onDemoRide, onEndDemo, onOpenPrivate, tripMetres = null }: Props) {
+export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPinRequest, initialPickup, demoAllowed = false, demoRide = null, onDemoRide, onEndDemo, onOpenPrivate, tripMetres = null, initialCenter }: Props) {
   // Open trip: by taxi (the taxi queue) or private hire (the private queue).
   const [by, setBy] = useState<'taxi' | 'private'>('taxi')
   // Open trip by taxi: up to 5 seats (any taxi) or 7-10 seats (only 7-10 seat taxis, their fares).
@@ -68,6 +70,7 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
   // remembered on this device); a taxi tapped on the map, to its own center.
   const centers = useCenters(fb, status === 'signedIn')
   const [pickedCenter, setPickedCenterState] = useState<string | null>(() => {
+    if (initialCenter) return initialCenter
     try {
       return localStorage.getItem('taxiq.hireCenter')
     } catch {

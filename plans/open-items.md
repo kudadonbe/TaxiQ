@@ -72,9 +72,9 @@ property, identity and payments) is in `plans/digital-raajje-vision.md` on the `
   checked.
 - [ ] **Mobile-first, the rest:** the map for signed-out visitors (anonymous private vehicles,
   public services, with consent wording); one Available switch for vehicles and services.
-- [ ] **Taxi centers register themselves** (the owner, with the Transport Authority licence number;
-  a platform admin approves; the owner becomes its admin); centers on the map with their **logo**
-  (small square, approved), Hire from this center.
+- [x] **Taxi centers register themselves** (branch `center-registry`, not yet merged or deployed;
+  needs `pnpm release` for the rules). Left: free taxis per center on its card; suspending a center
+  doesn't remove its admin's role; logos move to Storage with Blaze.
 - [ ] **Identity and safety:** vehicle numbers public for taxis and buses; taxi driver cards; the
   private-hire **mutual reveal** (a verified person must offer their own identity to ask for the
   other's; both see, or neither); verification.

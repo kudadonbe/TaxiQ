@@ -13,6 +13,7 @@ import { useAccount } from '../account'
 import { totals } from '../core/account'
 import { MoneyEntries, MoneyMonths, MoneyTotals } from './MoneyList'
 import { MyServices } from './MyServices'
+import { MyCenters } from './MyCenters'
 
 // My account: who you are, why you can or can't take rides (and how to fix it), your bookings as a
 // passenger, your trips as a driver or owner, your money account, and your activity log.
@@ -261,6 +262,7 @@ export function MyAccount({ onGoTo, vehicles }: { onGoTo?: (view: GoTo) => void;
         <p className="text-sm text-slate-600">{t.acctOfferNote}</p>
         {vehicles}
         <MyServices />
+        <MyCenters />
       </section>
 
       <section className={card}>
