@@ -34,14 +34,14 @@ property, identity and payments) is in `plans/digital-raajje-vision.md` on the `
   **Owner to confirm:** council/HDC permission covers drawing lot and building shapes; ODbL for the
   published map file.
 
+- [x] **v2.10.0**: the Sinamalé Bridge in 3D (researched; `plans/own-map.md`), own-map roads fixed,
+  3D figures with three.js (vehicles, taxis, riders, people with Maldivian hijab styles, work
+  outfits; each person picks a look), a 2D / 3D switch. **Left:** vehicles on the bridge deck
+  (`bridgeHeightAt`), faded resting figures in 3D, the game on the own map, stepped V-piers.
+
 ## Needs a decision or an outside step
 
-- [ ] **3D figures and the 2D / 3D switch** (branch `figures-3d`, not merged): review the
-  screenshots, then merge and `pnpm release` (rules change: `look` / `lookColour` on presence).
-  three.js (MIT) needs the MDS whitelist or an exception (SECURITY.md).
-- [ ] **Roads missing on TaxiQ's own map** (v2.9.0): MapLibre refuses the road and casing layers
-  ("Only one zoom-based interpolate"): `roadWidth` in `src/worldStyle.ts` nests a zoom
-  `interpolate` inside a `match`; it must be one outer zoom `interpolate` with the `match` in each stop.
+- [ ] **three.js** (MIT, v2.10.0) needs the MDS whitelist or an exception (SECURITY.md).
 - [ ] **Automatic deploy** ([PR #2](https://github.com/kudadonbe/TaxiQ/pull/2), `ci-deploy`): the
   owner creates the deploy-only service account and the `FIREBASE_SERVICE_ACCOUNT` secret
   (SECURITY.md, "Automatic deploy"), then merge.
