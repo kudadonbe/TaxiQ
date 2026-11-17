@@ -316,7 +316,5 @@ export function setWorldNight(m: MlMap, area: string, night: boolean) {
   m.setPaintProperty(L.trees, 'fill-extrusion-color', pal.tree)
   m.setPaintProperty(L.b, 'fill-extrusion-color', match('k', pal.b, pal.b.other))
   // A low, warm sun by day; a cool moon at night. Shapes the 3D buildings' sides.
-  // The sky past the horizon when tilted, in the same family as the sea.
-  m.setSky(night ? { 'sky-color': '#0b1a2b', 'horizon-color': '#173450', 'fog-color': '#0e2338', 'sky-horizon-blend': 0.6, 'horizon-fog-blend': 0.8, 'fog-ground-blend': 1 } : { 'sky-color': '#a9dcf2', 'horizon-color': '#d9f1fa', 'fog-color': '#4fb0d6', 'sky-horizon-blend': 0.6, 'horizon-fog-blend': 0.8, 'fog-ground-blend': 1 })
   m.setLight(night ? { anchor: 'map', color: '#c7d2fe', intensity: 0.35, position: [1.2, 200, 50] } : { anchor: 'map', color: '#fff7e8', intensity: 0.45, position: [1.3, 210, 35] })
 }
