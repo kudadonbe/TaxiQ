@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { guessMoving, isLive, SHARE_MAX_MS, speedBetween, STALE_MS } from './presence'
+import { guessMoving, isLive, isLookColour, isPersonLook, lookColourOf, lookOf, PERSON_LOOKS, SHARE_MAX_MS, speedBetween, STALE_MS } from './presence'
 
 describe('how someone is moving, from GPS speed', () => {
   it('walking, running, cycling, e-bike, motorbike', () => {
@@ -31,5 +31,25 @@ describe('when a shared position shows', () => {
     expect(isLive({ updatedAt: now - 1000, expiresAt: now + SHARE_MAX_MS }, now)).toBe(true)
     expect(isLive({ updatedAt: now - STALE_MS - 1, expiresAt: now + 1000 }, now)).toBe(false) // app closed
     expect(isLive({ updatedAt: now, expiresAt: now - 1 }, now)).toBe(false) // hour is up
+  })
+})
+
+describe('the look a person picks for the 3D map', () => {
+  it('only the listed looks', () => {
+    for (const l of PERSON_LOOKS) expect(isPersonLook(l)).toBe(true)
+    expect(isPersonLook('alien')).toBe(false)
+    expect(isPersonLook(3)).toBe(false)
+    expect(lookOf('woman-hijab')).toBe('woman-hijab')
+    expect(lookOf('<b>')).toBe('plain')
+    expect(lookOf(undefined)).toBe('plain')
+  })
+  it('a colour index 0 to 5', () => {
+    expect(isLookColour(0)).toBe(true)
+    expect(isLookColour(5)).toBe(true)
+    expect(isLookColour(6)).toBe(false)
+    expect(isLookColour(1.5)).toBe(false)
+    expect(isLookColour(-1)).toBe(false)
+    expect(lookColourOf('2')).toBe(0)
+    expect(lookColourOf(4)).toBe(4)
   })
 })

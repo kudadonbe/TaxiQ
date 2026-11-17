@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BEAT_MS, beatLevel, WAKE_METRES, type BeatLevel } from './core/heartbeat'
-import { guessMoving, isLive, SHARE_MAX_MS, speedBetween, STALE_MS, UPDATE_M, UPDATE_MS, type Moving } from './core/presence'
+import { guessMoving, isLive, lookColourOf, lookOf, SHARE_MAX_MS, speedBetween, STALE_MS, UPDATE_M, UPDATE_MS, type Moving, type PersonLook } from './core/presence'
 
 // Citizens showing themselves on the map (opt-in; MDS Tier 1 personal data, see SECURITY.md).
 // presence/{uid}: with their name, readable by drivers and centers. presencePublic/{uid}: no name,
@@ -15,6 +15,8 @@ export interface Person {
   mode: Moving
   name?: string // staff only
   level?: BeatLevel // how often it checks in (resting people are drawn faded)
+  look: PersonLook // how they chose to look on the 3D map
+  lookColour: number // their clothing colour (0-5)
 }
 
 const ms = (x: unknown) => (x && typeof (x as { toMillis?: () => number }).toMillis === 'function' ? (x as { toMillis: () => number }).toMillis() : 0)
@@ -23,7 +25,7 @@ const MODES: Moving[] = ['walk', 'run', 'bike', 'ebike', 'motorbike', 'taxi']
 // Everyone sharing that this viewer may see. Staff (drivers, operators, admins) read the copy with
 // names; anyone else signed in reads the public copy. Old and finished shares are left out.
 export function usePeople(fb: Fb | null, signedIn: boolean, staff: boolean, myUid: string | null): Person[] {
-  const [docs, setDocs] = useState<{ id: string; at: [number, number]; mode: Moving; name?: string; level: BeatLevel; updatedAt: number; expiresAt: number }[]>([])
+  const [docs, setDocs] = useState<{ id: string; at: [number, number]; mode: Moving; name?: string; level: BeatLevel; look: PersonLook; lookColour: number; updatedAt: number; expiresAt: number }[]>([])
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 15_000)
@@ -43,14 +45,25 @@ export function usePeople(fb: Fb | null, signedIn: boolean, staff: boolean, myUi
             const at = Array.isArray(x.at) && x.at.length === 2 && x.at.every((n: unknown) => typeof n === 'number') ? ([x.at[0], x.at[1]] as [number, number]) : null
             if (!mode || !at) return []
             const level = (['active', 'rest', 'nap', 'sleep'] as const).find((l) => l === x.level) ?? 'active'
-            return [{ id: d.id, at, mode, name: staff && typeof x.name === 'string' ? x.name.slice(0, 80) : undefined, level, updatedAt: ms(x.updatedAt), expiresAt: ms(x.expiresAt) }]
+            return [{ id: d.id, at, mode, name: staff && typeof x.name === 'string' ? x.name.slice(0, 80) : undefined, level, look: lookOf(x.look), lookColour: lookColourOf(x.lookColour), updatedAt: ms(x.updatedAt), expiresAt: ms(x.expiresAt) }]
           }),
         ),
       () => setDocs([]),
     )
   }, [fb, signedIn, staff])
   const live = fb && signedIn
-  return live ? docs.filter((d) => d.id !== myUid && isLive(d, now)).map(({ id, at, mode, name, level }) => ({ id, at, mode, name, level })) : []
+  return live ? docs.filter((d) => d.id !== myUid && isLive(d, now)).map(({ id, at, mode, name, level, look, lookColour }) => ({ id, at, mode, name, level, look, lookColour })) : []
+}
+
+// The look chosen for the 3D map, remembered on this device only.
+const LOOK_KEY = 'taxiq.look'
+function loadLook(): { look: PersonLook; colour: number } {
+  try {
+    const x = JSON.parse(localStorage.getItem(LOOK_KEY) ?? '{}') as { look?: unknown; colour?: unknown }
+    return { look: lookOf(x.look), colour: lookColourOf(x.colour) }
+  } catch {
+    return { look: 'plain', colour: 0 }
+  }
 }
 
 // This person's own sharing: start (with who may see them), change, stop. Stops by itself after an
@@ -62,10 +75,12 @@ export function useShareMe(fb: Fb | null, uid: string | null, name: string, inRi
   const [mode, setMode] = useState<Moving>('walk')
   const [picked, setPicked] = useState<Moving | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const latest = useRef({ name, inRide, picked })
+  const [look, setLookState] = useState(loadLook)
+  const latest = useRef({ name, inRide, picked, look })
   useEffect(() => {
-    latest.current = { name, inRide, picked }
+    latest.current = { name, inRide, picked, look }
   })
+  const resend = useRef<(() => void) | null>(null)
 
   const stop = useCallback(() => {
     setShare(null)
@@ -89,7 +104,8 @@ export function useShareMe(fb: Fb | null, uid: string | null, name: string, inRi
     let sent: { lat: number; lng: number; t: number } | null = null
     const expiresAt = fb.Timestamp.fromMillis(until)
     const send = (lat: number, lng: number, m: Moving, auto: boolean) => {
-      const base = { at: [lat, lng], mode: m, modeAuto: auto, level: beatLevel(Date.now() - movedAt, new Date().getHours()), updatedAt: fb.serverTimestamp(), expiresAt }
+      const { look: lk, colour: lc } = latest.current.look
+      const base = { at: [lat, lng], mode: m, modeAuto: auto, level: beatLevel(Date.now() - movedAt, new Date().getHours()), look: lk, lookColour: lc, updatedAt: fb.serverTimestamp(), expiresAt }
       const writes = [fb.setDoc(fb.doc(fb.db, 'presence', uid), { ...base, name: latest.current.name.slice(0, 80), visibility })]
       if (visibility === 'public') writes.push(fb.setDoc(fb.doc(fb.db, 'presencePublic', uid), base))
       else writes.push(fb.deleteDoc(fb.doc(fb.db, 'presencePublic', uid)))
@@ -134,7 +150,12 @@ export function useShareMe(fb: Fb | null, uid: string | null, name: string, inRi
       { enableHighAccuracy: true, maximumAge: 5_000, timeout: 20_000 },
     )
     const end = setTimeout(stop, Math.max(0, until - Date.now()))
+    // A new look: send it with the last position straight away.
+    resend.current = () => {
+      if (sent) send(sent.lat, sent.lng, lastMode.m, lastMode.auto)
+    }
     return () => {
+      resend.current = null
       clearInterval(beat)
       navigator.geolocation.clearWatch(watch)
       clearTimeout(end)
@@ -153,6 +174,17 @@ export function useShareMe(fb: Fb | null, uid: string | null, name: string, inRi
     },
     setVisibility: (v: Visibility) => setShare((s) => (s ? { ...s, visibility: v } : s)),
     pick: setPicked,
+    look,
+    setLook: (next: { look: PersonLook; colour: number }) => {
+      setLookState(next)
+      latest.current = { ...latest.current, look: next }
+      try {
+        localStorage.setItem(LOOK_KEY, JSON.stringify(next))
+      } catch {
+        // private window: kept for this visit only
+      }
+      resend.current?.()
+    },
     stop,
   }
 }

@@ -318,3 +318,15 @@ export function setWorldNight(m: MlMap, area: string, night: boolean) {
   // A low, warm sun by day; a cool moon at night. Shapes the 3D buildings' sides.
   m.setLight(night ? { anchor: 'map', color: '#c7d2fe', intensity: 0.35, position: [1.2, 200, 50] } : { anchor: 'map', color: '#fff7e8', intensity: 0.45, position: [1.3, 210, 35] })
 }
+
+// 2D or 3D view (the map's 2D / 3D switch): in 2D the buildings and tree canopies lie flat as
+// footprints (extrusion height 0); in 3D they rise again, as addWorld draws them.
+export function setWorld3d(m: MlMap, area: string, on: boolean) {
+  const L = ids(area)
+  if (!m.getLayer(L.b)) return
+  const rise = (key: 'h' | 'base'): ExpressionSpecification => ['interpolate', ['linear'], ['zoom'], 13, 0, 15, ['get', key]]
+  m.setPaintProperty(L.b, 'fill-extrusion-height', on ? rise('h') : 0)
+  m.setPaintProperty(L.b, 'fill-extrusion-base', on ? rise('base') : 0)
+  m.setPaintProperty(L.trees, 'fill-extrusion-height', on ? ['get', 'h'] : 0)
+  m.setPaintProperty(L.trees, 'fill-extrusion-base', on ? 1.2 : 0)
+}

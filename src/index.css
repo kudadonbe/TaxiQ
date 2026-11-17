@@ -477,3 +477,19 @@ html .maplibregl-map {
 .world-res-pitch { background: #15803d; }
 .world-res-beach { background: #d97706; }
 .map-night .world-res { border-color: #1e293b; }
+
+/* 3D figures (src/figures3d/): while the three.js layer draws vehicles and people, their flat
+   drawings and badges are hidden; labels, taps and menus stay. A mobile helper's icon floats above
+   their 3D figure. */
+.fig3d .taxi-car,
+.fig3d .vehicle-shape,
+.fig3d .veh-badge,
+.fig3d .person-marker:not(.in-taxi) .person-marker-disc {
+  visibility: hidden;
+}
+.fig3d .service-marker.mobile {
+  translate: 0 -26px;
+}
+.fig3d .service-marker.mobile .service-marker-icon {
+  scale: 0.8;
+}

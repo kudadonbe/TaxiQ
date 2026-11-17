@@ -120,13 +120,16 @@ service cloud.firestore {
         && d.mode in ['walk', 'run', 'bike', 'ebike', 'motorbike', 'taxi']
         && d.modeAuto is bool
         && d.get('level', 'active') in ['active', 'rest', 'nap', 'sleep']
+        // How they look on the 3D map (PERSON_LOOKS in src/core/presence.ts) and a colour 0-5.
+        && d.get('look', 'plain') in ['plain', 'man-casual', 'man-tshirt', 'man-formal', 'woman-hijab', 'woman-libaas', 'woman-sport', 'young']
+        && d.get('lookColour', 0) is int && d.get('lookColour', 0) >= 0 && d.get('lookColour', 0) <= 5
         && d.updatedAt == request.time
         && d.expiresAt is timestamp && d.expiresAt <= request.time + duration.value(61, 'm');
     }
     match /presence/{uid} {
       allow read: if isStaff() || isDriver() || (signedIn() && uid == request.auth.uid);
       allow create, update: if signedIn() && uid == request.auth.uid
-        && request.resource.data.keys().hasOnly(['name', 'at', 'mode', 'modeAuto', 'level', 'visibility', 'updatedAt', 'expiresAt'])
+        && request.resource.data.keys().hasOnly(['name', 'at', 'mode', 'modeAuto', 'level', 'look', 'lookColour', 'visibility', 'updatedAt', 'expiresAt'])
         && str(request.resource.data.name, 80)
         && request.resource.data.visibility in ['staff', 'public']
         && presenceShape(request.resource.data);
@@ -135,7 +138,7 @@ service cloud.firestore {
     match /presencePublic/{uid} {
       allow read: if signedIn();
       allow create, update: if signedIn() && uid == request.auth.uid
-        && request.resource.data.keys().hasOnly(['at', 'mode', 'modeAuto', 'level', 'updatedAt', 'expiresAt'])
+        && request.resource.data.keys().hasOnly(['at', 'mode', 'modeAuto', 'level', 'look', 'lookColour', 'updatedAt', 'expiresAt'])
         && presenceShape(request.resource.data);
       allow delete: if signedIn() && uid == request.auth.uid;
     }
