@@ -450,3 +450,30 @@ html .maplibregl-map {
     transition: none;
   }
 }
+
+/* Places people go on TaxiQ's own map (MapView, src/worldStyle.ts): a small round icon each. */
+.world-res {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 9999px;
+  border: 2px solid #fff;
+  color: #fff;
+  background: #475569;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 0.35);
+  cursor: pointer;
+}
+.world-res-mosque { background: #0f766e; }
+.world-res-school { background: #ca8a04; }
+.world-res-hospital,
+.world-res-clinic { background: #e11d48; }
+.world-res-harbour,
+.world-res-jetty { background: #0369a1; }
+.world-res-shop { background: #c2410c; width: 20px; height: 20px; }
+.world-res-fuel { background: #7c3aed; }
+.world-res-gov { background: #1d4ed8; }
+.world-res-park,
+.world-res-pitch { background: #15803d; }
+.world-res-beach { background: #d97706; }
+.map-night .world-res { border-color: #1e293b; }

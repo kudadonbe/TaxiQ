@@ -1,7 +1,8 @@
-import { BatteryCharging, Bike, Building2, Car, CarTaxiFront, CircleDot, Cog, Droplets, Footprints, Fuel, Motorbike, PersonStanding, PlugZap, Radio, Scooter, Snowflake, Truck, User, Van, Wrench, type LucideIcon } from 'lucide-react'
+import { Anchor, BatteryCharging, Bike, Building2, Car, CarTaxiFront, CircleDot, Cog, Droplets, Footprints, Fuel, Goal, Hospital, Landmark, Motorbike, MoonStar, PersonStanding, PlugZap, Radio, School, Scooter, Ship, ShoppingBag, Snowflake, Stethoscope, TreePalm, Trees, Truck, User, Van, Wrench, type LucideIcon } from 'lucide-react'
 import type { VehicleType } from '../vehicles'
 import type { Moving } from '../core/presence'
 import type { ServiceKind } from '../core/services'
+import type { ResourceKind } from '../worldStyle'
 
 // Icon class names (Lucide icons inline with text), and the RTL-mirrored version for arrows.
 export const ic = 'inline-block size-4 shrink-0 align-[-0.2em]'
@@ -18,3 +19,6 @@ export const VEHICLE_ICONS: Record<VehicleType, LucideIcon> = { car: Car, van: V
 
 // Services on the map (mechanics, tyres, towing...).
 export const SERVICE_ICONS: Record<ServiceKind, LucideIcon> = { mechanic: Wrench, tyre: CircleDot, battery: BatteryCharging, towing: Truck, carwash: Droplets, ac: Snowflake, parts: Cog, fuel: Fuel, ebike: PlugZap }
+
+// Places people go on TaxiQ's own map (src/worldStyle.ts).
+export const RESOURCE_ICONS: Record<ResourceKind, LucideIcon> = { mosque: MoonStar, school: School, hospital: Hospital, clinic: Stethoscope, harbour: Anchor, jetty: Ship, shop: ShoppingBag, fuel: Fuel, gov: Landmark, park: Trees, pitch: Goal, beach: TreePalm }

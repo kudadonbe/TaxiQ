@@ -20,7 +20,7 @@ import type { Taxi } from '../types'
 import type { Person } from '../usePresence'
 import type { PublicVehicle } from '../vehicles'
 import { useLiveBuses, type Bus, type BusRoute } from '../buses'
-import { MOVING_ICONS, SERVICE_ICONS, VEHICLE_ICONS } from './iconStyles'
+import { MOVING_ICONS, RESOURCE_ICONS, SERVICE_ICONS, VEHICLE_ICONS } from './iconStyles'
 import type { PublicService } from '../services'
 import { nearestHelp, SERVICE_KINDS, todayHours, type ServiceKind } from '../core/services'
 import { bearing, coastGlide, driveGlide, glideAt, glideBraking, glideSpeed, glideState, MAX_GLIDE_MS, MIN_GLIDE_MS, nextGlide, OVERRUN, standGlide, turnAhead, type Glide } from '../core/glide'
@@ -37,6 +37,7 @@ import { loadPlots, plotPopup, plotsGeoJSON, type Plot } from './plotLayer'
 import { MapChips } from './MapChips'
 import { chipShows, loadChip, saveChip, type MapChipId, type MarkerKind } from '../mapChips'
 import { useSwipe } from './useSwipe'
+import { addWorld, loadWorld, setWorldNight, showWorld, worldAreaAt, worldResources, type Resource, type WorldBundle } from '../worldStyle'
 
 type Status = 'idle' | 'answered' | 'suspended'
 
@@ -452,6 +453,8 @@ const DRIVABLE_CLASSES = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary
 // The whole Maldives, while the map looks for the viewer the first time.
 const MALDIVES: [number, number] = [3.2, 73.22]
 
+const OWN_MAP_KEY = 'taxiq.ownMap'
+
 const OSM_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   sources: {
@@ -518,6 +521,25 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
 
   const [places, setPlaces] = useState<Place[] | null>(null)
   const [showPlots, setShowPlots] = useState(true)
+  // TaxiQ's own map (src/worldStyle.ts) where we have it, instead of OpenStreetMap's tiles.
+  // On by default, remembered on the device.
+  const [ownMap, setOwnMapState] = useState(() => {
+    try {
+      return localStorage.getItem(OWN_MAP_KEY) !== '0'
+    } catch {
+      return true
+    }
+  })
+  const setOwnMap = (on: boolean) => {
+    setOwnMapState(on)
+    try {
+      localStorage.setItem(OWN_MAP_KEY, on ? '1' : '0')
+    } catch {
+      // private window: kept for this visit only
+    }
+  }
+  const [worldArea, setWorldArea] = useState<string | null>(null)
+  const worldOn = ownMap && worldArea !== null
   const [mode, setMode] = useState<TravelMode>('taxi')
   const tripPins = useRef<Marker[]>([])
   const [query, setQuery] = useState('')
@@ -551,6 +573,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     const look = () => {
       const c = m.getCenter()
       setViewRegion(regionAt([c.lat, c.lng])?.id ?? null)
+      setWorldArea(worldAreaAt([c.lat, c.lng], m.getZoom()))
     }
     look()
     m.on('moveend', look)
@@ -644,10 +667,129 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   useEffect(() => {
     const m = map.current
     if (!m || !ready || !m.getLayer('plots-fill')) return
-    const v = showPlots ? 'visible' : 'none'
+    // On TaxiQ's own map the houses are buildings, so the plot chart isn't needed there.
+    const v = showPlots && !worldOn ? 'visible' : 'none'
     m.setLayoutProperty('plots-fill', 'visibility', v)
     m.setLayoutProperty('plots-line', 'visibility', v)
-  }, [showPlots, ready])
+  }, [showPlots, ready, worldOn])
+
+  // TaxiQ's own map: our island, sea, reef, roads and 3D buildings, in place of the OpenStreetMap
+  // tiles (none are asked for while it shows). Loaded the first time the map looks at the area;
+  // tilted like a game camera on the way in (tilt back for top-down). Vehicles and pins are DOM
+  // markers, so they stay on top of the buildings.
+  const shownWorld = useRef<string | null>(null)
+  const [worldData, setWorldData] = useState<WorldBundle | null>(null)
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready) return
+    let live = true
+    const hide = () => {
+      if (shownWorld.current) showWorld(m, shownWorld.current, false)
+      shownWorld.current = null
+      if (m.getLayer('osm')) m.setLayoutProperty('osm', 'visibility', 'visible')
+      setWorldData(null)
+    }
+    if (!worldOn || !worldArea) {
+      hide()
+      return
+    }
+    void loadWorld(worldArea)
+      .then((w) => {
+        if (!live) return
+        const layers = m.getStyle().layers
+        const before = layers[layers.findIndex((l) => l.id === 'osm') + 1]?.id
+        addWorld(m, worldArea, w, before, night)
+        setWorldNight(m, worldArea, night)
+        if (shownWorld.current !== worldArea) {
+          if (shownWorld.current) showWorld(m, shownWorld.current, false)
+          // Coming in: tilt to the game view once the map has settled (a fly to the viewer would
+          // cancel it); geolocateSource keeps "follow me" on.
+          let tries = 3
+          const tilt = () => {
+            if (!live || shownWorld.current !== worldArea || m.getPitch() >= 20 || tries-- <= 0) m.off('moveend', later)
+            else if (!m.isMoving()) m.easeTo({ pitch: 55, duration: 900 }, { geolocateSource: true })
+          }
+          const later = () => setTimeout(tilt, 50)
+          m.on('moveend', later)
+          setTimeout(tilt, 300)
+        }
+        showWorld(m, worldArea, true)
+        m.setLayoutProperty('osm', 'visibility', 'none')
+        shownWorld.current = worldArea
+        setWorldData(w)
+      })
+      .catch(hide)
+    return () => {
+      live = false
+    }
+  }, [ready, worldOn, worldArea, night])
+
+  // Places people go on TaxiQ's own map (mosques, schools, health, harbours, shops...): a round
+  // icon each, from zoom 16 (shops from 17.5), only those in view. Tap for the name.
+  const resources = useMemo<Resource[]>(() => (worldData ? worldResources(worldData) : []), [worldData])
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready) return
+    const shown = new Map<number, { marker: Marker; root: Root }>()
+    const render = () => {
+      const z = m.getZoom()
+      const view = m.getBounds()
+      const want = new Set<number>()
+      if (z >= 16) {
+        for (let i = 0; i < resources.length && want.size < 150; i++) {
+          const r = resources[i]!
+          if ((r.kind === 'shop' && z < 17.5) || !view.contains(ll(r.at))) continue
+          want.add(i)
+        }
+      }
+      for (const [i, e] of shown) {
+        if (want.has(i)) continue
+        e.marker.remove()
+        const root = e.root
+        setTimeout(() => root.unmount())
+        shown.delete(i)
+      }
+      for (const i of want) {
+        if (shown.has(i)) continue
+        const r = resources[i]!
+        const name = (lang === 'dv' ? r.dv || r.en : r.en || r.dv) || t.worldKinds[r.kind]
+        const el = document.createElement('button')
+        el.type = 'button'
+        el.className = `world-res world-res-${r.kind}`
+        el.setAttribute('aria-label', name)
+        el.title = name
+        el.onclick = (ev) => {
+          ev.stopPropagation()
+          const card = document.createElement('div')
+          card.dir = lang === 'dv' ? 'rtl' : 'ltr'
+          const title = document.createElement('div')
+          title.style.fontWeight = '700'
+          title.textContent = name
+          const sub = document.createElement('div')
+          sub.style.cssText = 'font-size:11px;color:#64748b'
+          sub.textContent = t.worldKinds[r.kind]
+          card.append(title)
+          if (name !== sub.textContent) card.append(sub)
+          popup.current?.remove()
+          popup.current = new maplibregl.Popup({ closeButton: true, maxWidth: '240px', offset: 14 }).setLngLat(ll(r.at)).setDOMContent(card).addTo(m)
+        }
+        const root = createRoot(el)
+        const Icon = RESOURCE_ICONS[r.kind]
+        root.render(<Icon className="size-3.5" aria-hidden="true" />)
+        shown.set(i, { marker: new maplibregl.Marker({ element: el }).setLngLat(ll(r.at)).addTo(m), root })
+      }
+    }
+    render()
+    m.on('moveend', render)
+    return () => {
+      m.off('moveend', render)
+      for (const e of shown.values()) {
+        e.marker.remove()
+        const root = e.root
+        setTimeout(() => root.unmount())
+      }
+    }
+  }, [ready, resources, lang, t])
 
   // Tap a plot: its houses and plot number.
   useEffect(() => {
@@ -1860,6 +2002,10 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         <label className="ms-auto flex min-h-8 cursor-pointer items-center gap-1.5 font-medium">
           <input type="checkbox" checked={showPlots} onChange={(e) => setShowPlots(e.target.checked)} className="size-4 accent-emerald-600" />
           {t.plotMap}
+        </label>
+        <label className="flex min-h-8 cursor-pointer items-center gap-1.5 font-medium">
+          <input type="checkbox" checked={ownMap} onChange={(e) => setOwnMap(e.target.checked)} className="size-4 accent-emerald-600" />
+          {t.ownMap}
         </label>
       </div>
   )
