@@ -26,7 +26,7 @@
 - [x] Call details: pickup (with house/road search), destination, passenger phone, note. Validated, and **memory only**.
 - [x] Details go with the dispatch and show in Recent dispatches.
 - [x] The pickup shows on the Map as a green pin, with the nearest available taxis.
-- [x] **Share pickup** sends the driver a mapkf.vercel.app link that opens the house on the council map.
+- [x] **Share pickup** sends the driver a link to our own map (`kd-taxiq.web.app/?at=lat,lng&n=name`) that opens on the house, with Route (mapkf.vercel.app is down).
 
 ### Other
 - [x] House, road and landmark search on the map, with nearest taxis (Kulhudhuffushi City Council map data via mapkf, used with permission).

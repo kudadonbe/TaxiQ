@@ -38,6 +38,7 @@ import { useAvailableVehicle } from './availability'
 import { ShareMe } from './components/ShareMe'
 import { validateCall } from './validate'
 import { setOffDuty } from './duty'
+import { parseShareParams, withoutShareParams, type SharedSpot } from './core/shareLink'
 
 // Leaflet is only loaded when a map is shown.
 const MapView = lazy(() => import('./components/MapView'))
@@ -51,6 +52,22 @@ const GameTab = lazy(() => import('./game/GameTab').then((m) => ({ default: m.Ga
 // The GitHub Pages copy can't sign in (Firebase only allows its own domains), so it runs the
 // local demo of the operator screens.
 const DEMO_HOST = location.hostname.endsWith('github.io')
+
+// A shared place (Share pickup: ?at=lat,lng&n=name, src/core/shareLink.ts): read once when the app
+// opens, then taken out of the address bar so a reload doesn't open it again. The map opens on it
+// for everyone, signed in or not. Anything that fails the allow-list is ignored.
+const SHARED_SPOT: SharedSpot | null = (() => {
+  const spot = parseShareParams(location.search)
+  const q = new URLSearchParams(location.search)
+  if (q.has('at') || q.has('n')) {
+    try {
+      history.replaceState(history.state, '', location.pathname + withoutShareParams(location.search) + location.hash)
+    } catch {
+      // The address bar can't change here: the link stays, harmlessly.
+    }
+  }
+  return spot
+})()
 
 // Who sees what:
 //   demo     GitHub Pages: the operator screens on local data
@@ -280,7 +297,10 @@ export default function App() {
           : canAdmin
             ? ['queue', 'map', ...(DEMO_HOST ? (['hire'] as View[]) : []), 'admin', ...game]
             : ['queue', 'map', ...game]
-  const [viewState, setView] = useState<View>('queue')
+  const [viewState, setView] = useState<View>(SHARED_SPOT ? 'map' : 'queue')
+  // The shared place stays on the map (across tabs) until the viewer closes its card.
+  const [sharedSpot, setSharedSpot] = useState(SHARED_SPOT)
+  const closeShared = () => setSharedSpot(null)
   const view: View = tabs.includes(viewState) ? viewState : (tabs[0] ?? 'map')
   const { lang, t, toggleLang, driverName, setDvFixes } = useI18n()
   // Without a staff role, the Hire screen is the full-screen map (taxis, vehicles, hiring): call it Map.
@@ -772,6 +792,8 @@ export default function App() {
                 setHireOpen(true)
               }}
               focusVehicle={focusVehicle}
+              sharedSpot={rideInProgress || privateLive || demoRide ? null : sharedSpot}
+              onSharedClose={closeShared}
               myUid={auth.uid ?? null}
               onHireVehicle={
                 driving
@@ -930,9 +952,9 @@ export default function App() {
         <main className="relative isolate min-h-0 flex-1">
           <Suspense fallback={<p className="p-4 text-sm text-slate-500">{t.loading}</p>}>
             {mode === 'driver' ? (
-              <MapView fullscreen mapOnly={mapOnly} onMapOnly={setMapOnly} people={people} vehicles={vehicles} services={services} centers={mapCenters} shareControl={shareControl} taxis={mapTaxis} interested={EMPTY} pickupAt={undefined} />
+              <MapView fullscreen mapOnly={mapOnly} onMapOnly={setMapOnly} people={people} vehicles={vehicles} services={services} centers={mapCenters} shareControl={shareControl} sharedSpot={sharedSpot} onSharedClose={closeShared} taxis={mapTaxis} interested={EMPTY} pickupAt={undefined} />
             ) : (
-              <MapView fullscreen mapOnly={mapOnly} onMapOnly={setMapOnly} people={people} vehicles={vehicles} services={services} centers={mapCenters} shareControl={shareControl} taxis={queue} interested={interested} pickupAt={call.pickupAt} trip={call.pickupAt && call.destinationAt ? { from: call.pickupAt, to: call.destinationAt } : undefined} />
+              <MapView fullscreen mapOnly={mapOnly} onMapOnly={setMapOnly} people={people} vehicles={vehicles} services={services} centers={mapCenters} shareControl={shareControl} sharedSpot={sharedSpot} onSharedClose={closeShared} taxis={queue} interested={interested} pickupAt={call.pickupAt} trip={call.pickupAt && call.destinationAt ? { from: call.pickupAt, to: call.destinationAt } : undefined} />
             )}
           </Suspense>
         </main>

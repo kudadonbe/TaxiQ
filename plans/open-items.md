@@ -80,7 +80,8 @@ property, identity and payments) is in `plans/digital-raajje-vision.md` on the `
   `scripts/build-houses.py`, `plans/plot-sources.md`, `plans/house-designs.md`): choose the traced
   chart or the council's vector lots for Kulhudhuffushi (they differ by ~6 m); ask the council /
   Charrette about the KC_Basemap lots; tell Malé City Council that two public layers expose owner
-  names and ID numbers; mapkf.vercel.app is down (402), which breaks Share pickup links. Then wire
+  names and ID numbers; mapkf.vercel.app is down (402): Share pickup now links to our own map
+  (branch `share-pickup`). Then wire
   the houses into the 3D map.
 - [ ] **Identity and safety** answers (suggested): "verified" = phone by SMS + operator check now,
   eFaas later; private vehicles' plates shown on tap to signed-in users (logged); taxi driver name and

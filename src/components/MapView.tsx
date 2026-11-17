@@ -41,6 +41,8 @@ import { forward, makeLine, nextStop, pointAt, project, stretch, type RouteLine 
 import { createRoot, type Root } from 'react-dom/client'
 import { loadPlots, plotPopup, plotsGeoJSON, type Plot } from './plotLayer'
 import { MapChips } from './MapChips'
+import { useSharedSpot } from './sharedSpot'
+import type { SharedSpot } from '../core/shareLink'
 import { chipShows, loadChip, saveChip, type MapChipId, type MarkerKind } from '../mapChips'
 import { useSwipe } from './useSwipe'
 import { addWorld, bridgeHeightAt, loadWorld, setWorld3d, setWorldNight, showWorld, worldAreaAt, worldResources, type Resource, type WorldBundle } from '../worldStyle'
@@ -110,6 +112,10 @@ interface Props {
   // show, with a small handle to bring the menus back. App keeps it for the session.
   mapOnly?: boolean
   onMapOnly?: (on: boolean) => void
+  // A shared place (Share pickup link, src/core/shareLink.ts): the map opens on it with a pin, its
+  // name and Route from the viewer. App leaves it out while a ride is in progress.
+  sharedSpot?: SharedSpot | null
+  onSharedClose?: () => void
 }
 
 // A small round-cornered button in the map's tool row (opens one panel).
@@ -583,7 +589,7 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
 // Live map of taxis, on MapLibre: rotate (two fingers / right-drag), tilt, pinch zoom, compass and
 // "my location" like Google Maps. Markers are driven imperatively so 60fps position updates don't
 // re-render React.
-export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, activeTrip, onHireFrom, people = [], vehicles = [], buses: busesProp, onHireVehicle, focusVehicle = null, myUid = null, privateRide, shareControl, driving = false, onTripMetres, services: servicesProp, mapOnly = false, onMapOnly, centers, onHireCenter }: Props) {
+export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, activeTrip, onHireFrom, people = [], vehicles = [], buses: busesProp, onHireVehicle, focusVehicle = null, myUid = null, privateRide, shareControl, driving = false, onTripMetres, services: servicesProp, mapOnly = false, onMapOnly, centers, onHireCenter, sharedSpot = null, onSharedClose }: Props) {
   const { lang, t, driverName } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const map = useRef<MlMap | null>(null)
@@ -690,6 +696,9 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   const area = useArea()
   const graph = followsViewer ? area.graph : ROAD_GRAPH
   const followRef = useRef(followsViewer) // fixed for the life of this map
+  // Opened from a shared place: start there, and don't let the location lock pull the map away.
+  const sharedAtStart = useRef(followsViewer ? sharedSpot : null)
+  const onFix = useRef<(c: GeolocationCoordinates) => void>(() => {})
   const graphRef = useRef(graph) // the roads, for keeping vehicles on them (read in the animation loop)
   useEffect(() => {
     graphRef.current = graph
@@ -732,15 +741,15 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       style: OSM_STYLE,
       // Real-app map: open where the viewer was last (or the whole Maldives) and look for them at
       // once; never assume Kulhudhuffushi. The game map stays on its island.
-      center: ll(followRef.current ? (lastSpot() ?? MALDIVES) : MAP_CENTER),
-      zoom: followRef.current ? (lastSpot() ? 15 : 5.5) : 16,
+      center: ll(sharedAtStart.current?.at ?? (followRef.current ? (lastSpot() ?? MALDIVES) : MAP_CENTER)),
+      zoom: sharedAtStart.current ? 18 : followRef.current ? (lastSpot() ? 15 : 5.5) : 16,
       minZoom: 1,
       maxZoom: 22,
       maxPitch: 60,
       attributionControl: {
         compact: true,
         customAttribution:
-          'Place names: <a href="https://kulhudhuffushicity.gov.mv/map">Kulhudhuffushi City Council</a> map, via <a href="https://mapkf.vercel.app">mapkf</a> by emjey; Malé: Malé City Council; Hulhumalé: <a href="https://gis.hdc.mv/">HDC</a>; postcodes: <a href="https://maldivespost.com/post-code">Maldives Post</a>; bus positions: <a href="https://rtl.mv">RTL (MTCC)</a>',
+          'Place names: <a href="https://kulhudhuffushicity.gov.mv/map">Kulhudhuffushi City Council</a> map, via mapkf by emjey; Malé: Malé City Council; Hulhumalé: <a href="https://gis.hdc.mv/">HDC</a>; postcodes: <a href="https://maldivespost.com/post-code">Maldives Post</a>; bus positions: <a href="https://rtl.mv">RTL (MTCC)</a>',
       },
     })
     m.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true, showZoom: true }), 'top-right')
@@ -751,12 +760,13 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     m.addControl(geo, 'top-right')
     geo.on('geolocate', (e) => meFix.current(e.coords))
     if (followRef.current) {
-      geo.on('geolocate', (e) => {
+      onFix.current = (c) => {
         setLocationOff(false)
-        moveToLocation([e.coords.latitude, e.coords.longitude])
-        const at: [number, number] = [Math.round(e.coords.latitude * 1e4) / 1e4, Math.round(e.coords.longitude * 1e4) / 1e4]
+        moveToLocation([c.latitude, c.longitude])
+        const at: [number, number] = [Math.round(c.latitude * 1e4) / 1e4, Math.round(c.longitude * 1e4) / 1e4]
         setMySpot((x) => (x && x[0] === at[0] && x[1] === at[1] ? x : at))
-      })
+      }
+      geo.on('geolocate', (e) => onFix.current(e.coords))
       geo.on('error', (e) => {
         if (e.code !== 1) return // a timeout or no fix: keep looking
         // Location blocked: show Kulhudhuffushi, where the demo data is, and say so.
@@ -766,7 +776,18 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
     }
     m.on('load', () => {
       setReady(true)
-      if (followRef.current) geo.trigger() // look for the viewer straight away
+      // Look for the viewer straight away; opened on a shared place, find them once without moving
+      // the map (the location button still follows them).
+      if (followRef.current && !sharedAtStart.current) geo.trigger()
+      else if (followRef.current)
+        navigator.geolocation?.getCurrentPosition(
+          (p) => {
+            meFix.current(p.coords)
+            onFix.current(p.coords)
+          },
+          (e) => e.code === 1 && setLocationOff(true),
+          { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 },
+        )
       // Start the credits folded (the i button opens them), so they don't cover the map on a phone.
       box.current?.querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show')
     })
@@ -1758,6 +1779,8 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   }, [servicesKey, ready, lang])
   // A route from the viewer to a service (Route on its card), drawn with the trip machinery below.
   const [svcTrip, setSvcTrip] = useState<{ from: [number, number]; to: [number, number]; name: string } | null>(null)
+  // A shared place: its pin (hidden while a route is drawn: the route has its own end pin).
+  const sharedName = useSharedSpot(map, ready, sharedSpot, { showPin: !svcTrip && !trip, lang, label: t.sharePlace, pinHtml: pinSvg('#059669') })
 
   // MTCC RTL buses (live GPS, src/buses.ts): a top-down bus in its route's colour with the route
   // number, gliding and kept on the road like private vehicles. Tap for the route and plate.
@@ -2512,6 +2535,29 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
             {locationOff && (
               <Chip>
                 <span className="min-w-0 flex-1 text-xs font-semibold text-amber-800">{t.locationOff}</span>
+              </Chip>
+            )}
+            {sharedSpot && (
+              <Chip>
+                <MapPin className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                <button type="button" onClick={() => map.current?.flyTo({ center: ll(sharedSpot.at), zoom: 18, duration: 600 })} className="min-w-0 flex-1 truncate text-start font-semibold">
+                  {sharedName ? t.shareAt(sharedName) : t.sharePlace}
+                </button>
+                <button
+                  type="button"
+                  disabled={!mySpot}
+                  title={mySpot ? undefined : t.shareLocating}
+                  onClick={() => mySpot && routeTo({ at: sharedSpot.at, name: sharedName || t.sharePlace, nameDv: sharedName || t.sharePlace })}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-emerald-600 px-2 py-1 text-xs font-bold text-white disabled:opacity-40"
+                >
+                  <RouteIcon className="size-3.5" aria-hidden="true" />
+                  {t.shareRoute}
+                </button>
+                {onSharedClose && (
+                  <button type="button" onClick={onSharedClose} aria-label={t.close} title={t.close} className="grid min-h-8 min-w-8 shrink-0 place-items-center text-slate-500 hover:text-slate-900">
+                    <X className="size-4" aria-hidden="true" />
+                  </button>
+                )}
               </Chip>
             )}
             {/* The one open panel. */}
