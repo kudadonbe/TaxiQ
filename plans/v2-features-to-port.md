@@ -257,6 +257,8 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
 
 ## 29. v2.10.0: 3D figures (three.js) with a person's `look`, 2D/3D switch, the Sinamalé Bridge in the world map: `56ddb6a`. v3: validate `look` on the server; serve the world map with bridges.
 
+## 30. v2.11.0-v2.15.0: corpus editor box and expired-record cleanup; taxi center registry (`centerApplications`, `publicCenters`); the viewer's avatar and child look; place files in tiles; Kulhudhuffushi world map; own house dataset (`scripts/build-houses.py`). v3: center approval, cleanup and look checks become server checks; serve place tiles and house data from the server.
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
