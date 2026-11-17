@@ -1,6 +1,8 @@
 import { Radar } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { MOVING } from '../core/presence'
+import { LOOK_COLOUR_COUNT, MOVING, PERSON_LOOKS } from '../core/presence'
+import { lookColours } from '../core/figures'
+import { LookPreview } from './LookPreview'
 import { MOVING_ICONS } from './iconStyles'
 import { useI18n } from '../i18n'
 import type { useShareMe, Visibility } from '../usePresence'
@@ -90,6 +92,40 @@ export function ShareMe({ me }: { me: ReturnType<typeof useShareMe> }) {
           <p className="mt-1 text-xs font-semibold">{t.moving[me.mode]}</p>
         </div>
       )}
+      {/* How they look on the 3D map: a simple figure and a clothes colour (kept on this phone). */}
+      <div>
+        <p className="text-xs font-semibold">{t.figLook}</p>
+        <p className="mb-1 text-xs text-slate-600">{t.figLookNote}</p>
+        <div className="grid grid-cols-4 gap-1" role="group" aria-label={t.figLook}>
+          {PERSON_LOOKS.map((l) => (
+            <button
+              key={l}
+              type="button"
+              onClick={() => me.setLook({ look: l, colour: me.look.colour })}
+              aria-pressed={me.look.look === l}
+              aria-label={t.figLooks[l]}
+              title={t.figLooks[l]}
+              className={`grid min-h-12 place-items-center rounded-lg ${me.look.look === l ? 'bg-sky-100 ring-2 ring-sky-600' : 'bg-white/70'}`}
+            >
+              <LookPreview look={l} colour={me.look.colour} size={40} />
+            </button>
+          ))}
+        </div>
+        <p className="mt-1 text-xs font-semibold">{t.figLooks[me.look.look]}</p>
+        <div className="mt-1 flex items-center gap-1.5" role="group" aria-label={t.figColour}>
+          {Array.from({ length: LOOK_COLOUR_COUNT }, (_, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => me.setLook({ look: me.look.look, colour: i })}
+              aria-pressed={me.look.colour === i}
+              aria-label={`${t.figColour} ${i + 1}`}
+              className={`size-8 rounded-full border-2 ${me.look.colour === i ? 'border-sky-600 ring-2 ring-sky-600/40' : 'border-white'}`}
+              style={{ background: lookColours(i)[0] }}
+            />
+          ))}
+        </div>
+      </div>
       {me.error && <p className="text-xs font-semibold text-rose-700">{me.error === 'location_denied' ? t.shareDenied : t.saveError(me.error)}</p>}
       <div className="flex gap-2">
         {me.sharing ? (

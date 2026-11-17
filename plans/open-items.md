@@ -36,6 +36,12 @@ property, identity and payments) is in `plans/digital-raajje-vision.md` on the `
 
 ## Needs a decision or an outside step
 
+- [ ] **3D figures and the 2D / 3D switch** (branch `figures-3d`, not merged): review the
+  screenshots, then merge and `pnpm release` (rules change: `look` / `lookColour` on presence).
+  three.js (MIT) needs the MDS whitelist or an exception (SECURITY.md).
+- [ ] **Roads missing on TaxiQ's own map** (v2.9.0): MapLibre refuses the road and casing layers
+  ("Only one zoom-based interpolate"): `roadWidth` in `src/worldStyle.ts` nests a zoom
+  `interpolate` inside a `match`; it must be one outer zoom `interpolate` with the `match` in each stop.
 - [ ] **Automatic deploy** ([PR #2](https://github.com/kudadonbe/TaxiQ/pull/2), `ci-deploy`): the
   owner creates the deploy-only service account and the `FIREBASE_SERVICE_ACCOUNT` secret
   (SECURITY.md, "Automatic deploy"), then merge.
