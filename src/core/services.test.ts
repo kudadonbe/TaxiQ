@@ -51,4 +51,23 @@ describe('services on the map', () => {
     expect(nearestHelp(list, [6.62, 73.07], 'mechanic').map((s) => s.id)).toEqual(['near', 'far'])
     expect(nearestHelp(list, [6.62, 73.07]).map((s) => s.id)[0]).toBe('tyres')
   })
+  it('help near me: the top few re-ranked by road distance, straight line as the fallback', () => {
+    // One road running north from the viewer, then a long way round: A (east, across a block) is
+    // nearer in a straight line but far by road; B (on the road, north) is nearer by road.
+    const graph = {
+      nodes: [[6.62, 73.07], [6.622, 73.07], [6.622, 73.072], [6.62, 73.072]] as [number, number][],
+      next: [[1], [0, 2], [1, 3], [2]],
+    }
+    const list = [
+      { id: 'A', kinds: ['mechanic' as const], at: [6.62, 73.0716] as [number, number], openNow: true },
+      { id: 'B', kinds: ['mechanic' as const], at: [6.6219, 73.07] as [number, number], openNow: true },
+    ]
+    const from: [number, number] = [6.62, 73.07]
+    expect(nearestHelp(list, from, null, 5).map((s) => s.id)).toEqual(['A', 'B'])
+    const byRoad = nearestHelp(list, from, null, 5, graph)
+    expect(byRoad.map((s) => s.id)).toEqual(['B', 'A'])
+    expect(byRoad.every((s) => s.byRoad)).toBe(true)
+    // Off the roads (more than 150 m away): straight line.
+    expect(nearestHelp(list, [6.61, 73.06], null, 5, graph).every((s) => !s.byRoad)).toBe(true)
+  })
 })

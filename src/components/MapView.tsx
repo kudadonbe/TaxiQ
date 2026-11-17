@@ -2051,7 +2051,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   })
   const svcName = (x: PublicService) => (lang === 'dv' && x.nameDv ? x.nameDv : x.name)
   const distance = (metres: number) => (metres < 1000 ? t.svcMetres(String(Math.round(metres))) : t.svcKm((metres / 1000).toFixed(1)))
-  const help = mySpot ? nearestHelp(services, mySpot, helpKind) : []
+  const help = mySpot && active === 'help' ? nearestHelp(services, mySpot, helpKind, 5, graph) : [] // top 5 by road where on the roads
   const routeTo = (x: PublicService) => {
     if (!mySpot) return
     setMode('taxi')

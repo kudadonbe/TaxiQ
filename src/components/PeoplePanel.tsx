@@ -25,7 +25,10 @@ interface Person {
   taxiId?: string
   alsoPrivate?: boolean // a driver also allowed private hire
   centerId?: string // staff and drivers: their center; none on an admin = a platform admin
+  corpus?: boolean // a Dhivehi corpus editor (roles/{email}.corpus; set by platform admins)
 }
+
+type RoleEntry = { role: RoleOrCitizen; taxiId?: string; alsoPrivate?: boolean; centerId?: string; corpus?: boolean }
 
 const ms = (x: unknown) => (x && typeof (x as { toMillis?: () => number }).toMillis === 'function' ? (x as { toMillis: () => number }).toMillis() : null)
 
@@ -33,7 +36,7 @@ export function PeoplePanel({ taxis, center = MAIN, centers = [] }: { taxis: Tax
   const { fb, email: me, role: myRole, isPlatform } = useAuth()
   const { lang, t } = useI18n()
   const [profiles, setProfiles] = useState<{ uid: string; email: string; name: string; lastSeen: number | null }[]>([])
-  const [roles, setRoles] = useState<Map<string, { role: Role; taxiId?: string; alsoPrivate?: boolean; centerId?: string; corpus?: boolean }>>(new Map())
+  const [roles, setRoles] = useState<Map<string, RoleEntry>>(new Map())
   const [filter, setFilter] = useState<RoleOrCitizen | 'all' | 'online'>('all')
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -67,11 +70,14 @@ export function PeoplePanel({ taxis, center = MAIN, centers = [] }: { taxis: Tax
       fb.onSnapshot(
         fb.collection(fb.db, 'roles'),
         (snap) => {
-          const m = new Map<string, { role: Role; taxiId?: string; alsoPrivate?: boolean; centerId?: string; corpus?: boolean }>()
+          const m = new Map<string, RoleEntry>()
           for (const d of snap.docs) {
             const r = d.data().role
+            const corpus = d.data().corpus === true
             if (r === 'admin' || r === 'operator' || r === 'driver' || r === 'private' || r === 'dev')
-              m.set(d.id, { role: r, taxiId: typeof d.data().taxiId === 'string' ? d.data().taxiId : undefined, alsoPrivate: d.data().private === true, centerId: typeof d.data().centerId === 'string' ? d.data().centerId : undefined, corpus: d.data().corpus === true })
+              m.set(d.id, { role: r, taxiId: typeof d.data().taxiId === 'string' ? d.data().taxiId : undefined, alsoPrivate: d.data().private === true, centerId: typeof d.data().centerId === 'string' ? d.data().centerId : undefined, corpus })
+            // A corpus editor with no role: a citizen who edits the corpus.
+            else if (r === undefined && corpus) m.set(d.id, { role: 'citizen', corpus })
           }
           setRoles(m)
         },
@@ -84,8 +90,8 @@ export function PeoplePanel({ taxis, center = MAIN, centers = [] }: { taxis: Tax
   // Everyone: signed-in profiles, plus role entries for people who haven't signed in yet.
   const people = useMemo<Person[]>(() => {
     const byEmail = new Map<string, Person>()
-    for (const p of profiles) if (p.email) byEmail.set(p.email, { ...p, role: roles.get(p.email)?.role ?? 'citizen', taxiId: roles.get(p.email)?.taxiId, alsoPrivate: roles.get(p.email)?.alsoPrivate, centerId: roles.get(p.email)?.centerId })
-    for (const [email, r] of roles) if (!byEmail.has(email)) byEmail.set(email, { email, name: '', lastSeen: null, role: r.role, taxiId: r.taxiId, alsoPrivate: r.alsoPrivate, centerId: r.centerId })
+    for (const p of profiles) if (p.email) byEmail.set(p.email, { ...p, role: roles.get(p.email)?.role ?? 'citizen', taxiId: roles.get(p.email)?.taxiId, alsoPrivate: roles.get(p.email)?.alsoPrivate, centerId: roles.get(p.email)?.centerId, corpus: roles.get(p.email)?.corpus })
+    for (const [email, r] of roles) if (!byEmail.has(email)) byEmail.set(email, { email, name: '', lastSeen: null, role: r.role, taxiId: r.taxiId, alsoPrivate: r.alsoPrivate, centerId: r.centerId, corpus: r.corpus })
     return [...byEmail.values()].sort((a, b) => (b.lastSeen ?? 0) - (a.lastSeen ?? 0) || a.email.localeCompare(b.email))
   }, [profiles, roles])
 
@@ -118,16 +124,19 @@ export function PeoplePanel({ taxis, center = MAIN, centers = [] }: { taxis: Tax
     if (!fb) return
     setError(null)
     const ref = fb.doc(fb.db, 'roles', email)
+    const keepCorpus = !!roles.get(email)?.corpus
     const p =
       role === 'citizen'
-        ? fb.deleteDoc(ref)
+        ? keepCorpus && isPlatform
+          ? fb.setDoc(ref, { corpus: true, addedBy: me ?? '', addedAt: fb.serverTimestamp() })
+          : fb.deleteDoc(ref)
         : fb.setDoc(ref, {
             role,
             ...(role === 'driver' || role === 'dev' ? (taxiId ? { taxiId } : {}) : {}),
             // A center driver who may also offer private hire (the same vehicle, or another).
             ...(role === 'driver' && alsoPrivate ? { private: true } : {}),
             // Keep a corpus editor's flag when their role changes (it's set separately).
-            ...(roles.get(email)?.corpus ? { corpus: true } : {}),
+            ...(keepCorpus ? { corpus: true } : {}),
             ...((role === 'operator' || role === 'driver' || (role === 'admin' && !(platform && isPlatform))) ? { centerId: center } : {}),
             addedBy: me ?? '',
             addedAt: fb.serverTimestamp(),
@@ -138,6 +147,22 @@ export function PeoplePanel({ taxis, center = MAIN, centers = [] }: { taxis: Tax
       const uid = profiles.find((x) => x.email === email)?.uid
       if (uid) logActivity(fb, uid, 'roleChanged', me, role === 'driver' && alsoPrivate ? `${role} + private` : role)
     }).catch((e: { code?: string }) => setError(e.code ?? 'error'))
+  }
+
+  // Corpus editor (Dhivehi corpus), platform admins only: a flag on the person's roles entry; a
+  // citizen gets an entry with only the flag, removed again when the flag is taken away.
+  const setCorpus = (email: string, on: boolean) => {
+    if (!fb || !isPlatform) return
+    setError(null)
+    const ref = fb.doc(fb.db, 'roles', email)
+    const entry = roles.get(email)
+    const p =
+      entry && entry.role !== 'citizen'
+        ? fb.updateDoc(ref, { corpus: on })
+        : on
+          ? fb.setDoc(ref, { corpus: true, addedBy: me ?? '', addedAt: fb.serverTimestamp() })
+          : fb.deleteDoc(ref)
+    p.catch((e: { code?: string }) => setError(e.code ?? 'error'))
   }
 
   const roleOptions = (current: RoleOrCitizen): RoleOrCitizen[] => ['citizen', 'operator', 'driver', 'private', 'admin', ...(isDev || current === 'dev' ? (['dev'] as const) : [])]
@@ -214,6 +239,15 @@ export function PeoplePanel({ taxis, center = MAIN, centers = [] }: { taxis: Tax
                   {(p.role === 'operator' || p.role === 'driver' || p.role === 'admin') && ` · ${p.role === 'admin' && !p.centerId ? t.platformAdmin : (centers.find((c) => c.id === (p.centerId || MAIN))?.name ?? p.centerId ?? '')}`}
                 </span>
                 {self && <span className="text-xs text-slate-400">({t.you})</span>}
+                {/* Platform admins and devs edit the corpus anyway; for everyone else a platform admin ticks it. */}
+                {isPlatform && !self && !platformPerson ? (
+                  <label className="flex min-h-10 items-center gap-1.5 text-xs">
+                    <input type="checkbox" checked={!!p.corpus} onChange={(e) => setCorpus(p.email, e.target.checked)} className="size-4" />
+                    {t.corpusEditorBox}
+                  </label>
+                ) : (
+                  p.corpus && <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">{t.corpusEditorBox}</span>
+                )}
                 {canEdit && !ed && (
                   <button
                     type="button"

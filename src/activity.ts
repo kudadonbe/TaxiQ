@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 
 // Each person's activity log (firestore.rules: activity): one record per event, append-only, kept
-// for 90 days (expireAt; a Firestore TTL policy on activity.expireAt deletes old ones). Written by the
+// for 90 days (expireAt; a platform admin's app deletes old ones with deleteExpired, since a TTL
+// policy needs the Blaze plan). Written by the
 // person's own app, or by staff when they act on that person. Read by the person and by staff. Says
 // no more than needed: never locations or phone numbers.
 
@@ -81,4 +82,43 @@ export function useActivity(fb: Fb | null, uid: string | null, max = 50): Activi
     )
   }, [fb, uid, max])
   return fb && uid ? list : []
+}
+
+// Records past their time, which a TTL policy would delete if we had the Blaze plan: activity
+// entries (expireAt, 90 days) and location-sharing records left behind when an app closed
+// (presence and presencePublic, expiresAt, at most an hour). A platform admin's app deletes them in
+// batches of up to 400; the rules allow it only for platform admins and only once expired. Returns
+// how many were deleted. Stops after `rounds` batches per collection; the next run carries on.
+export const CLEANUP_BATCH = 400
+const EXPIRING: readonly (readonly [collection: string, field: string])[] = [
+  ['activity', 'expireAt'],
+  ['presence', 'expiresAt'],
+  ['presencePublic', 'expiresAt'],
+]
+export async function deleteExpired(fb: Fb, rounds = 10): Promise<number> {
+  let total = 0
+  for (const [col, field] of EXPIRING) {
+    for (let i = 0; i < rounds; i++) {
+      const snap = await fb.getDocs(fb.query(fb.collection(fb.db, col), fb.where(field, '<', fb.Timestamp.now()), fb.limit(CLEANUP_BATCH)))
+      if (snap.empty) break
+      const batch = fb.writeBatch(fb.db)
+      for (const d of snap.docs) batch.delete(d.ref)
+      await batch.commit()
+      total += snap.size
+      if (snap.size < CLEANUP_BATCH) break
+    }
+  }
+  return total
+}
+
+// Once a day per device: true when the cleanup hasn't run today here (and marks it as run).
+const CLEANUP_KEY = 'taxiq.activityCleanup'
+export function cleanupDueToday(today = new Date().toISOString().slice(0, 10)): boolean {
+  try {
+    if (localStorage.getItem(CLEANUP_KEY) === today) return false
+    localStorage.setItem(CLEANUP_KEY, today)
+    return true
+  } catch {
+    return false // no storage: only the button runs it
+  }
 }

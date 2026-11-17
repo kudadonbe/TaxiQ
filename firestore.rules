@@ -29,7 +29,7 @@ service cloud.firestore {
       return /databases/$(database)/documents/roles/$(email());
     }
     function role() {
-      return signedIn() && exists(roleDoc()) ? get(roleDoc()).data.role : '';
+      return signedIn() && exists(roleDoc()) ? get(roleDoc()).data.get('role', '') : '';
     }
     function isAdmin() {
       return role() in ['admin', 'dev'];
@@ -76,8 +76,8 @@ service cloud.firestore {
     match /roles/{userEmail} {
       // Only a dev may give, change or remove the dev role (an admin can't make themselves dev).
       function touchesDev() {
-        return (resource != null && resource.data.role == 'dev')
-          || (request.resource != null && request.resource.data.role == 'dev');
+        return (resource != null && resource.data.get('role', '') == 'dev')
+          || (request.resource != null && request.resource.data.get('role', '') == 'dev');
       }
       allow read: if signedIn() && (userEmail == email() || isAdmin());
       // A center admin gives and changes roles only within their own center (and the Private
@@ -102,8 +102,11 @@ service cloud.firestore {
         && (isPlatform() || request.resource.data.get('corpus', false) == (resource == null ? false : resource.data.get('corpus', false)))
         && (!('centerId' in request.resource.data) || str(request.resource.data.centerId, 40))
         && request.resource.data.get('private', false) is bool
-        && request.resource.data.role in ['admin', 'operator', 'driver', 'private', 'dev']
-        && (request.resource.data.role != 'driver' || str(request.resource.data.taxiId, 40))
+        // A corpus editor with no role (a citizen): no role field, only corpus: true, platform admins only.
+        && (request.resource.data.get('role', '') in ['admin', 'operator', 'driver', 'private', 'dev']
+          || (!('role' in request.resource.data) && isPlatform() && request.resource.data.get('corpus', false) == true
+            && request.resource.data.keys().hasOnly(['corpus', 'addedBy', 'addedAt'])))
+        && (request.resource.data.get('role', '') != 'driver' || str(request.resource.data.taxiId, 40))
         && userEmail == userEmail.lower();
       // Nobody removes their own entry (avoids locking everyone out).
       allow delete: if isAdmin() && userEmail != email() && (!touchesDev() || role() == 'dev') && (isPlatform() || centerAdminMay());
@@ -133,14 +136,16 @@ service cloud.firestore {
         && str(request.resource.data.name, 80)
         && request.resource.data.visibility in ['staff', 'public']
         && presenceShape(request.resource.data);
-      allow delete: if signedIn() && uid == request.auth.uid;
+      // Or left behind past expiresAt: a platform admin's cleanup (deleteExpired; no TTL without Blaze).
+      allow delete: if (signedIn() && uid == request.auth.uid) || (isPlatform() && resource.data.expiresAt < request.time);
     }
     match /presencePublic/{uid} {
       allow read: if signedIn();
       allow create, update: if signedIn() && uid == request.auth.uid
         && request.resource.data.keys().hasOnly(['at', 'mode', 'modeAuto', 'level', 'look', 'lookColour', 'updatedAt', 'expiresAt'])
         && presenceShape(request.resource.data);
-      allow delete: if signedIn() && uid == request.auth.uid;
+      // Or left behind past expiresAt: a platform admin's cleanup (deleteExpired; no TTL without Blaze).
+      allow delete: if (signedIn() && uid == request.auth.uid) || (isPlatform() && resource.data.expiresAt < request.time);
     }
 
     match /users/{uid} {
@@ -847,8 +852,9 @@ service cloud.firestore {
     }
 
     // Each person's activity log (src/activity.ts): append-only, written by the person's own app or
-    // by staff acting on them, read by the person and staff. Kept 90 days: a TTL policy on expireAt
-    // deletes old entries. Never holds locations or phone numbers (short detail only).
+    // by staff acting on them, read by the person and staff. Kept 90 days: a platform admin's app
+    // deletes entries past expireAt (deleteExpired in src/activity.ts; no TTL policy, which needs the Blaze plan).
+    // Never holds locations or phone numbers (short detail only).
     match /activity/{id} {
       allow read: if signedIn() && (resource.data.uid == request.auth.uid || isStaff());
       allow create: if signedIn()
@@ -864,7 +870,9 @@ service cloud.firestore {
           'vehicleSuspended', 'vehicleLinked', 'availableOn', 'availableOff', 'bookingSent', 'bookingCancelled', 'bookingDone',
           'offerTaken', 'offerPassed', 'tripFinished', 'problemReported', 'rideFixed']
         && (request.resource.data.uid == request.auth.uid || isStaff());
-      allow update, delete: if false;
+      allow update: if false;
+      // Only expired entries, only by platform admins (the cleanup).
+      allow delete: if isPlatform() && resource.data.expireAt < request.time;
     }
 
     // Each person's money account (src/account.ts, src/core/account.ts). Append-only. When a trip

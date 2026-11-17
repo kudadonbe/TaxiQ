@@ -39,13 +39,24 @@ property, identity and payments) is in `plans/digital-raajje-vision.md` on the `
   outfits; each person picks a look), a 2D / 3D switch. **Left:** vehicles on the bridge deck
   (`bridgeHeightAt`), faded resting figures in 3D, the game on the own map, stepped V-piers.
 
+## Small items (branch `small-items`, not merged yet)
+
+- [x] **Corpus editor** checkbox in Management -> Users (platform admins; citizens get a role-less
+  entry with only `corpus: true`; rules checked).
+- [x] **Old activity-log entries** without Blaze: a platform admin's app deletes expired `activity`
+  (and left-behind `presence` / `presencePublic`) records once a day per device, or with the button
+  in Users; the rules allow it only for platform admins and only after expiry. Needs `pnpm rules`.
+- [x] **Help near me** re-ranks the top 5 by road distance (straight line as the fallback).
+- [x] **Unused strings** removed (18 keys, en and dv).
+- [x] **Dhivehi review list**: `scripts/list-dv.mjs` (default since v2.6.0) wrote
+  `plans/dhivehi-to-check.md` (48 strings): **owner to check**.
+
 ## Needs a decision or an outside step
 
 - [ ] **three.js** (MIT, v2.10.0) needs the MDS whitelist or an exception (SECURITY.md).
 - [ ] **Automatic deploy** ([PR #2](https://github.com/kudadonbe/TaxiQ/pull/2), `ci-deploy`): the
   owner creates the deploy-only service account and the `FIREBASE_SERVICE_ACCOUNT` secret
   (SECURITY.md, "Automatic deploy"), then merge.
-- [ ] **Old activity-log entries** (90 days): TTL needs the Blaze plan; or a free in-app cleanup.
 - [ ] **Email to the Dhivehi Language Academy** (draft in the owner's Gmail): proofread and send.
   No Radheef data without their permission.
 - [ ] **MTCC**: a formal OK (or an official API) for the RTL bus feed.

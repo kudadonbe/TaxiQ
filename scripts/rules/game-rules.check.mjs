@@ -286,7 +286,25 @@ const del = async (name, uid, path) => {
   if (!pass) fails++
   console.log(`${pass ? 'PASS' : 'FAIL'}  denied   ${name}`)
 }
-await del('nobody deletes a log entry, not even staff', 'adm', 'activity/a1')
+await del('nobody deletes a log entry before it expires, not even a platform admin', 'adm', 'activity/a1')
+// Old entries (past expireAt): only a platform admin's cleanup deletes them (no TTL without Blaze).
+const delOk = async (name, uid, path, ok) => {
+  const r = await fetch(`${BASE}:commit`, { method: 'POST', headers: { Authorization: `Bearer ${tok(uid)}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ writes: [{ delete: `projects/${P}/databases/(default)/documents/${path}` }] }) })
+  const pass = r.ok === ok
+  if (!pass) fails++
+  console.log(`${pass ? 'PASS' : 'FAIL'}  ${ok ? 'allowed' : 'denied '}  ${name}`)
+}
+await fetch(`${BASE}:commit`, { method: 'POST', headers: { Authorization: 'Bearer owner', 'Content-Type': 'application/json' }, body: JSON.stringify({ writes: [write('activity/old1', act({ at: new Date(Date.now() - 100 * 86_400_000), expireAt: new Date(Date.now() - 10 * 86_400_000) }))] }) })
+await delOk('the person cannot delete their own expired entry', 'c', 'activity/old1', false)
+await delOk('an operator cannot delete an expired entry', 'op', 'activity/old1', false)
+await delOk('a center admin cannot delete an expired entry', 'ca', 'activity/old1', false)
+await delOk('a platform admin deletes an expired entry', 'adm', 'activity/old1', true)
+// Location records left behind past expiresAt: the same cleanup.
+await fetch(`${BASE}:commit`, { method: 'POST', headers: { Authorization: 'Bearer owner', 'Content-Type': 'application/json' }, body: JSON.stringify({ writes: [write('presence/gone', pres({ expiresAt: new Date(Date.now() - 3600_000) })), write('presencePublic/gone', pub({ expiresAt: new Date(Date.now() - 3600_000) }))] }) })
+await delOk('an operator cannot delete a left-behind location', 'op', 'presence/gone', false)
+await delOk('a platform admin deletes a left-behind location', 'adm', 'presence/gone', true)
+await delOk('and its public copy', 'adm', 'presencePublic/gone', true)
+await delOk('but not a live one', 'adm', 'presencePublic/b', false)
 await canRead('another citizen cannot read it', 'd', 'activity/a1', false)
 await canRead('the person reads their own log', 'c', 'activity/a1', true)
 await canRead('staff read it', 'op', 'activity/a1', true)
@@ -374,6 +392,14 @@ await expect('an operator who is also a corpus editor writes a word', 'edop', wo
 await canRead('a corpus editor reads the corpus', 'ed', 'corpusWords/w1', true)
 await expect('a center admin cannot make someone a corpus editor', 'ca', [write('roles/z@test.example', { role: 'operator', centerId: 'c2', corpus: true, addedBy: 'ca@test.example', addedAt: NOW })], false)
 await expect('a platform admin can', 'adm', [write('roles/z@test.example', { role: 'operator', centerId: 'c2', corpus: true, addedBy: 'adm@test.example', addedAt: NOW })], true)
+await expect('a center admin cannot take the corpus flag away', 'ca', [write('roles/z@test.example', { corpus: false }, { merge: true })], false)
+await expect('a platform admin takes it away (Users checkbox)', 'adm', [write('roles/z@test.example', { corpus: false }, { merge: true })], true)
+await expect('a platform admin makes a citizen (no role) a corpus editor', 'adm', [write('roles/cz@test.example', { corpus: true, addedBy: 'adm@test.example', addedAt: NOW })], true)
+await expect('a center admin cannot make a citizen a corpus editor', 'ca', [write('roles/cz2@test.example', { corpus: true, addedBy: 'ca@test.example', addedAt: NOW })], false)
+await expect('an entry with no role must be a corpus editor', 'adm', [write('roles/cz3@test.example', { corpus: false, addedBy: 'adm@test.example', addedAt: NOW })], false)
+await expect('an entry with no role cannot carry a taxi', 'adm', [write('roles/cz4@test.example', { corpus: true, taxiId: 't1', addedBy: 'adm@test.example', addedAt: NOW })], false)
+await expect('the citizen corpus editor writes a word', 'cz', wordWrites('cz', 'w8', 'h18'), true)
+await delOk('a platform admin removes the citizen corpus editor', 'adm', 'roles/cz@test.example', true)
 // Services on the map (mechanics, tyres, towing...). m is a citizen offering a service; op an operator.
 const wk = (open = '08:00', close = '18:00') => [null, { open, close }, { open, close }, { open, close }, { open, close }, { open, close }, null]
 const svc = (o = {}) => ({ name: 'Ali Garage', nameDv: 'ޢަލީ ގަރާޖް', kinds: ['mechanic', 'tyre'], mode: 'fixed', at: [4.17, 73.5], hours: wk(), phone: '7771234', priceNote: 'Puncture from MVR 50', note: '', ownerUid: 'm', ownerName: 'M', status: 'pending', reason: '', decidedBy: null, decidedAt: null, createdAt: NOW, updatedAt: NOW, ...o })

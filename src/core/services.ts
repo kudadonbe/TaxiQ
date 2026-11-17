@@ -4,6 +4,9 @@
 // MOBILE helpers (a mechanic who comes to you, a tow truck) show only while they switch Available on,
 // so a home-based helper's home is never shown. Pure functions.
 
+import { route, type RoadGraph } from './route'
+import { snapToRoad } from './snap'
+
 export const SERVICE_KINDS = ['mechanic', 'tyre', 'battery', 'towing', 'carwash', 'ac', 'parts', 'fuel', 'ebike'] as const
 export type ServiceKind = (typeof SERVICE_KINDS)[number]
 export type ServiceMode = 'fixed' | 'mobile'
@@ -83,18 +86,29 @@ export function metresBetween(a: readonly [number, number], b: readonly [number,
   return Math.hypot((b[0] - a[0]) * 111_320, (b[1] - a[1]) * 111_320 * k)
 }
 
-// "Help near me": open (or Available) helpers, optionally of one kind, nearest first (straight line;
-// the map can refine the top few by road distance).
+// "Help near me": open (or Available) helpers, optionally of one kind, nearest first. Picked by
+// straight line; with a road graph where the viewer is on the roads (within ON_ROAD_M), the top few
+// are re-ranked by road distance (driving, one-way streets followed). A helper off the roads, or one
+// the roads don't reach, keeps its straight-line distance (the fallback).
 export interface NearbyService {
   id: string
   kinds: ServiceKind[]
   at: [number, number]
   openNow: boolean
 }
-export function nearestHelp<T extends NearbyService>(list: T[], from: [number, number], kind: ServiceKind | null = null, max = 5): (T & { metres: number })[] {
-  return list
+export const ON_ROAD_M = 150
+export function nearestHelp<T extends NearbyService>(list: T[], from: [number, number], kind: ServiceKind | null = null, max = 5, graph?: RoadGraph | null): (T & { metres: number; byRoad: boolean })[] {
+  const top = list
     .filter((s) => s.openNow && (!kind || s.kinds.includes(kind)))
-    .map((s) => ({ ...s, metres: metresBetween(from, s.at) }))
+    .map((s) => ({ ...s, metres: metresBetween(from, s.at), byRoad: false }))
     .sort((a, b) => a.metres - b.metres)
     .slice(0, max)
+  if (!graph || !graph.nodes.length || !snapToRoad(graph, from, ON_ROAD_M)) return top
+  return top
+    .map((s) => {
+      if (!snapToRoad(graph, s.at, ON_ROAD_M)) return s
+      const r = route(graph, from, s.at, 'taxi')
+      return r ? { ...s, metres: r.metres, byRoad: true } : s
+    })
+    .sort((a, b) => a.metres - b.metres)
 }
