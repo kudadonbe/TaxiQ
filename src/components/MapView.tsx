@@ -845,8 +845,10 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         addWorld(m, worldArea, w, before, night)
         setWorldNight(m, worldArea, night)
         setWorld3d(m, worldArea, view3dRef.current)
+        // Hide the area we leave, in 2D too: its layers (and its sea, a full-screen background)
+        // would otherwise stay on top of the new area's and cover it.
+        if (shownWorld.current && shownWorld.current !== worldArea) showWorld(m, shownWorld.current, false)
         if (shownWorld.current !== worldArea && view3dRef.current) {
-          if (shownWorld.current) showWorld(m, shownWorld.current, false)
           // Coming in: tilt to the game view once the map has settled (a fly to the viewer would
           // cancel it); geolocateSource keeps "follow me" on.
           let tries = 3
