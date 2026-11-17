@@ -259,6 +259,8 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
 
 ## 30. v2.11.0-v2.15.0: corpus editor box and expired-record cleanup; taxi center registry (`centerApplications`, `publicCenters`); the viewer's avatar and child look; place files in tiles; Kulhudhuffushi world map; own house dataset (`scripts/build-houses.py`). v3: center approval, cleanup and look checks become server checks; serve place tiles and house data from the server.
 
+## 31. v2.15.1-v2.17.0: Share pickup to our own map (`?at=`), our own houses in 3D (`src/houses3d`, house tiles), one tap menu for every figure (`src/core/figureMenu.ts`).
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
