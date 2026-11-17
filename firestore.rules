@@ -541,6 +541,140 @@ service cloud.firestore {
       allow delete: if signedIn() && (resource == null || resource.data.ownerUid == request.auth.uid || isStaff());
     }
 
+    // ---- Taxi center registry (src/core/centerApps.ts, src/centerApps.ts). The OWNER of a taxi
+    // center applies (pending); a platform admin approves, rejects or suspends with a reason. On
+    // approval, in one batch: the center (centers/{id}, the same id), the owner's role (admin of that
+    // center, only if they hold no staff role elsewhere) and its map copy (publicCenters/{id}). The
+    // licence number is read only by the owner and platform admins; publicCenters never holds it.
+    // A new logo after approval waits as pendingLogo until a platform admin approves it.
+    function ctrLogo(l) {
+      return l is string && (l == ''
+        || (l.size() <= 56000 && l.matches('^data:image/(png|webp);base64,[A-Za-z0-9+/]+={0,2}$')));
+    }
+    function ctrDetails(d) {
+      return str(d.name, 60) && d.name.size() > 1
+        && str(d.nameDv, 60)
+        && d.at is list && d.at.size() == 2 && d.at[0] is number && d.at[1] is number
+        && d.at[0] >= -90 && d.at[0] <= 90 && d.at[1] >= -180 && d.at[1] <= 180
+        && svcHours(d.hours)
+        && !(d.hours[0] == null && d.hours[1] == null && d.hours[2] == null && d.hours[3] == null
+          && d.hours[4] == null && d.hours[5] == null && d.hours[6] == null)
+        && d.phone is string && d.phone.matches('^[0-9]{7}$')
+        && d.licence is string && d.licence.matches('^[A-Z0-9][A-Z0-9/-]{2,29}$')
+        && ctrLogo(d.logo) && ctrLogo(d.pendingLogo)
+        && str(d.ownerName, 80);
+    }
+    function ctrKeys() {
+      return ['name', 'nameDv', 'at', 'hours', 'phone', 'licence', 'logo', 'pendingLogo', 'ownerUid', 'ownerEmail', 'ownerName',
+        'centerId', 'status', 'reason', 'decidedBy', 'decidedAt', 'createdAt', 'updatedAt'];
+    }
+    function ctrRole(e) {
+      return /databases/$(database)/documents/roles/$(e);
+    }
+    // The owner holds no staff role elsewhere (none, citizen, private driver or corpus only), or is
+    // already this center's admin (approved again after an edit).
+    function ctrRoleFree(id, e) {
+      return !exists(ctrRole(e))
+        || !(get(ctrRole(e)).data.get('role', '') in ['admin', 'operator', 'driver', 'dev'])
+        || (get(ctrRole(e)).data.get('role', '') == 'admin' && get(ctrRole(e)).data.get('centerId', '') == id);
+    }
+    // Approving: the center, the owner's admin role and the map copy are written in the same batch.
+    function ctrApproved(id, d) {
+      return d.centerId == id
+        && getAfter(/databases/$(database)/documents/centers/$(id)).data.name == d.name
+        && getAfter(/databases/$(database)/documents/centers/$(id)).data.nameDv == d.nameDv
+        && getAfter(/databases/$(database)/documents/centers/$(id)).data.at == d.at
+        && ctrRoleFree(id, d.ownerEmail)
+        && getAfter(ctrRole(d.ownerEmail)).data.role == 'admin'
+        && getAfter(ctrRole(d.ownerEmail)).data.get('centerId', '') == id
+        && existsAfter(/databases/$(database)/documents/publicCenters/$(id));
+    }
+    match /centerApplications/{appId} {
+      allow read: if isPlatform() || (signedIn() && resource.data.ownerUid == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(ctrKeys()) && request.resource.data.keys().hasAll(ctrKeys())
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.ownerEmail == email()
+        && request.resource.data.status == 'pending' && request.resource.data.reason == ''
+        && request.resource.data.decidedBy == null && request.resource.data.decidedAt == null
+        && request.resource.data.centerId == null && request.resource.data.pendingLogo == ''
+        && request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time
+        && ctrDetails(request.resource.data);
+      allow update: if signedIn() && request.resource.data.keys().hasOnly(ctrKeys()) && (
+        // The owner: send it again (pending or rejected); or, approved, change hours and phone
+        // straight away or offer a new logo (pendingLogo), or a new name or place (back to Pending).
+        (resource.data.ownerUid == request.auth.uid
+          && request.resource.data.ownerUid == request.auth.uid
+          && request.resource.data.updatedAt == request.time
+          && ctrDetails(request.resource.data)
+          && ((resource.data.status in ['pending', 'rejected']
+              && request.resource.data.keys().hasAll(ctrKeys())
+              && request.resource.data.status == 'pending' && request.resource.data.reason == ''
+              && request.resource.data.decidedBy == null && request.resource.data.decidedAt == null
+              && request.resource.data.ownerEmail == resource.data.ownerEmail
+              && request.resource.data.centerId == resource.data.centerId
+              && request.resource.data.pendingLogo == ''
+              && request.resource.data.createdAt is timestamp)
+            || (resource.data.status == 'approved'
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hours', 'phone', 'pendingLogo', 'updatedAt']))
+            || (resource.data.status == 'approved' && request.resource.data.status == 'pending' && request.resource.data.reason == ''
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'nameDv', 'at', 'hours', 'phone', 'pendingLogo', 'status', 'reason', 'updatedAt']))))
+        // A platform admin decides (and approves or turns down a new logo); nothing else changes.
+        || (isPlatform()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reason', 'decidedBy', 'decidedAt', 'updatedAt', 'centerId', 'logo', 'pendingLogo'])
+          && request.resource.data.status in ['approved', 'rejected', 'suspended']
+          && str(request.resource.data.reason, 120)
+          && (request.resource.data.status == 'approved' || request.resource.data.reason.size() > 0)
+          && request.resource.data.decidedBy == email()
+          && request.resource.data.decidedAt == request.time
+          && request.resource.data.updatedAt == request.time
+          && (request.resource.data.logo == resource.data.logo || request.resource.data.logo == resource.data.pendingLogo)
+          && (request.resource.data.pendingLogo == resource.data.pendingLogo || request.resource.data.pendingLogo == '')
+          && (request.resource.data.status == 'approved'
+            ? (resource.data.status == 'approved' ? request.resource.data.centerId == resource.data.centerId : ctrApproved(appId, request.resource.data))
+            : request.resource.data.centerId == resource.data.centerId)));
+      // The owner withdraws it while it never ran as a center, and never while suspended.
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid
+        && resource.data.status in ['pending', 'rejected'] && resource.data.centerId == null;
+    }
+    // Every application and decision, kept for good.
+    match /centerLog/{logId} {
+      allow read: if isPlatform() || (signedIn() && resource.data.ownerUid == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['appId', 'ownerUid', 'action', 'by', 'reason', 'at'])
+        && str(request.resource.data.appId, 128)
+        && request.resource.data.action in ['applied', 'edited', 'withdrawn', 'logo', 'approved', 'rejected', 'suspended', 'logoApproved', 'logoRejected']
+        && str(request.resource.data.reason, 120)
+        && request.resource.data.at == request.time
+        && request.resource.data.by == email()
+        && (request.resource.data.action in ['applied', 'edited', 'withdrawn', 'logo']
+          ? request.resource.data.ownerUid == request.auth.uid
+          : isPlatform());
+      allow update, delete: if false;
+    }
+    // What the map reads: exactly what was approved (no licence number), written by a platform
+    // admin in the approval batch or by the owner's app when hours or phone change.
+    match /publicCenters/{centerId} {
+      function capp() {
+        return getAfter(/databases/$(database)/documents/centerApplications/$(centerId)).data;
+      }
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasOnly(['name', 'nameDv', 'at', 'phone', 'hours', 'logo', 'updatedAt'])
+        && request.resource.data.keys().hasAll(['name', 'nameDv', 'at', 'phone', 'hours', 'logo', 'updatedAt'])
+        && request.resource.data.updatedAt == request.time
+        && (isPlatform() || capp().ownerUid == request.auth.uid)
+        && capp().status == 'approved'
+        && request.resource.data.name == capp().name
+        && request.resource.data.nameDv == capp().nameDv
+        && request.resource.data.at == capp().at
+        && request.resource.data.phone == capp().phone
+        && request.resource.data.hours == capp().hours
+        && request.resource.data.logo == capp().logo;
+      allow delete: if isPlatform()
+        || (signedIn() && get(/databases/$(database)/documents/centerApplications/$(centerId)).data.ownerUid == request.auth.uid);
+    }
+
     match /publicTaxis/{taxiId} {
       allow read: if true;
       allow create, update: if adminOf(request.resource.data.get('centerId', 'main'))

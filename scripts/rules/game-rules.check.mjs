@@ -502,5 +502,78 @@ await expect('a made-up look is refused', 'b', [write('presence/b', pres({ look:
 await expect('a made-up look is refused on the public copy too', 'b', [write('presencePublic/b', pub({ look: '<b>x</b>' }))], false)
 await expect('a colour outside 0-5 is refused', 'b', [write('presence/b', pres({ look: 'young', lookColour: 6 }))], false)
 await expect('a colour that is not a whole number is refused', 'b', [write('presencePublic/b', pub({ lookColour: 'red' }))], false)
+// Taxi center registry: own (no role) owns a taxi center and applies; adm is a platform admin, ca a
+// center admin (c2), op an operator.
+const LOGO1 = 'data:image/png;base64,iVBORw0KGgo='
+const LOGO2 = 'data:image/webp;base64,UklGRiQAAABXRUJQ'
+const cHours = wk('06:00', '23:00')
+const cHours2 = wk('07:00', '22:00')
+const ctrApp = (o = {}) => ({ name: 'Island Taxi', nameDv: '', at: [4.17, 73.5], hours: cHours, phone: '7775555', licence: 'TA/TC-15', logo: LOGO1, pendingLogo: '', ownerUid: 'own', ownerEmail: 'own@test.example', ownerName: 'Own', centerId: null, status: 'pending', reason: '', decidedBy: null, decidedAt: null, createdAt: NOW, updatedAt: NOW, ...o })
+const ctrLog = (o = {}) => ({ appId: 'ca1', ownerUid: 'own', action: 'applied', by: 'own@test.example', reason: '', at: NOW, ...o })
+const ctrPub = (o = {}) => ({ name: 'Island Taxi', nameDv: '', at: [4.17, 73.5], phone: '7775555', hours: cHours, logo: LOGO1, updatedAt: NOW, ...o })
+const ctrDecide = (id, status, by, o = {}) => write(`centerApplications/${id}`, { status, reason: '', decidedBy: `${by}@test.example`, decidedAt: NOW, updatedAt: NOW, ...o }, { merge: true })
+const approveBatch = (by, pubO = {}) => [
+  ctrDecide('ca1', 'approved', by, { centerId: 'ca1' }),
+  write('centers/ca1', { name: 'Island Taxi', nameDv: '', at: [4.17, 73.5], updatedBy: `${by}@test.example`, updatedAt: NOW }),
+  write('roles/own@test.example', { role: 'admin', centerId: 'ca1', addedBy: `${by}@test.example`, addedAt: NOW }),
+  write('publicCenters/ca1', ctrPub(pubO)),
+]
+await expect('a taxi center owner applies, and it is logged', 'own', [write('centerApplications/ca1', ctrApp()), write('centerLog/cl1', ctrLog())], true)
+await expect('a bad licence number is refused', 'own', [write('centerApplications/ca9', ctrApp({ licence: 'ta 15' }))], false)
+await expect('a licence with markup is refused', 'own', [write('centerApplications/ca9', ctrApp({ licence: '<b>15</b>' }))], false)
+await expect('the phone must be 7 digits', 'own', [write('centerApplications/ca9', ctrApp({ phone: '77755' }))], false)
+await expect('an SVG logo is refused', 'own', [write('centerApplications/ca9', ctrApp({ logo: 'data:image/svg+xml;base64,PHN2Zz4=' }))], false)
+await expect('a logo that is not a clean data URL is refused', 'own', [write('centerApplications/ca9', ctrApp({ logo: 'data:image/png;base64,abc" onerror="x' }))], false)
+await expect('a logo from a web address is refused', 'own', [write('centerApplications/ca9', ctrApp({ logo: 'https://example.com/a.png' }))], false)
+await expect('a logo over the size limit is refused', 'own', [write('centerApplications/ca9', ctrApp({ logo: `data:image/png;base64,${'A'.repeat(56000)}` }))], false)
+await expect('nobody applies already approved', 'own', [write('centerApplications/ca9', ctrApp({ status: 'approved' }))], false)
+await expect('nobody applies in someone else\'s name', 'n', [write('centerApplications/ca9', ctrApp())], false)
+await expect('nobody applies with someone else\'s email', 'n', [write('centerApplications/ca9', ctrApp({ ownerUid: 'n' }))], false)
+await canRead('the owner reads the application', 'own', 'centerApplications/ca1', true)
+await canRead('a platform admin reads the licence number', 'adm', 'centerApplications/ca1', true)
+await canRead('another citizen cannot read it', 'n', 'centerApplications/ca1', false)
+await canRead('a center admin cannot read it', 'ca', 'centerApplications/ca1', false)
+await canRead('an operator cannot read it', 'op', 'centerApplications/ca1', false)
+await expect('pending: it cannot go on the map', 'own', [write('publicCenters/ca1', ctrPub())], false)
+await expect('a center admin cannot approve it', 'ca', approveBatch('ca'), false)
+await expect('an operator cannot approve it', 'op', approveBatch('op'), false)
+await expect('the owner cannot approve it', 'own', approveBatch('own'), false)
+await expect('approval must put the approved details on the map', 'adm', approveBatch('adm', { phone: '7770000' }), false)
+await expect('approval must make the owner its admin', 'adm', [...approveBatch('adm').filter((w) => !w.update.name.includes('/roles/'))], false)
+await expect('a platform admin approves: center, owner as its admin and map copy in one batch', 'adm', [...approveBatch('adm'), write('centerLog/cl2', ctrLog({ action: 'approved', by: 'adm@test.example' }))], true)
+await expect('the owner cannot log a decision', 'own', [write('centerLog/cl3', ctrLog({ action: 'approved' }))], false)
+await canRead('a signed-in person sees it on the map', 'n', 'publicCenters/ca1', true)
+await expect('the map copy cannot carry the licence number', 'own', [write('publicCenters/ca1', { ...ctrPub(), licence: 'TA/TC-15' })], false)
+await expect('the map copy must match: another name is refused', 'own', [write('publicCenters/ca1', ctrPub({ name: 'Best Taxi' }))], false)
+await expect('the map copy must match: an unapproved logo is refused', 'own', [write('publicCenters/ca1', ctrPub({ logo: LOGO2 }))], false)
+await expect('someone else cannot write the map copy', 'n', [write('publicCenters/ca1', ctrPub())], false)
+await expect('approved: the owner changes hours and phone straight away (and on the map)', 'own', [write('centerApplications/ca1', { hours: cHours2, phone: '7776666', updatedAt: NOW }, { merge: true }), write('publicCenters/ca1', ctrPub({ hours: cHours2, phone: '7776666' }))], true)
+await expect('approved: a new name alone (still approved) is refused', 'own', [write('centerApplications/ca1', { name: 'Best Taxi', updatedAt: NOW }, { merge: true })], false)
+await expect('approved: the owner cannot swap the logo directly', 'own', [write('centerApplications/ca1', { logo: LOGO2, updatedAt: NOW }, { merge: true })], false)
+await expect('approved: a new logo waits for approval', 'own', [write('centerApplications/ca1', { pendingLogo: LOGO2, updatedAt: NOW }, { merge: true })], true)
+await expect('a center admin cannot approve the logo', 'ca', [ctrDecide('ca1', 'approved', 'ca', { logo: LOGO2, pendingLogo: '' })], false)
+await expect('a platform admin cannot set a logo nobody offered', 'adm', [ctrDecide('ca1', 'approved', 'adm', { logo: 'data:image/png;base64,QUJD' })], false)
+await expect('a platform admin approves the new logo (and the map copy)', 'adm', [ctrDecide('ca1', 'approved', 'adm', { logo: LOGO2, pendingLogo: '' }), write('publicCenters/ca1', ctrPub({ hours: cHours2, phone: '7776666', logo: LOGO2 }))], true)
+await expect('approved: a new place goes back to pending (off the map)', 'own', [write('centerApplications/ca1', { at: [4.18, 73.51], status: 'pending', reason: '', updatedAt: NOW }, { merge: true }), delW('publicCenters/ca1')], true)
+await expect('approved again: the owner is already its admin', 'adm', [
+  ctrDecide('ca1', 'approved', 'adm'),
+  write('centers/ca1', { name: 'Island Taxi', nameDv: '', at: [4.18, 73.51], updatedBy: 'adm@test.example', updatedAt: NOW }),
+  write('roles/own@test.example', { role: 'admin', centerId: 'ca1', addedBy: 'adm@test.example', addedAt: NOW }),
+  write('publicCenters/ca1', ctrPub({ at: [4.18, 73.51], hours: cHours2, phone: '7776666', logo: LOGO2 })),
+], true)
+await expect('suspending needs a reason', 'adm', [ctrDecide('ca1', 'suspended', 'adm'), delW('publicCenters/ca1')], false)
+await expect('a platform admin suspends it with a reason, off the map', 'adm', [ctrDecide('ca1', 'suspended', 'adm', { reason: 'Licence expired' }), delW('publicCenters/ca1')], true)
+await expect('suspended: it cannot go back on the map', 'own', [write('publicCenters/ca1', ctrPub({ at: [4.18, 73.51], hours: cHours2, phone: '7776666', logo: LOGO2 }))], false)
+await expect('suspended: the owner cannot lift it', 'own', [write('centerApplications/ca1', { status: 'pending', reason: '', updatedAt: NOW }, { merge: true })], false)
+await del('suspended: the owner cannot withdraw it', 'own', 'centerApplications/ca1')
+await expect('a center driver applies for a center of their own', 'drv', [write('centerApplications/ca2', ctrApp({ ownerUid: 'drv', ownerEmail: 'drv@test.example' }))], true)
+await expect('approval is refused while they work for another center', 'adm', [
+  ctrDecide('ca2', 'approved', 'adm', { centerId: 'ca2' }),
+  write('centers/ca2', { name: 'Island Taxi', nameDv: '', at: [4.17, 73.5], updatedBy: 'adm@test.example', updatedAt: NOW }),
+  write('roles/drv@test.example', { role: 'admin', centerId: 'ca2', addedBy: 'adm@test.example', addedAt: NOW }),
+  write('publicCenters/ca2', ctrPub()),
+], false)
+await expect('a platform admin rejects it with a reason', 'adm', [ctrDecide('ca2', 'rejected', 'adm', { reason: 'Already a driver' })], true)
+await expect('rejected and never a center: the owner withdraws it', 'drv', [delW('centerApplications/ca2')], true)
 console.log(fails ? `\n${fails} FAILED` : '\nAll rules checks passed')
 process.exit(fails ? 1 : 0)

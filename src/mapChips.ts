@@ -1,7 +1,7 @@
 import { Bus, CarFront, CarTaxiFront, Layers, Wrench, type LucideIcon } from 'lucide-react'
 
 // What a map marker is, for the category chips.
-export type MarkerKind = 'taxi' | 'private' | 'bus' | 'service' | 'person'
+export type MarkerKind = 'taxi' | 'private' | 'bus' | 'service' | 'person' | 'center'
 
 export type MapChipId = 'all' | 'taxi' | 'bus' | 'private' | 'services'
 
@@ -11,7 +11,7 @@ type ChipLabel = 'chipAll' | 'chipTaxi' | 'chipBus' | 'chipPrivate' | 'chipServi
 // markers it keeps on the map. Add future categories (rentals, stays, shops, registries) here.
 export const MAP_CHIPS: readonly { id: MapChipId; icon: LucideIcon; label: ChipLabel; shows: (kind: MarkerKind) => boolean }[] = [
   { id: 'all', icon: Layers, label: 'chipAll', shows: () => true },
-  { id: 'taxi', icon: CarTaxiFront, label: 'chipTaxi', shows: (k) => k === 'taxi' },
+  { id: 'taxi', icon: CarTaxiFront, label: 'chipTaxi', shows: (k) => k === 'taxi' || k === 'center' }, // taxi centers show with their taxis
   { id: 'bus', icon: Bus, label: 'chipBus', shows: (k) => k === 'bus' },
   { id: 'private', icon: CarFront, label: 'chipPrivate', shows: (k) => k === 'private' },
   { id: 'services', icon: Wrench, label: 'chipServices', shows: (k) => k === 'service' },

@@ -22,6 +22,9 @@ import type { PublicVehicle } from '../vehicles'
 import { useLiveBuses, type Bus, type BusRoute } from '../buses'
 import { MOVING_ICONS, RESOURCE_ICONS, SERVICE_ICONS, VEHICLE_ICONS } from './iconStyles'
 import type { PublicService } from '../services'
+import type { PublicCenter } from '../centerApps'
+import { useCenterMarkers } from './centerMarkers'
+import { CenterCard } from './CenterCard'
 import { nearestHelp, SERVICE_KINDS, todayHours, type ServiceKind } from '../core/services'
 import { bearing, coastGlide, driveGlide, glideAt, glideBraking, glideSpeed, glideState, MAX_GLIDE_MS, MIN_GLIDE_MS, nextGlide, OVERRUN, standGlide, turnAhead, type Glide } from '../core/glide'
 import { CATCH_UP_GIVE_UP_S, catchUpSpeed, driveProfile, indicator, leanDegrees, needsCatchUp, roadLimitKmh, type DriveType } from '../core/drive'
@@ -97,6 +100,9 @@ interface Props {
   // Services for drivers (mechanics, tyres, towing...): approved fixed places and mobile helpers
   // who are Available. Given (even empty), the map shows the Services layer and Help near me.
   services?: PublicService[]
+  // Approved taxi centers (logo markers, src/components/centerMarkers.tsx); Hire from this center.
+  centers?: PublicCenter[]
+  onHireCenter?: (id: string) => void
   // Full map: every menu slides away (App's header too) and only the map, its vehicles and services
   // show, with a small handle to bring the menus back. App keeps it for the session.
   mapOnly?: boolean
@@ -497,7 +503,7 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
 // Live map of taxis, on MapLibre: rotate (two fingers / right-drag), tilt, pinch zoom, compass and
 // "my location" like Google Maps. Markers are driven imperatively so 60fps position updates don't
 // re-render React.
-export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, activeTrip, onHireFrom, people = [], vehicles = [], buses: busesProp, onHireVehicle, focusVehicle = null, myUid = null, privateRide, shareControl, driving = false, onTripMetres, services: servicesProp, mapOnly = false, onMapOnly }: Props) {
+export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, activeTrip, onHireFrom, people = [], vehicles = [], buses: busesProp, onHireVehicle, focusVehicle = null, myUid = null, privateRide, shareControl, driving = false, onTripMetres, services: servicesProp, mapOnly = false, onMapOnly, centers, onHireCenter }: Props) {
   const { lang, t, driverName } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const map = useRef<MlMap | null>(null)
@@ -2034,12 +2040,14 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
 
   const note = followsViewer ? (area.kind === 'here' ? t.mapDemoHere : area.kind === 'loading' ? t.mapDemoLoading : area.kind === 'none' ? t.mapDemoNone : t.mapPlaceholder) : null
   // At most one panel open at a time: the map key, Show me, or the hire form (App controls that one).
-  const [openPanel, setOpenPanel] = useState<'key' | 'share' | 'help' | 'service' | null>(null)
+  const [openPanel, setOpenPanel] = useState<'key' | 'share' | 'help' | 'service' | 'center' | null>(null)
   const [svcId, setSvcId] = useState<string | null>(null)
   const [helpKind, setHelpKind] = useState<ServiceKind | null>(null)
   const svc = svcId ? services.find((x) => x.id === svcId) : undefined
-  const shown = openPanel === 'service' && !svc ? null : openPanel // the helper went off the map
-  const active: 'key' | 'share' | 'help' | 'service' | 'hire' | null = pinMode ? null : panel && panelOpen ? 'hire' : shown
+  const [ctrId, setCtrId] = useState<string | null>(null)
+  const ctr = ctrId ? centers?.find((x) => x.id === ctrId) : undefined
+  const shown = (openPanel === 'service' && !svc) || (openPanel === 'center' && !ctr) ? null : openPanel // it went off the map
+  const active: 'key' | 'share' | 'help' | 'service' | 'center' | 'hire' | null = pinMode ? null : panel && panelOpen ? 'hire' : shown
   // Open a service's card (from its marker or Help near me), folding the hire form away.
   const openService = (id: string) => {
     setSvcId(id)
@@ -2049,10 +2057,15 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   useEffect(() => {
     openServiceRef.current = openService
   })
-  const svcName = (x: PublicService) => (lang === 'dv' && x.nameDv ? x.nameDv : x.name)
+  useCenterMarkers(map, ready, centers, chipShows(chip, 'center'), lang, (id) => {
+    setCtrId(id)
+    setOpenPanel('center')
+    if (panel && panelOpen) onPanelOpenChange?.(false)
+  })
+  const svcName = (x: Pick<PublicService, 'name' | 'nameDv'>) => (lang === 'dv' && x.nameDv ? x.nameDv : x.name)
   const distance = (metres: number) => (metres < 1000 ? t.svcMetres(String(Math.round(metres))) : t.svcKm((metres / 1000).toFixed(1)))
   const help = mySpot && active === 'help' ? nearestHelp(services, mySpot, helpKind, 5, graph) : [] // top 5 by road where on the roads
-  const routeTo = (x: PublicService) => {
+  const routeTo = (x: Pick<PublicService, 'at' | 'name' | 'nameDv'>) => {
     if (!mySpot) return
     setMode('taxi')
     setSvcTrip({ from: mySpot, to: x.at, name: svcName(x) })
@@ -2313,7 +2326,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
             {active && (
               <div className="map-glass pointer-events-auto flex min-h-0 flex-col rounded-2xl border border-white/60 bg-white/70 shadow-xl backdrop-blur-[3px] backdrop-saturate-150">
                 <div className="flex shrink-0 items-center gap-2 ps-4">
-                  <p className="min-w-0 flex-1 truncate py-2.5 font-bold">{active === 'key' ? t.mapKey : active === 'share' ? t.shareMe : active === 'help' ? t.svcHelpNear : active === 'service' && svc ? svcName(svc) : panelTitle}</p>
+                  <p className="min-w-0 flex-1 truncate py-2.5 font-bold">{active === 'key' ? t.mapKey : active === 'share' ? t.shareMe : active === 'help' ? t.svcHelpNear : active === 'service' && svc ? svcName(svc) : active === 'center' && ctr ? svcName(ctr) : panelTitle}</p>
                   {active === 'hire' && onPanelClose && (
                     <button type="button" onClick={onPanelClose} className="min-h-9 rounded-lg px-2 text-xs font-bold text-red-700 hover:bg-red-50">
                       {t.cancel}
@@ -2384,6 +2397,12 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
                       distance={distance}
                       onRoute={mySpot ? () => routeTo(svc) : undefined}
                     />
+                  )}
+                  {active === 'center' && ctr && (
+                    <CenterCard c={ctr} metres={mySpot ? metresBetween(mySpot, ctr.at) : null} distance={distance} onRoute={mySpot ? () => routeTo(ctr) : undefined} onHire={onHireCenter ? () => {
+                      setOpenPanel(null)
+                      onHireCenter(ctr.id)
+                    } : undefined} />
                   )}
                   {active === 'hire' && panel}
                 </div>
