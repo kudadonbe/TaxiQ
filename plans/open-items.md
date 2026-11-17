@@ -60,6 +60,12 @@ property, identity and payments) is in `plans/digital-raajje-vision.md` on the `
   the house file at release.
 - [ ] **Plot map re-trace:** confirm with emjey / the council that re-tracing at higher detail is
   within the permission.
+- [ ] **Own house data** (branch `plot-sources`: `houses-kulhudhuffushi.json`, `houses-male.json`,
+  `scripts/build-houses.py`, `plans/plot-sources.md`, `plans/house-designs.md`): choose the traced
+  chart or the council's vector lots for Kulhudhuffushi (they differ by ~6 m); ask the council /
+  Charrette about the KC_Basemap lots; tell Malé City Council that two public layers expose owner
+  names and ID numbers; mapkf.vercel.app is down (402), which breaks Share pickup links. Then wire
+  the houses into the 3D map.
 - [ ] **Identity and safety** answers (suggested): "verified" = phone by SMS + operator check now,
   eFaas later; private vehicles' plates shown on tap to signed-in users (logged); taxi driver name and
   photo to signed-in users with each driver's consent; taxi names kept in the public list.
