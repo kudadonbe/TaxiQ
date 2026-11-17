@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build src/data/places-male.json: house, place and road names for the Malé area.
+"""Build scripts/data/places-male.json: house, place and road names for the Malé area.
 
 Sources (public ArcGIS feature services, used with permission; keep the credits in the app's map
 attribution and the README):
@@ -8,8 +8,9 @@ attribution and the README):
   - Housing Development Corporation (HDC): Hulhumalé lots and named buildings
     https://gis.hdc.mv/server/rest/services/DBO_Property_Public/FeatureServer/0 and /1
 
-Output: the same Place shape as src/data/places.json (see src/places.ts):
+Output: the Place shape of src/places.ts:
   {t: 'h'|'r'|'l'|'p', e: English, d: Dhivehi, k: search key, pl?: block or lot, p: [[lat, lng], ...]}
+Then run scripts/import-postcodes.py and scripts/split-places.py (the app reads the tiles it makes).
 
 Run from the repo root (standard library only):
     python3 scripts/import-male.py
@@ -25,7 +26,7 @@ import urllib.request
 COUNCIL_LOTS = 'https://services8.arcgis.com/X5BMOMb5BwtyTn3H/arcgis/rest/services/Male_Lots_28sep25_Public/FeatureServer/0'
 HDC_BUILDINGS = 'https://gis.hdc.mv/server/rest/services/DBO_Property_Public/FeatureServer/0'
 HDC_LOTS = 'https://gis.hdc.mv/server/rest/services/DBO_Property_Public/FeatureServer/1'
-OUT = 'src/data/places-male.json'
+OUT = 'scripts/data/places-male.json'
 UA = 'TaxiQ data import (taxi queue app for Maldivian call centers)'
 
 # Land uses that are places people go to, not homes (shown with the landmark icon).

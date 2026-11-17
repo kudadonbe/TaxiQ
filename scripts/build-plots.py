@@ -18,7 +18,7 @@ Needs (dev only, not app dependencies): numpy, opencv-python-headless, shapely, 
 How it works: pixels are classed as white (roads, sea), dark (boundary lines) or fill (coloured or
 grey plot areas). Letters are small dark blobs and are treated as fill so text doesn't cut plots.
 Each connected fill region becomes a plot polygon (outer contour, simplified), coloured with its
-median fill colour, converted to lat/lng with the same georeference as places.json, and given the
+median fill colour, converted to lat/lng with the same georeference as scripts/data/places-kdh.json, and given the
 names of the houses whose points fall inside it.
 
 Output: [{"c": "#rrggbb", "p": [[lat, lng], ...], "h"?: [[English, Dhivehi], ...], "pl"?: "117"}]
@@ -105,7 +105,7 @@ def main() -> None:
     geo = [(Polygon([px_to_geo(x, y) for x, y in p.exterior.coords]), c) for p, c in plots]
     tree = STRtree([g for g, _ in geo])
 
-    places = json.load(open(ROOT / "src" / "data" / "places.json", encoding="utf-8"))
+    places = json.load(open(ROOT / "scripts" / "data" / "places-kdh.json", encoding="utf-8"))
     names: dict[int, list] = {}
     numbers: dict[int, str] = {}
     for place in places:

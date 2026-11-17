@@ -1,7 +1,7 @@
 import { PlaceTypeIcon } from './icons'
 import { useState } from 'react'
 import { useI18n } from '../i18n'
-import { loadPlacesAround, searchPlaces, type Place } from '../places'
+import { loadPlacesForSearch, searchPlaces, type Place } from '../places'
 import { getViewerSpot } from '../viewerSpot'
 
 interface Props {
@@ -15,7 +15,7 @@ interface Props {
 }
 
 
-// Text field with Kulhudhuffushi house/road/landmark suggestions. Free text is still allowed.
+// Text field with house/road/landmark suggestions from the viewer's area. Free text is still allowed.
 export function PlaceInput({ id, label, hint, value, error, onChange }: Props) {
   const { lang, t } = useI18n()
   const [places, setPlaces] = useState<Place[] | null>(null)
@@ -34,7 +34,7 @@ export function PlaceInput({ id, label, hint, value, error, onChange }: Props) {
         value={value}
         onFocus={() => {
           setOpen(true)
-          void loadPlacesAround(getViewerSpot()).then(setPlaces)
+          void loadPlacesForSearch(getViewerSpot()).then(setPlaces)
         }}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         onChange={(e) => {

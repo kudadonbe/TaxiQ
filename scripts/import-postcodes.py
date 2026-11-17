@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add Maldives Post postcodes to Malé houses in src/data/places-male.json (field `pc`).
+"""Add Maldives Post postcodes to Malé houses in scripts/data/places-male.json (field `pc`).
 
 Source: the Maldives Post postcode finder (https://maldivespost.com/post-code), its public search
 API, used with permission. Keep the credit in the app's map attribution and the README.
@@ -10,7 +10,8 @@ nearest to the house on the map decides. Results are cached so a stopped run res
 
     /usr/bin/python3 scripts/import-postcodes.py [cache.json]
 
-Prints counts only. Run scripts/import-male.py first (it rebuilds places-male.json without postcodes).
+Prints counts only. Run scripts/import-male.py first (it rebuilds places-male.json without postcodes),
+and scripts/split-places.py after (the app reads the tiles it makes).
 """
 
 import json
@@ -23,7 +24,7 @@ import urllib.request
 
 API = 'https://maldivespost.com/api/postcodes'
 UA = 'Mozilla/5.0 (TaxiQ postcode import; taxi queue app for Maldivian call centers)'
-PLACES = 'src/data/places-male.json'
+PLACES = 'scripts/data/places-male.json'
 CACHE = sys.argv[1] if len(sys.argv) > 1 else '/tmp/taxiq-postcodes-cache.json'
 
 

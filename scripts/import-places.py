@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build src/data/places.json (Kulhudhuffushi house / road / landmark names) from the published
+"""Build scripts/data/places-kdh.json (Kulhudhuffushi house / road / landmark names) from the published
 Kulhudhuffushi City Map search site.
 
 Source: https://mapkf.vercel.app/data.json, made by emjey (t.me/emjeyy) from the official
@@ -8,6 +8,7 @@ Hussain Ali). Used with permission. Credit both in the app.
 
   curl -s https://mapkf.vercel.app/data.json -o mapkf-data.json
   python3 scripts/import-places.py mapkf-data.json
+  python3 scripts/split-places.py   # the app reads the tiles it makes, not this file
 
 The source stores points as 0..1 positions on the scanned chart. They're converted to lat/lng with
 the site's own georeference (GEO + normToGeo in its index.html); re-copy GEO if the site updates it.
@@ -53,6 +54,6 @@ for item in src:
         place["pl"] = str(item["pl"]).strip()
     out.append(place)
 
-dest = Path(__file__).resolve().parent.parent / "src" / "data" / "places.json"
+dest = Path(__file__).resolve().parent.parent / "scripts" / "data" / "places-kdh.json"
 dest.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
 print(f"{len(out)} places -> {dest}")
