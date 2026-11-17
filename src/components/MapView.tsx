@@ -695,6 +695,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
 
   // Council plot chart (house land areas): a fill + outline layer under the cars and labels.
   const plotsRef = useRef<Plot[]>([])
+  const [plotsAdded, setPlotsAdded] = useState(false)
   useEffect(() => {
     const m = map.current
     if (!m || !ready) return
@@ -710,6 +711,7 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
         source: 'plots',
         paint: { 'line-color': '#1f2937', 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.3, 18, 1, 22, 2] },
       })
+      setPlotsAdded(true)
     })
     return () => {
       cancelled = true
@@ -718,12 +720,13 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
 
   useEffect(() => {
     const m = map.current
-    if (!m || !ready || !m.getLayer('plots-fill')) return
-    // On TaxiQ's own map the houses are buildings, so the plot chart isn't needed there.
+    if (!m || !ready || !plotsAdded || !m.getLayer('plots-fill')) return
+    // On TaxiQ's own map the houses are buildings, so the plot chart isn't needed there. Also run
+    // once the chart has loaded: on Kulhudhuffushi (the game map) our map can show before it does.
     const v = showPlots && !worldOn ? 'visible' : 'none'
     m.setLayoutProperty('plots-fill', 'visibility', v)
     m.setLayoutProperty('plots-line', 'visibility', v)
-  }, [showPlots, ready, worldOn])
+  }, [showPlots, ready, worldOn, plotsAdded])
 
   // TaxiQ's own map: our island, sea, reef, roads and 3D buildings, in place of the OpenStreetMap
   // tiles (none are asked for while it shows). Loaded the first time the map looks at the area;

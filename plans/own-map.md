@@ -32,8 +32,7 @@ Left for phase 1:
   The world bundle's road lines could feed `offerRoads` later.
 - Villimalé has no house footprints (only OSM buildings). Thilafushi and Gulhifalhu are outside
   the box.
-- Kulhudhuffushi, and with it the game map: add an `AREAS` entry that uses
-  `src/data/plots.json` as house footprints.
+- Kulhudhuffushi, and with it the game map: done in phase 2 (below).
 
 ## Sinamalé Bridge (built, branch `bridge-3d`)
 
@@ -124,12 +123,56 @@ projected height).
   overalls with a tool bag (mechanic, tyres, battery, towing...) or a delivery jacket and box
   (parts, fuel). A taxi driver look is built but not shown yet.
 - Left: the walking person faces the way they walk; a standing person faces the way they last
-  walked. Resting (faded) figures aren't faded in 3D yet. The game map isn't our own map yet, so
-  it has no 3D figures.
+  walked. Resting (faded) figures aren't faded in 3D yet. Since phase 2 the game map (Kulhudhuffushi)
+  is our own map, so it has the 2D / 3D switch and 3D figures too.
 
-## Phase 2: more of the capital region and Kulhudhuffushi
+## Phase 2: Kulhudhuffushi (built, branch `world-kulhudhuffushi`)
 
-- Kulhudhuffushi from OSM plus the council plot chart (plots as house footprints, about 5 m high).
+- `scripts/build-world.py kulhudhuffushi` (area box 6.600, 73.050 to 6.645, 73.085; the same box in
+  `WORLD_AREAS`) makes one Overpass request (main server, then two mirrors) and reads three files we
+  already have: the **council plot chart** (`src/data/plots.json`, used with permission), the demo
+  road graph (`src/data/roads.json`) and the place list (`src/data/places.json`). It writes
+  `src/data/world-kulhudhuffushi.json`: **3,362 building shapes** (3,277 chart plots, 78 OSM
+  buildings, plus mosque domes), 342 road lines (59 of them graph edges OSM has no line for, drawn
+  as streets), 82 green areas, 664 trees, 92 places people go (9 mosques, 11 schools, 2 hospitals,
+  9 offices, 7 harbours, 33 shops, 1 fuel, 11 parks, 9 pitches), the runway, 41 paved areas.
+  **269 KB raw, 88 KB gzipped** (its lazy chunk is 92.6 KB gzipped), loaded only when the map looks
+  at the island.
+- **Plots:** the chart's colour says what each plot is. The three ward colours are house plots: a
+  house footprint shrunk 0.35 m, **1 to 3 floors** (`kf_floors`, repeatable by plot number and
+  place: 40% one storey, 50% two, 10% three), OSM `building:levels` wins. Mosque, school (lavender),
+  office and utility (purple) plots become those buildings; when such a plot is big (> 400 m2) and
+  OSM has buildings in it, it's a paved compound and the OSM buildings take the plot's kind (so a
+  mosque's OSM building gets the dome); big plots with nothing mapped get a building in the middle
+  of a paved compound. Cemeteries (grey, with trees), open space (light blue), parks and gardens,
+  pitches and parking lie flat. Plot names (`h`) also decide the kind (masjid, school, campus,
+  hospital, gaburusthaan, bageecha, stadium, parking). Leftover chart lines and letters (dark
+  colours) are skipped.
+- **Places:** OSM first, then landmarks from the place list and named chart plots whose name says
+  what they are (a mosque, school, harbour, council, court...), where OSM has none of that kind
+  within 40 m.
+- **Labels:** house names are the existing DOM labels from `places.json` at zoom 18+ (up to 400 in
+  view); nothing new is stored.
+- **Plot layer:** hidden inside the area while our map shows, as in Malé. MapView now also applies
+  that once the chart has loaded (`plotsAdded`): on the game map our map could show first, and the
+  chart was then drawn on top.
+- **Game:** the TaxiQ World map is MapView at Kulhudhuffushi, so it now shows our map (tilted, 3D
+  buildings, day and night), the 2D / 3D switch and 3D figures, checked in headless Chrome with the
+  game's own position feed.
+- The map credit on the area's source names the Kulhudhuffushi City Council plot chart
+  (`credit` in `WORLD_AREAS`, `worldAttribution`).
+
+Left for phase 2:
+- Real heights: the chart has none (1 to 3 floors are a guess); a survey or the council could add
+  them.
+- Plots are fill regions of the chart, so where the chart draws no line between neighbours, two
+  houses are one block. 506 plots have no house name.
+- Driving roads still come from our road graph, Overpass and OpenFreeMap as before (the world
+  bundle's roads aren't fed to `offerRoads`).
+- Hanimaadhoo and the rest of the atoll are outside the box.
+
+## Phase 2b: more of the capital region
+
 - Thilafushi, Gulhifalhu and the islands near Malé.
 - Building heights from HDC lots (`HEIGHT_FLR`) where no building is drawn yet.
 
@@ -148,6 +191,8 @@ projected height).
 - The Malé City Council lots and HDC buildings and lots are used with permission, the same services
   as `scripts/import-male.py`. **The owner must confirm** that this permission also covers drawing
   their shapes, not only the names.
+- Kulhudhuffushi's house shapes come from the council plot chart, already drawn by the app as the
+  plot layer with permission (`scripts/build-plots.py`); the credit is on the area's map source.
 
 ## Privacy
 

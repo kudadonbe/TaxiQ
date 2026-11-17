@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Build TaxiQ's own map data for one area: src/data/world-<area>.json (phase 1: Greater Malé).
+"""Build TaxiQ's own map data for one area: src/data/world-<area>.json (Greater Malé, Kulhudhuffushi).
 
 Run from the repo root (standard library only; on a Mac use /usr/bin/python3, which has the
 certificates):
 
     /usr/bin/python3 scripts/build-world.py            # area 'male'
     /usr/bin/python3 scripts/build-world.py male --cache /tmp/world-cache
+    /usr/bin/python3 scripts/build-world.py kulhudhuffushi --cache /tmp/world-cache
 
 It asks each source once, politely, one at a time (add --cache DIR to keep the downloads and rebuild
 without asking again):
@@ -22,6 +23,12 @@ without asking again):
   - Malé City Council lots (house footprints in Malé, Villimalé) and HDC Hulhumalé buildings (with
     their heights) and lots (green spaces, sports), the same public services as
     scripts/import-male.py, used with permission.
+
+  - Kulhudhuffushi (no download): the Kulhudhuffushi City Council plot chart redrawn as polygons
+    (src/data/plots.json, scripts/build-plots.py; used with permission) gives every house its
+    footprint and the chart's colours say what each plot is (wards, mosques, schools, offices,
+    cemeteries, open space); the demo road graph (src/data/roads.json) adds any driving road OSM
+    lacks; the place list (src/data/places.json) names landmarks, mosques and schools.
 
 Output (compact, read by src/worldStyle.ts). Coordinates are whole millionths of a degree
 (6 decimals) from the origin `o` = [west, south]; every shape is a flat list [x0, y0, dx1, dy1, ...]
@@ -54,7 +61,7 @@ import urllib.request
 from pathlib import Path
 
 UA = 'TaxiQ map build (taxi queue app for Maldivian call centers)'
-OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter']
+OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter']
 COUNCIL_LOTS = 'https://services8.arcgis.com/X5BMOMb5BwtyTn3H/arcgis/rest/services/Male_Lots_28sep25_Public/FeatureServer/0'
 HDC_BUILDINGS = 'https://gis.hdc.mv/server/rest/services/DBO_Property_Public/FeatureServer/0'
 HDC_LOTS = 'https://gis.hdc.mv/server/rest/services/DBO_Property_Public/FeatureServer/1'
@@ -63,7 +70,10 @@ HDC_LOTS = 'https://gis.hdc.mv/server/rest/services/DBO_Property_Public/FeatureS
 AREAS = {
     # Malé, Villimalé, Hulhulé (the airport) and Hulhumalé phases 1 and 2.
     'male': {'box': (4.158, 73.478, 4.252, 73.556), 'lots': True},
+    # Kulhudhuffushi, Haa Dhaalu Atoll (the home island and the TaxiQ World game's island).
+    'kulhudhuffushi': {'box': (6.600, 73.050, 6.645, 73.085), 'plots': True},
 }
+ROOT = Path(__file__).resolve().parent.parent
 
 THAANA = re.compile(r'[ހ-޿]')
 
@@ -410,6 +420,82 @@ def male_floors(fid, sqm):
     return base
 
 
+# ---- Kulhudhuffushi: the council plot chart ----
+#
+# Each plot in src/data/plots.json is a fill region of the council chart with its colour. The three
+# ward colours are house plots; the chart's other colours mark mosques, schools, offices and
+# utilities, cemeteries and open space. Chart lines and letters left over from the tracing are dark,
+# and are not plots.
+WARD_COLOURS = [(0xae, 0xdc, 0xbf), (0xfc, 0xdb, 0xb0), (0xf2, 0xa7, 0xe0)]
+PLOT_COLOURS = [
+    ((0xad, 0xca, 0xb8), 'mosque'),
+    ((0xa7, 0xa7, 0xa7), 'cemetery'),
+    ((0xa7, 0xa7, 0xff), 'school'),
+    ((0xd3, 0xa7, 0xff), 'gov'),
+    ((0xa7, 0xe9, 0xff), 'open'),
+]
+PLOT_NAME_KIND = [
+    (re.compile(r'miskiy|mosque|masjid|masdhij|މިސްކިތް', re.I), 'mosque'),
+    (re.compile(r'school|college|university|campus|ސްކޫލް', re.I), 'school'),
+    (re.compile(r'hospital|clinic|health', re.I), 'health'),
+    (re.compile(r'gaburusthaan|cemetery', re.I), 'cemetery'),
+    (re.compile(r'bageecha|garden|\bpark\b(?! lane)', re.I), 'park'),
+    (re.compile(r'stadium|futsal|football|sports', re.I), 'pitch'),
+    (re.compile(r'parking', re.I), 'paved'),
+]
+
+
+def plot_kind(colour, label):
+    """What a chart plot is: house | mosque | school | health | gov | other (built on), or
+    cemetery | open | park | pitch | paved (flat), or None (not a plot)."""
+    for rx, k in PLOT_NAME_KIND:
+        if rx.search(label):
+            return k
+    c = tuple(int(colour[i:i + 2], 16) for i in (1, 3, 5))
+    if sum(c) < 300:
+        return None
+    near = lambda ref: sum((a - b) ** 2 for a, b in zip(c, ref)) < 300
+    if any(near(w) for w in WARD_COLOURS):
+        return 'house'
+    for ref, k in PLOT_COLOURS:
+        if near(ref):
+            return k
+    if abs(c[0] - 0xa8) < 8 and c[1] > 0xe0 and c[2] > 0xf0:  # light blue variants of open space
+        return 'open'
+    if abs(c[0] - 0xd2) < 6 and abs(c[1] - 0xa7) < 6 and c[2] > 0xf0:
+        return 'gov'
+    return 'house'
+
+
+# Kulhudhuffushi houses are mostly one or two storeys, a few three; the chart has no heights, so
+# each plot gets a repeatable number of floors. OSM building:levels wins where mapped.
+def kf_floors(key):
+    return [1, 1, 1, 1, 2, 2, 2, 2, 2, 3][stable(10, 'plot', key)]
+
+
+# Names in the place list (landmarks) and on chart plots, as places people go.
+PLACE_NAME_RES = [
+    (re.compile(r'miskiy|mosque|masjid|masdhij', re.I), 'mosque'),
+    (re.compile(r'school|college|campus|education cent|tvet', re.I), 'school'),
+    (re.compile(r'hospital', re.I), 'hospital'),
+    (re.compile(r'clinic|health cent', re.I), 'clinic'),
+    (re.compile(r'harbour', re.I), 'harbour'),
+    (re.compile(r'jetty', re.I), 'jetty'),
+    (re.compile(r'council|court|police|customs|secretariat|office complex|fire station', re.I), 'gov'),
+    (re.compile(r'stadium|futsal|football', re.I), 'pitch'),
+    (re.compile(r'\bpark\b(?! lane)|bageecha', re.I), 'park'),
+    (re.compile(r'market', re.I), 'shop'),
+    (re.compile(r'\bfuel\b', re.I), 'fuel'),
+]
+
+
+def place_res_kind(name):
+    for rx, k in PLACE_NAME_RES:
+        if rx.search(name or ''):
+            return k
+    return None
+
+
 # ---- encoding ----
 
 class Enc:
@@ -649,6 +735,12 @@ def main():
         hdc_b = cached(cache, f'{area_id}-hdc-buildings.json', lambda: fetch_arcgis(HDC_BUILDINGS, 'OBJECTID,NAME,HEIGHT_M', box))
         hdc_l = cached(cache, f'{area_id}-hdc-lots.json', lambda: fetch_arcgis(HDC_LOTS, 'OBJECTID,LANDUSE', box))
         print(f'Council lots: {len(lots)}; HDC buildings: {len(hdc_b)}; HDC lots: {len(hdc_l)}')
+    plots, places, graph = [], [], None
+    if cfg.get('plots'):
+        plots = json.loads((ROOT / 'src' / 'data' / 'plots.json').read_text())
+        places = json.loads((ROOT / 'src' / 'data' / 'places.json').read_text())
+        graph = json.loads((ROOT / 'src' / 'data' / 'roads.json').read_text())
+        print(f'Council plot chart: {len(plots)} plots; places: {len(places)}; road graph: {len(graph["n"])} nodes')
 
     enc = Enc(w, s)
     bridge_ids = set()
@@ -684,6 +776,7 @@ def main():
     greens = []  # rings to scatter trees in
     seen_res = set()
     osm_buildings = []
+    road_pts = Grid(0.0002)  # OSM road lines, every ~3 m (to find roads only the road graph has)
     for el in osm:
         t = el.get('tags', {})
         nat, lu, lei = t.get('natural'), t.get('landuse'), t.get('leisure')
@@ -731,6 +824,12 @@ def main():
                     c = None
                 if c:
                     out['roads'].append([c, enc.shape(simplify(line, T_ROAD))])
+                    if c in ('main', 'street', 'path'):
+                        for a, b in zip(line, line[1:]):
+                            k = max(1, int(math.dist(a, b) / 0.000027))
+                            for j in range(k + 1):
+                                q = (a[0] + (b[0] - a[0]) * j / k, a[1] + (b[1] - a[1]) * j / k)
+                                road_pts.cells.setdefault((int(q[0] / road_pts.cell), int(q[1] / road_pts.cell)), []).append(q)
         if t.get('building') and t.get('building') != 'no' and el['type'] in ('way', 'relation'):
             kind = building_kind(t)
             for r in poly_rings(el):
@@ -747,6 +846,59 @@ def main():
                 if key not in seen_res:
                     seen_res.add(key)
                     out['res'].append([rk, pt, en, dv])
+
+    # Driving roads only our road graph has (src/data/roads.json): each graph edge whose middle is
+    # more than ~5 m from every OSM road line is drawn as a street.
+    if graph:
+        def near_road(q, metres=5):
+            lim = metres / 111_320
+            gx, gy = int(q[0] / road_pts.cell), int(q[1] / road_pts.cell)
+            return any(math.dist(q, r) < lim for dx in (-1, 0, 1) for dy in (-1, 0, 1) for r in road_pts.cells.get((gx + dx, gy + dy), []))
+        nodes = [(lng, lat) for lat, lng in graph['n']]
+        added, n_graph = set(), 0
+        for i, nxt in enumerate(graph['a']):
+            for j in nxt:
+                key = (min(i, j), max(i, j))
+                if key in added:
+                    continue
+                added.add(key)
+                a, b = nodes[i], nodes[j]
+                if not near_road(((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)):
+                    out['roads'].append(['street', enc.shape([a, b])])
+                    n_graph += 1
+        print(f'Road graph: {n_graph} of {len(added)} edges added where OSM has no road line')
+
+    # Places from the place list (landmarks) and chart plots with a name that says what they are,
+    # where OSM has no place of that kind within 40 m.
+    def add_res(rk, pt, en, dv):
+        if not (s <= pt[1] <= n and w <= pt[0] <= e):
+            return
+        lim = 40 / 111_320
+        if any(k == rk and math.dist(pt, q) < lim for k, q, _, _ in out['res']):
+            return
+        out['res'].append([rk, pt, en[:60], dv[:60]])
+    n_res0 = len(out['res'])
+    for pl in places:
+        if pl.get('t') != 'l':
+            continue
+        rk = place_res_kind(pl.get('e'))
+        for lat, lng in pl.get('p', [])[:1]:
+            if rk:
+                add_res(rk, (lng, lat), pl.get('e', ''), pl.get('d', ''))
+    for pl in plots:
+        names_ = pl.get('h') or []
+        label = ' '.join(f'{a} {b}' for a, b in names_)
+        k = plot_kind(pl['c'], label)
+        if not names_ or k is None:
+            continue
+        rk = place_res_kind(label) or {'mosque': 'mosque', 'school': 'school'}.get(k)
+        if rk:
+            r = [(lng, lat) for lat, lng in pl['p']] + [(pl['p'][0][1], pl['p'][0][0])]
+            en_ = ' '.join(a for a, _ in names_).strip()
+            dv_ = ' '.join(b for _, b in names_).strip()
+            add_res(rk, centroid(r), en_, re.sub(r'\s+', ' ', dv_))
+    if plots:
+        print(f'Places from the place list and the plot chart: {len(out["res"]) - n_res0}')
 
     land_rings = join_lines([c for c in coast if len(c) > 1])
     for r in land_rings:
@@ -837,6 +989,76 @@ def main():
             covered.add(r, 1)
             n_lots += 1
 
+    # Kulhudhuffushi: every plot of the council chart. House plots become house footprints (a
+    # little smaller so neighbours read apart, 1 to 3 floors); mosque, school, office and utility
+    # plots become their buildings, except big ones with OSM buildings inside, which are drawn as a
+    # paved compound round those buildings; cemeteries, parks and open space lie flat.
+    osm_centres = {}
+    for r, kind, h, t in osm_buildings:
+        c = centroid(r)
+        osm_centres.setdefault((int(c[0] / 0.0005), int(c[1] / 0.0005)), []).append(c)
+
+    def osm_inside(r):
+        xs, ys = [p[0] for p in r], [p[1] for p in r]
+        return sum(1 for gx in range(int(min(xs) / 0.0005), int(max(xs) / 0.0005) + 1)
+                   for gy in range(int(min(ys) / 0.0005), int(max(ys) / 0.0005) + 1)
+                   for c in osm_centres.get((gx, gy), []) if inside(c, r))
+
+    compound_kind = Grid()
+    n_plots = n_flat = n_compound = 0
+    for pl in plots:
+        r = [(lng, lat) for lat, lng in pl['p']]
+        r.append(r[0])
+        if not ring_ok(r) or area_m2(r) < 6:
+            continue
+        a = area_m2(r)
+        label = ' '.join(f'{x} {y}' for x, y in pl.get('h') or [])
+        k = plot_kind(pl['c'], label)
+        if k is None:
+            continue
+        c = centroid(r)
+        if k in ('cemetery', 'open', 'park', 'pitch', 'paved'):
+            sh = enc.shape(simplify(r, T_SHAPE))
+            if len(sh) < 8:
+                continue
+            if k == 'paved':
+                out['paved'].append(sh)
+            else:
+                out['green'].append([{'cemetery': 'grass', 'open': 'grass'}.get(k, k), sh])
+                if k in ('cemetery', 'park'):
+                    greens.append(r)
+            covered.add(r, 1)
+            n_flat += 1
+            continue
+        k = RES_TO_B.get(res_inside(r) or '', None) or (osm_kind_at.find(c) if k == 'house' else None) or k
+        if k != 'house' and a > 400 and osm_inside(r):
+            sh = enc.shape(simplify(r, T_SHAPE))
+            if len(sh) >= 8:
+                out['paved'].append(sh)
+            compound_kind.add(r, k)
+            n_compound += 1
+            continue
+        lv = osm_levels.find(c)
+        key = pl.get('pl') or ''
+        if lv:
+            h = lv[0]
+        elif k == 'house':
+            h = kf_floors(f'{key}|{c[0]:.5f},{c[1]:.5f}') * 3.2
+        else:
+            h = DEFAULT_H.get(k, 7) - (3 if k in ('gov', 'school', 'health') else 0) + (3 if a > 1500 else 0)
+        if k != 'house' and a > 1500:
+            # A big plot with nothing mapped on it: a building in the middle of a paved compound.
+            sh = enc.shape(simplify(r, T_SHAPE))
+            if len(sh) >= 8:
+                out['paved'].append(sh)
+            add_building(shrink(r, math.sqrt(a)), k, h)
+        else:
+            add_building(shrink(r, 0.35), k, h, 0.0000045)
+        covered.add(r, 1)
+        n_plots += 1
+    if plots:
+        print(f'Plot chart: {n_plots} plots built on, {n_compound} compounds round OSM buildings, {n_flat} flat (green, open, parking)')
+
     for f in hdc_l:
         g = f.get('geometry')
         lu = ((f.get('properties') or {}).get('LANDUSE') or '').lower()
@@ -854,9 +1076,11 @@ def main():
     for r, kind, h, t in osm_buildings:
         if covered.find(centroid(r)):
             continue
+        if kind in ('house', 'other'):
+            kind = compound_kind.find(centroid(r)) or kind
         add_building(r, kind, h or DEFAULT_H[kind])
         n_osm += 1
-    print(f'Buildings: {n_hdc} HDC, {n_lots} council lots, {n_osm} OpenStreetMap; {len(out["b"])} shapes with domes')
+    print(f'Buildings: {n_hdc} HDC, {n_lots} council lots, {n_plots} chart plots, {n_osm} OpenStreetMap; {len(out["b"])} shapes with domes')
 
     # Trees: mapped trees, plus a repeatable scatter in woods and parks (about one per 90 m2).
     scattered = 0
