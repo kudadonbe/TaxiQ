@@ -1,0 +1,1 @@
+var e={v:1,p:[`#f7f4ec`,`#efe6cf`,`#f3e7a8`,`#cfe8d2`,`#bfdcec`,`#f2c9cf`,`#f4cfae`,`#d9cdea`,`#d8d8d4`,`#a9dcd6`],h:[[1175,440,1027,0,1,1,3,1,4,0,30,-1,44,40,-44,40,-44,-39,44,-39]]};export{e as default};
