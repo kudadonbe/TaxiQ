@@ -2,7 +2,7 @@
 
 What's waiting, so any session (on any machine, or in the cloud at claude.ai/code) can pick up
 where the last one stopped. Update it when something is done or new: tick it, or remove it once
-it's merged and released. Last updated 2026-11-16.
+it's merged and released. Last updated 2026-11-21.
 
 The long-term vision (a real digital Maldives: registries for every profession and business, shops,
 property, identity and payments) is in `plans/digital-raajje-vision.md` on the `v3` branch.
@@ -39,22 +39,15 @@ property, identity and payments) is in `plans/digital-raajje-vision.md` on the `
   outfits; each person picks a look), a 2D / 3D switch. **Left:** vehicles on the bridge deck
   (`bridgeHeightAt`), faded resting figures in 3D, stepped V-piers.
 
-- [x] **Own map phase 2: Kulhudhuffushi** (branch `world-kulhudhuffushi`, not merged): every house
-  from the council plot chart in 3D, OSM buildings, roads, places; the game map now uses it (2D / 3D,
-  3D figures). **Left:** real house heights, the rest of the atoll, Thilafushi and Gulhifalhu
-  (`plans/own-map.md`).
-
-## Small items (branch `small-items`, not merged yet)
-
-- [x] **Corpus editor** checkbox in Management -> Users (platform admins; citizens get a role-less
-  entry with only `corpus: true`; rules checked).
-- [x] **Old activity-log entries** without Blaze: a platform admin's app deletes expired `activity`
-  (and left-behind `presence` / `presencePublic`) records once a day per device, or with the button
-  in Users; the rules allow it only for platform admins and only after expiry. Needs `pnpm rules`.
-- [x] **Help near me** re-ranks the top 5 by road distance (straight line as the fallback).
-- [x] **Unused strings** removed (18 keys, en and dv).
-- [x] **Dhivehi review list**: `scripts/list-dv.mjs` (default since v2.6.0) wrote
-  `plans/dhivehi-to-check.md` (48 strings): **owner to check**.
+- [x] **v2.11.0-v2.17.0** (2026-11-17 to 11-21, each tagged with a GitHub release): corpus editor
+  box, expired-record cleanup without Blaze, Help near me by road (2.11); taxi centers register
+  themselves, centers on the map (2.12); your avatar instead of the GPS dot, child look, vehicles on
+  the bridge deck, linked taxis in taxi colours, fuller tap cards (2.13); place files in tiles (2.14);
+  Kulhudhuffushi in 3D, also the game, and our own house dataset (2.15); Share pickup to our own map
+  (2.15.1); our own houses in 3D and a 2D fix (2.16); one tap menu for every figure (2.17).
+  **Left:** real house heights, the rest of the atoll, tapping a house, free taxis on a center's card,
+  suspending a center doesn't remove its admin role, a rules check for a center admin keeping
+  private hire, a figure behind a house can still be tapped.
 
 ## Needs a decision or an outside step
 
@@ -76,51 +69,45 @@ property, identity and payments) is in `plans/digital-raajje-vision.md` on the `
   the house file at release.
 - [ ] **Plot map re-trace:** confirm with emjey / the council that re-tracing at higher detail is
   within the permission.
-- [ ] **Own house data** (branch `plot-sources`: `houses-kulhudhuffushi.json`, `houses-male.json`,
-  `scripts/build-houses.py`, `plans/plot-sources.md`, `plans/house-designs.md`): choose the traced
-  chart or the council's vector lots for Kulhudhuffushi (they differ by ~6 m); ask the council /
-  Charrette about the KC_Basemap lots; tell Malé City Council that two public layers expose owner
-  names and ID numbers; mapkf.vercel.app is down (402): Share pickup now links to our own map
-  (branch `share-pickup`). Then wire
-  the houses into the 3D map.
+- [ ] **Kulhudhuffushi plots:** keep the traced chart or switch to the council's vector lots
+  (Charrette's KC_Basemap; ~6 m apart; a written OK needed). See `plans/plot-sources.md`.
+- [ ] **Tell Malé City Council / Charrette** that two public layers expose owners' names and ID
+  numbers.
+- [ ] **mapkf.vercel.app is down** (402): ask emjey whether it comes back (Share pickup already
+  links to our own map).
+- [ ] **Fuvahmulah open data** (3,539 houses): ask for licence terms if wanted.
+- [ ] **Try on a phone:** 3D houses in central Malé (~240k triangles at zoom 18), tap menus, a
+  Share pickup link, full-map swipes, wake lock.
 - [ ] **Identity and safety** answers (suggested): "verified" = phone by SMS + operator check now,
   eFaas later; private vehicles' plates shown on tap to signed-in users (logged); taxi driver name and
   photo to signed-in users with each driver's consent; taxi names kept in the public list.
 
 ## Next (agreed, after the current batch)
 
-- [ ] **Taxis always in taxi colours** on the map (over the model's shape); a tap card with the car's
-  real photo, plate, model and colour; a car also offered as private hire is drawn in its real
-  colour in the Private view. Vehicle photos in Storage (Blaze) or small in Firestore, operator
-  checked.
+- [ ] **Vehicle photos** on the tap card (Storage needs Blaze, or small images in Firestore, operator
+  checked). Taxi colours and the linked-vehicle colours are done (v2.13).
 - [ ] **Mobile-first, the rest:** the map for signed-out visitors (anonymous private vehicles,
   public services, with consent wording); one Available switch for vehicles and services.
-- [x] **Taxi centers register themselves** (branch `center-registry`, not yet merged or deployed;
-  needs `pnpm release` for the rules). Left: free taxis per center on its card; suspending a center
-  doesn't remove its admin's role; logos move to Storage with Blaze.
 - [ ] **Identity and safety:** vehicle numbers public for taxis and buses; taxi driver cards; the
   private-hire **mutual reveal** (a verified person must offer their own identity to ask for the
   other's; both see, or neither); verification.
 - [ ] **Address updates by residents:** private to the submitter at once; public after 10
   approvals by different signed-in people or one operator/admin; the public never sees who
   submitted; operators can undo.
-- [ ] **Sharper plot map** (re-traced from the most detailed tiles) and house and plot files split by
-  area (Malé places are 1.9 MB today).
+- [ ] **Sharper plot map** (re-traced from the most detailed tiles), or the council's vector lots.
 - [ ] **Push notifications** for ride requests (needs a server: Blaze + Cloud Functions, or the VPS).
 - [ ] **Android app** (Capacitor: background GPS while locked, push, Play Store USD 25 once); iPhone
   later (USD 99 a year).
 
 ## Small next steps
 
-- [ ] A **Corpus editor** checkbox in Management -> Users.
-- [ ] Check the **Dhivehi labels** written by agents with the translation editor.
+- [ ] Check the **Dhivehi labels**: `plans/dhivehi-to-check.md` (48) plus the newer fig*, figMenu*,
+  ctr*, share* labels.
 - [ ] Merge the other session's v3 port-list entry (`worktree-v3-port-centers`, `fc6a6d5`) as one
-  line; remove old worktrees in `.claude/worktrees/`; delete merged branches (`services-map`,
-  `services-map-wip`, `review-services`, `fix-pin-place`).
+  line; remove old worktrees in `.claude/worktrees/` and their local branches (all on GitHub).
 - [ ] Taxi fare for TaxiQ Center (Kulhudhuffushi); seats on 7-10 seat taxis.
 - [ ] Fare extras: domestic terminal (+MVR 10/15), luggage (7-10 seats); whether private hire in
   Greater Malé is capped at the official fare.
-- [ ] Help near me by road distance for the top few.
 
 ## Later
 
