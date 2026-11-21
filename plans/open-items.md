@@ -45,11 +45,17 @@ property, identity and payments) is in `plans/digital-raajje-vision.md` on the `
   the bridge deck, linked taxis in taxi colours, fuller tap cards (2.13); place files in tiles (2.14);
   Kulhudhuffushi in 3D, also the game, and our own house dataset (2.15); Share pickup to our own map
   (2.15.1); our own houses in 3D and a 2D fix (2.16); one tap menu for every figure (2.17).
-  **Left:** real house heights, the rest of the atoll, tapping a house, free taxis on a center's card,
-  suspending a center doesn't remove its admin role, a rules check for a center admin keeping
-  private hire, a figure behind a house can still be tapped.
+  **Left:** real house heights, the rest of the atoll.
+
+- [x] **v2.18.0** (2026-11-21): tap a house for its name (Route, Use as pickup), hidden figures not
+  tappable, free taxis on center cards, suspending a center removes its admin role, rules checks.
+  **Left:** rejecting a re-pending center keeps its admin role; the main center shows no free count.
 
 ## Needs a decision or an outside step
+
+- [ ] **Dhivehi corpus move** (`kudadonbe/dhivehi-corpus`, project `kd-dhivehi-corpus`): checked
+  2026-11-21: TaxiQ's lexicon is empty (nothing to copy); only its 12 label fixes
+  (`translations/dv`) move. Next: TaxiQ becomes a client (corpus slice 6) when the owner says go.
 
 - [ ] **three.js** (MIT, v2.10.0) needs the MDS whitelist or an exception (SECURITY.md).
 - [ ] **Automatic deploy** ([PR #2](https://github.com/kudadonbe/TaxiQ/pull/2), `ci-deploy`): the
