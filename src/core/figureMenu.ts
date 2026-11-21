@@ -4,8 +4,8 @@
 
 import type { ServiceKind } from './services'
 
-export type FigureMenuHeading = 'fix' | 'tyres' | 'battery' | 'tow' | 'ride' | 'bus' | 'person' | 'you'
-export type FigureMenuAction = 'call' | 'route' | 'details' | 'hire' | 'follow' | 'unfollow' | 'changeLook'
+export type FigureMenuHeading = 'fix' | 'tyres' | 'battery' | 'tow' | 'ride' | 'bus' | 'person' | 'you' | 'house'
+export type FigureMenuAction = 'call' | 'route' | 'details' | 'hire' | 'follow' | 'unfollow' | 'changeLook' | 'pickup'
 
 export type FigureSubject =
   // A service: a mobile helper (drawn as a mechanic or delivery rider) or a fixed place.
@@ -19,6 +19,8 @@ export type FigureSubject =
   | { kind: 'person'; followed: boolean }
   // The viewer's own avatar.
   | { kind: 'me'; canChangeLook: boolean }
+  // A house or building on TaxiQ's own map. `canPickup`: a hire form is open to take it as pickup.
+  | { kind: 'house'; canRoute: boolean; canPickup: boolean }
 
 export interface FigureMenuButton {
   id: FigureMenuAction
@@ -65,6 +67,12 @@ export function figureMenu(s: FigureSubject): FigureMenuContent {
       return { heading: 'person', buttons: [follow(s.followed)] }
     case 'me':
       return { heading: 'you', buttons: s.canChangeLook ? [{ id: 'changeLook', primary: false }] : [] }
+    case 'house': {
+      const buttons: FigureMenuButton[] = []
+      if (s.canPickup) buttons.push({ id: 'pickup', primary: true })
+      if (s.canRoute) buttons.push({ id: 'route', primary: !s.canPickup })
+      return { heading: 'house', buttons }
+    }
   }
 }
 

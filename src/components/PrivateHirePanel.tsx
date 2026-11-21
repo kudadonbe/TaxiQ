@@ -21,14 +21,22 @@ interface Props {
   onTrip?: (trip: { from: [number, number]; to: [number, number] } | undefined) => void
   onPinRequest?: (kind: 'pickup' | 'destination', apply: (at: [number, number], name: string) => void) => void
   initialPickup?: { at: [number, number]; name: string }
+  // A house tapped on the map (Use as pickup): becomes the pickup each time `n` changes.
+  pickupFromMap?: { at: [number, number]; name: string; n: number } | null
 }
 
 // Hiring a private vehicle: pickup, destination, phone; the owner's price shown before sending.
-export function PrivateHirePanel({ vehicle, ride, offered = null, onNoThanks, onClose, tripMetres = null, onTrip, onPinRequest, initialPickup }: Props) {
+export function PrivateHirePanel({ vehicle, ride, offered = null, onNoThanks, onClose, tripMetres = null, onTrip, onPinRequest, initialPickup, pickupFromMap }: Props) {
   const { fb, uid, name, status, signIn } = useAuth()
   const { lang, t } = useI18n()
   const [pickup, setPickup] = useState(() => initialPickup?.name ?? '')
   const [pickupAt, setPickupAt] = useState<[number, number] | undefined>(() => initialPickup?.at)
+  const [mapPickupN, setMapPickupN] = useState(() => pickupFromMap?.n ?? 0)
+  if (pickupFromMap && pickupFromMap.n !== mapPickupN) {
+    setMapPickupN(pickupFromMap.n)
+    setPickup((pickupFromMap.name || t.pinnedPlace).slice(0, 120))
+    setPickupAt(pickupFromMap.at)
+  }
   const [destination, setDestination] = useState('')
   const [destinationAt, setDestinationAt] = useState<[number, number] | undefined>()
   const [phone, setPhone] = useState('')

@@ -27,6 +27,8 @@ interface Props {
   onPinRequest?: (kind: 'pickup' | 'destination', apply: (at: [number, number], name: string) => void) => void
   // Start with this pickup (Hire from here: the viewer's location).
   initialPickup?: { at: [number, number]; name: string }
+  // A house tapped on the map (Use as pickup): becomes the pickup each time `n` changes.
+  pickupFromMap?: { at: [number, number]; name: string; n: number } | null
   // Demo rides (developers and the demo site only): a taxi accepts by itself and drives the trip.
   // Nothing is saved and no real taxi comes.
   demoAllowed?: boolean
@@ -53,7 +55,7 @@ export interface DemoRide {
 
 // Public: ask for a ride. Either a specific taxi (tapped on the map) or the queue, where the offer
 // goes to each taxi in turn. Needs Google sign-in (no staff role).
-export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPinRequest, initialPickup, demoAllowed = false, demoRide = null, onDemoRide, onEndDemo, onOpenPrivate, tripMetres = null, initialCenter }: Props) {
+export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPinRequest, initialPickup, pickupFromMap, demoAllowed = false, demoRide = null, onDemoRide, onEndDemo, onOpenPrivate, tripMetres = null, initialCenter }: Props) {
   // Open trip: by taxi (the taxi queue) or private hire (the private queue).
   const [by, setBy] = useState<'taxi' | 'private'>('taxi')
   // Open trip by taxi: up to 5 seats (any taxi) or 7-10 seats (only 7-10 seat taxis, their fares).
@@ -64,6 +66,12 @@ export function HirePanel({ taxis, chosen, onClearChoice, onTrip, onPickup, onPi
   const now = useNow(ride?.status === 'offering' || ride?.status === 'interest' || ride?.status === 'confirmed')
   const [pickup, setPickup] = useState(() => (initialPickup ? (initialPickup.name || t.pinnedPlace).slice(0, 120) : ''))
   const [pickupAt, setPickupAt] = useState<[number, number] | undefined>(() => initialPickup?.at)
+  const [mapPickupN, setMapPickupN] = useState(() => pickupFromMap?.n ?? 0)
+  if (pickupFromMap && pickupFromMap.n !== mapPickupN) {
+    setMapPickupN(pickupFromMap.n)
+    setPickup((pickupFromMap.name || t.pinnedPlace).slice(0, 120))
+    setPickupAt(pickupFromMap.at)
+  }
   const [destination, setDestination] = useState('')
   const [destinationAt, setDestinationAt] = useState<[number, number] | undefined>()
   // Taxi centers: an open trip goes to the one the passenger picks (nearest to the pickup first,

@@ -14,7 +14,8 @@ import { AmbientLight, BufferGeometry, Camera, DirectionalLight, Float32BufferAt
 import type { CustomLayerInterface, CustomRenderMethodInput, Map as MlMap } from 'maplibre-gl'
 import { mercator } from '../core/figures'
 import { buildHouses, triCount, type HouseLod, type MeshData } from '../core/houseGeometry'
-import { decodeHouseTile, HOUSES3D_DETAIL_ZOOM, houseTileBox, houseTileOrigin, houseTilesIn, type House, type HouseTileDoc } from '../core/houseTiles'
+import { HOUSES3D_DETAIL_ZOOM, houseTileBox, houseTileOrigin, houseTilesIn, type House } from '../core/houseTiles'
+import { hasHouseTile, loadHouseTile } from './houseData'
 
 export interface HousesLayer extends CustomLayerInterface {
   setEnabled(on: boolean): void
@@ -24,12 +25,6 @@ export interface HousesLayer extends CustomLayerInterface {
 }
 
 const EARTH = 40_075_016.686
-const FILES = import.meta.glob<HouseTileDoc>('../data/houses/*/*.json', { import: 'default' })
-const BY_NAME = new Map<string, () => Promise<HouseTileDoc>>()
-for (const [path, load] of Object.entries(FILES)) {
-  const name = path.slice(path.lastIndexOf('/') + 1, -5)
-  BY_NAME.set(name, load)
-}
 const MAX_TILES = 36 // in and near the view
 const KEEP_BUILT = 48 // tiles kept built (the rest are freed)
 const BUILD_MS = 10 // building time per frame
@@ -101,20 +96,13 @@ export function createHousesLayer(id = 'houses-3d'): HousesLayer {
   }
 
   const load = (t: Tile) => {
-    const get = BY_NAME.get(t.name)
-    if (!get || t.loading || t.houses) return
+    if (!hasHouseTile(t.name) || t.loading || t.houses) return
     t.loading = true
-    get()
-      .then((doc) => {
-        t.houses = decodeHouseTile(doc, t.name)
-        map?.triggerRepaint()
-      })
-      .catch(() => {
-        t.houses = []
-      })
-      .finally(() => {
-        t.loading = false
-      })
+    void loadHouseTile(t.name).then((houses) => {
+      t.houses = houses
+      t.loading = false
+      map?.triggerRepaint()
+    })
   }
 
   const build = (t: Tile, lod: HouseLod) => {
@@ -176,7 +164,7 @@ export function createHousesLayer(id = 'houses-3d'): HousesLayer {
       const view = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()] as const
       const padY = (view[2] - view[0]) * 0.25
       const padX = (view[3] - view[1]) * 0.25
-      const near = houseTilesIn([view[0] - padY, view[1] - padX, view[2] + padY, view[3] + padX], MAX_TILES).filter((n) => BY_NAME.has(n))
+      const near = houseTilesIn([view[0] - padY, view[1] - padX, view[2] + padY, view[3] + padX], MAX_TILES).filter(hasHouseTile)
       const show = new Set(near)
       const t0 = performance.now()
       let pending = false
