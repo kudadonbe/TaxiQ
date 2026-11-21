@@ -261,6 +261,8 @@ The map font and opacity fix (`5a27fab`) is already on v3 (`86a6751`).
 
 ## 31. v2.15.1-v2.17.0: Share pickup to our own map (`?at=`), our own houses in 3D (`src/houses3d`, house tiles), one tap menu for every figure (`src/core/figureMenu.ts`).
 
+## 32. v2.18.0: house cards (`src/core/houseHit.ts`), free taxis per center (`publicCenters.free`, `src/core/freeTaxis.ts`), suspension removes the center admin role. v3: compute free taxis on the server; the suspension role change becomes a server step.
+
 ## Keep this list up to date
 
 When something new goes into v2 before v3 replaces it, add it here with its commit.
