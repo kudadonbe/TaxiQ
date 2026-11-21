@@ -135,6 +135,7 @@ function Row({ a, email, fb }: { a: CenterApp; email: string; fb: ReturnType<typ
           </button>
         )}
       </div>
+      {a.status === 'approved' && <p className="text-xs text-slate-600">{t.ctrSuspendNote(a.ownerEmail)}</p>}
       {error && <p className="text-sm font-semibold text-rose-700">{error === STAFF_ELSEWHERE ? t.ctrStaffElsewhere : t.saveError(error)}</p>}
     </section>
   )

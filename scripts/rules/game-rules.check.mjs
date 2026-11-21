@@ -562,11 +562,31 @@ await expect('approved again: the owner is already its admin', 'adm', [
   write('roles/own@test.example', { role: 'admin', centerId: 'ca1', addedBy: 'adm@test.example', addedAt: NOW }),
   write('publicCenters/ca1', ctrPub({ at: [4.18, 73.51], hours: cHours2, phone: '7776666', logo: LOGO2 })),
 ], true)
+// Free taxis on the card: the center's staff keep publicCenters/{id}.free (only free and freeAt).
+await fetch(`${BASE}:commit`, { method: 'POST', headers: { Authorization: 'Bearer owner', 'Content-Type': 'application/json' }, body: JSON.stringify({ writes: [write('roles/oc1@test.example', { role: 'operator', centerId: 'ca1' })] }) })
+const freeW = (o = {}) => write('publicCenters/ca1', { free: 3, freeAt: NOW, ...o }, { merge: true })
+await expect("the center's operator publishes its free-taxi count", 'oc1', [freeW()], true)
+await expect("the center's admin does too", 'own', [freeW({ free: 0 })], true)
+await expect("another center's staff cannot", 'co', [freeW()], false)
+await expect('a citizen cannot', 'n', [freeW()], false)
+await expect('the count cannot carry other changes', 'oc1', [write('publicCenters/ca1', { free: 2, freeAt: NOW, name: 'Best Taxi' }, { merge: true })], false)
+await expect('the count cannot add new keys', 'oc1', [write('publicCenters/ca1', { free: 2, freeAt: NOW, busy: 1 }, { merge: true })], false)
+await expect('the count must be a whole number', 'oc1', [freeW({ free: 2.5 })], false)
+await expect('the count must be 0-500', 'oc1', [freeW({ free: 501 })], false)
+await expect('a negative count is refused', 'oc1', [freeW({ free: -1 })], false)
+await expect('freeAt must be the server time', 'oc1', [freeW({ freeAt: new Date(2020, 0, 1) })], false)
 await expect('suspending needs a reason', 'adm', [ctrDecide('ca1', 'suspended', 'adm'), delW('publicCenters/ca1')], false)
-await expect('a platform admin suspends it with a reason, off the map', 'adm', [ctrDecide('ca1', 'suspended', 'adm', { reason: 'Licence expired' }), delW('publicCenters/ca1')], true)
+await expect("suspending without removing the owner's admin role is refused", 'adm', [ctrDecide('ca1', 'suspended', 'adm', { reason: 'Licence expired' }), delW('publicCenters/ca1')], false)
+await expect('a platform admin suspends it with a reason, off the map, and its admin role goes', 'adm', [ctrDecide('ca1', 'suspended', 'adm', { reason: 'Licence expired' }), delW('publicCenters/ca1'), delW('roles/own@test.example')], true)
 await expect('suspended: it cannot go back on the map', 'own', [write('publicCenters/ca1', ctrPub({ at: [4.18, 73.51], hours: cHours2, phone: '7776666', logo: LOGO2 }))], false)
 await expect('suspended: the owner cannot lift it', 'own', [write('centerApplications/ca1', { status: 'pending', reason: '', updatedAt: NOW }, { merge: true })], false)
 await del('suspended: the owner cannot withdraw it', 'own', 'centerApplications/ca1')
+await expect('lifting the suspension (approve again) gives the admin role back', 'adm', [
+  ctrDecide('ca1', 'approved', 'adm', { reason: '' }),
+  write('centers/ca1', { name: 'Island Taxi', nameDv: '', at: [4.18, 73.51], updatedBy: 'adm@test.example', updatedAt: NOW }),
+  write('roles/own@test.example', { role: 'admin', centerId: 'ca1', addedBy: 'adm@test.example', addedAt: NOW }),
+  write('publicCenters/ca1', ctrPub({ at: [4.18, 73.51], hours: cHours2, phone: '7776666', logo: LOGO2 })),
+], true)
 await expect('a center driver applies for a center of their own', 'drv', [write('centerApplications/ca2', ctrApp({ ownerUid: 'drv', ownerEmail: 'drv@test.example' }))], true)
 await expect('approval is refused while they work for another center', 'adm', [
   ctrDecide('ca2', 'approved', 'adm', { centerId: 'ca2' }),
@@ -576,5 +596,38 @@ await expect('approval is refused while they work for another center', 'adm', [
 ], false)
 await expect('a platform admin rejects it with a reason', 'adm', [ctrDecide('ca2', 'rejected', 'adm', { reason: 'Already a driver' })], true)
 await expect('rejected and never a center: the owner withdraws it', 'drv', [delW('centerApplications/ca2')], true)
+// A private driver approved as a center's admin keeps private hire (roles.private on the admin
+// entry); an admin without it cannot. Suspending turns the entry back into the Private driver role.
+await fetch(`${BASE}:commit`, { method: 'POST', headers: { Authorization: 'Bearer owner', 'Content-Type': 'application/json' }, body: JSON.stringify({ writes: [
+  write('roles/pd@test.example', { role: 'private' }),
+  write('vehicles/vp', { ...vehG, ownerUid: 'pd', reg: 'P7001' }),
+  write('vehicles/vo', { ...vehG, ownerUid: 'own', reg: 'P7002' }),
+  write('publicVehicles/vo', { ...onMap('own'), since: new Date(), updatedAt: new Date() }),
+] }) })
+const pdBatch = (by) => [
+  ctrDecide('ca3', 'approved', by, { centerId: 'ca3' }),
+  write('centers/ca3', { name: 'Island Taxi', nameDv: '', at: [4.17, 73.5], updatedBy: `${by}@test.example`, updatedAt: NOW }),
+  write('roles/pd@test.example', { role: 'admin', centerId: 'ca3', private: true, addedBy: `${by}@test.example`, addedAt: NOW }),
+  write('publicCenters/ca3', ctrPub()),
+]
+await expect('a private driver applies for a taxi center', 'pd', [write('centerApplications/ca3', ctrApp({ ownerUid: 'pd', ownerEmail: 'pd@test.example' }))], true)
+await expect('approved: they become its admin and keep private hire', 'adm', pdBatch('adm'), true)
+await expect('the center admin with private hire puts their vehicle on the map', 'pd', [write('publicVehicles/vp', onMap('pd'))], true)
+await expect('a center admin without private hire cannot', 'own', [write('publicVehicles/vo', onMap('own'))], false)
+await expect('a passenger books the admin\'s private vehicle', 'pq', [write('privateRides/pq', ride({ uid: 'pq', vehicleId: 'vp', ownerUid: 'pd' }))], true)
+await expect('the center admin with private hire accepts the booking', 'pd', [write('privateRides/pq', { status: 'accepted', ownerFirstName: 'P', ownerPhone: '7771234', updatedAt: NOW }, { merge: true })], true)
+await expect('a passenger books the other admin\'s vehicle', 'pr', [write('privateRides/pr', ride({ uid: 'pr', vehicleId: 'vo', ownerUid: 'own' }))], true)
+await expect('a center admin without private hire cannot accept it', 'own', [write('privateRides/pr', { status: 'accepted', ownerFirstName: 'O', ownerPhone: '7771234', updatedAt: NOW }, { merge: true })], false)
+await expect('suspending turns the admin entry back into the Private driver role', 'adm', [
+  ctrDecide('ca3', 'suspended', 'adm', { reason: 'Licence expired' }),
+  delW('publicCenters/ca3'),
+  write('roles/pd@test.example', { role: 'private', addedBy: 'adm@test.example', addedAt: NOW }),
+], true)
+await expect('still a private driver: the vehicle stays on the map', 'pd', [write('publicVehicles/vp', { at: [4.171, 73.5], updatedAt: NOW }, { merge: true })], true)
+await expect('suspending a corpus editor\'s center keeps a role-less corpus entry', 'adm', [
+  ctrDecide('ca1', 'suspended', 'adm', { reason: 'Licence expired' }),
+  delW('publicCenters/ca1'),
+  write('roles/own@test.example', { corpus: true, addedBy: 'adm@test.example', addedAt: NOW }),
+], true)
 console.log(fails ? `\n${fails} FAILED` : '\nAll rules checks passed')
 process.exit(fails ? 1 : 0)

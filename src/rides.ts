@@ -11,6 +11,7 @@ import type { Taxi } from './types'
 import { MAIN, queueRef } from './centers'
 import { logMine } from './activity'
 import { addTripEntries } from './account'
+import { unavailableTaxis } from './core/freeTaxis'
 
 type Fb = typeof import('./firebase')
 
@@ -136,7 +137,11 @@ async function readOrderAndSuspended(fb: Fb, center: string) {
   const offDuty = new Set(offDutyNow ? offDutyNow.docs.map((d) => d.id) : [])
   const order = Array.isArray(state.data()?.order) ? (state.data()!.order as unknown[]).filter((x): x is string => typeof x === 'string') : []
   // Not offered: suspended taxis, taxis whose vehicle is out on private hire, and off-duty taxis.
-  const suspended = new Set(pub.docs.filter((d) => d.data().suspended === true || offDuty.has(d.id) || (typeof d.data().vehicleId === 'string' && privateNow.has(d.data().vehicleId))).map((d) => d.id))
+  const suspended = unavailableTaxis(
+    pub.docs.map((d) => ({ id: d.id, suspended: d.data().suspended === true, vehicleId: typeof d.data().vehicleId === 'string' ? (d.data().vehicleId as string) : null })),
+    offDuty,
+    privateNow,
+  )
   const large = new Set(pub.docs.filter((d) => typeof d.data().seats === 'number' && d.data().seats >= 7).map((d) => d.id))
   return { order, suspended, large }
 }

@@ -12,6 +12,8 @@ export function CenterCard({ c, metres, distance, onRoute, onHire }: { c: Public
   const [now] = useState(() => new Date())
   const today = todayHours(c.hours, now)
   const phone = c.phone.replace(/\D/g, '')
+  // Published by the center's staff; hidden once older than 10 minutes (usePublicCenters re-checks it).
+  const free = c.freeNow
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-3">
@@ -25,6 +27,11 @@ export function CenterCard({ c, metres, distance, onRoute, onHire }: { c: Public
           {metres !== null && <span className="text-slate-600 tabular-nums"> · {distance(metres)}</span>}
         </p>
       </div>
+      {free !== null && (
+        <p className={`flex items-center gap-1.5 text-sm font-bold ${free ? 'text-emerald-700' : 'text-slate-600'}`}>
+          <CarTaxiFront className="size-4" aria-hidden="true" /> {free ? t.ctrFree(free) : t.ctrNoneFree}
+        </p>
+      )}
       {onHire && (
         <button type="button" onClick={onHire} className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-amber-500 px-3 text-sm font-bold text-slate-950">
           <CarTaxiFront className="size-4" aria-hidden="true" /> {t.ctrHire}

@@ -1,14 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { isOpenNow, type WeekHours } from './core/services'
-import { isLogo, LOGO_MAX, LOGO_SIZE, type CenterAppStatus, type CenterDetails } from './core/centerApps'
+import { isLogo, LOGO_MAX, LOGO_SIZE, suspendedRole, type CenterAppStatus, type CenterDetails } from './core/centerApps'
 import { logActivity } from './activity'
+import { countFree, FREE_MIN_GAP_MS, freeShown, shouldWriteFree, unavailableTaxis, type FreeTaxi } from './core/freeTaxis'
 
 // Taxi center registry (firestore.rules: centerApplications, centerLog, publicCenters; checks in
 // src/core/centerApps.ts):
 //   centerApplications/{id}  the owner's application (the owner and platform admins read; holds the
 //                            Transport Authority licence number)
 //   centerLog/{id}           every application and decision, append-only
-//   publicCenters/{id}       what the map reads: exactly what was approved, never the licence
+//   publicCenters/{id}       what the map reads: exactly what was approved, never the licence;
+//                            plus free / freeAt, the count of free taxis kept by the center's staff
 // On approval the real center is centers/{id} (the same id; src/centers.ts) and the owner becomes
 // its admin (roles/{email}: admin with that centerId), all in one batch the rules check.
 
@@ -37,6 +39,9 @@ export interface PublicCenter {
   hours: WeekHours
   logo: string // a validated data URL, or ''
   openNow: boolean
+  free: number | null // taxis free now, published by the center's staff (src/core/freeTaxis.ts)
+  freeAt: number | null // when that count was written
+  freeNow: number | null // the count to show: null when missing or older than 10 minutes
 }
 export interface CenterLogEntry {
   id: string
@@ -87,7 +92,8 @@ export function parsePublicCenter(id: string, x: Record<string, unknown>, now: n
   const name = str(x.name, 60)
   if (!at || !name) return null
   const hours = hoursOf(x.hours)
-  return { id, name, nameDv: str(x.nameDv, 60), at, phone: str(x.phone, 7), hours, logo: logoOf(x.logo), openNow: isOpenNow(hours, new Date(now)) }
+  const free = typeof x.free === 'number' && Number.isInteger(x.free) && x.free >= 0 ? x.free : null
+  return { id, name, nameDv: str(x.nameDv, 60), at, phone: str(x.phone, 7), hours, logo: logoOf(x.logo), openNow: isOpenNow(hours, new Date(now)), free, freeAt: free === null ? null : ms(x.freeAt) || null, freeNow: freeShown(free, ms(x.freeAt) || null, now) }
 }
 
 // Only the detail fields go into the record.
@@ -140,6 +146,79 @@ export function usePublicCenters(fb: Fb | null, enabled: boolean): PublicCenter[
   }, [])
   const raw = useList(fb, enabled, (f) => f.query(f.collection(f.db, 'publicCenters')), (id, x) => ({ id, x }), [])
   return raw.flatMap(({ id, x }) => parsePublicCenter(id, x, now) ?? [])
+}
+
+// A center's staff session keeps publicCenters/{center}.free (taxis that could take an offer now)
+// in step: when the count changes, at most once every 30 s, and at least every 5 minutes so the
+// card knows it is fresh. Nothing is written while the center has no map copy (the main center,
+// which has no application, or a center that is pending or suspended).
+export function useSyncCenterFree(fb: Fb | null, enabled: boolean, center: string, order: readonly string[], taxis: ReadonlyMap<string, FreeTaxi>) {
+  const [cur, setCur] = useState<{ center: string; v: { free: number | null; freeAt: number | null } | null } | null>(null)
+  const [offDuty, setOffDuty] = useState<ReadonlySet<string>>(new Set())
+  const [seen, setSeen] = useState<ReadonlyMap<string, number>>(new Map()) // vehicleId -> its last update on the private map
+  const [now, setNow] = useState(() => Date.now())
+  const lastWrite = useRef(0)
+  const on = !!fb && enabled
+  const exists = on && cur?.center === center && cur.v !== null
+
+  useEffect(() => {
+    if (!fb || !enabled) return
+    return fb.onSnapshot(
+      fb.doc(fb.db, 'publicCenters', center),
+      (snap) => {
+        const x = snap.exists() ? (snap.data({ serverTimestamps: 'estimate' }) as Record<string, unknown>) : null
+        setCur({ center, v: x ? { free: typeof x.free === 'number' ? x.free : null, freeAt: ms(x.freeAt) || null } : null })
+      },
+      () => setCur({ center, v: null }),
+    )
+  }, [fb, enabled, center])
+
+  useEffect(() => {
+    if (!fb || !exists) return
+    const t = setInterval(() => setNow(Date.now()), FREE_MIN_GAP_MS)
+    const stop = fb.onSnapshot(
+      fb.query(fb.collection(fb.db, 'duty'), fb.where('offDuty', '==', true)),
+      (s) => setOffDuty(new Set(s.docs.map((d) => d.id))),
+      () => setOffDuty(new Set()),
+    )
+    return () => {
+      clearInterval(t)
+      stop()
+    }
+  }, [fb, exists])
+
+  // Only linked taxis (one vehicle as private hire and a center taxi) can be out on private hire.
+  const linked = [...new Set([...taxis.values()].flatMap((t) => (t.vehicleId ? [t.vehicleId] : [])))].sort().join(',')
+  useEffect(() => {
+    if (!fb || !exists || !linked) return
+    const stops = linked.split(',').map((vid) =>
+      fb.onSnapshot(
+        fb.doc(fb.db, 'publicVehicles', vid),
+        (snap) =>
+          setSeen((m) => {
+            const next = new Map(m)
+            const at = snap.exists() ? ms(snap.data().updatedAt) : 0
+            if (at) next.set(vid, at)
+            else next.delete(vid)
+            return next
+          }),
+        () => {},
+      ),
+    )
+    return () => stops.forEach((s) => s())
+  }, [fb, exists, linked])
+
+  // The same 10 minutes as readOrderAndSuspended in src/rides.ts.
+  const privateNow = new Set([...seen].filter(([, at]) => at > now - 10 * 60_000).map(([vid]) => vid))
+  const free = countFree(order, new Set(taxis.keys()), unavailableTaxis(taxis.values(), offDuty, privateNow))
+  const v = exists ? cur!.v : null
+  useEffect(() => {
+    if (!fb || !v) return
+    const t = Date.now()
+    if (!shouldWriteFree(v, free, t, lastWrite.current)) return
+    lastWrite.current = t
+    fb.updateDoc(fb.doc(fb.db, 'publicCenters', center), { free, freeAt: fb.serverTimestamp() }).catch(() => {})
+  }, [fb, v, free, now, center])
 }
 
 type Batch = ReturnType<Fb['writeBatch']>
@@ -226,6 +305,18 @@ export async function decideCenter(fb: Fb, a: CenterApp, status: 'approved' | 'r
   } else {
     b.update(ref, decided)
     b.delete(pub)
+    // Suspended: the owner is no longer the center's admin (the rules check it). A corpus editor
+    // or private driver keeps that; approving again gives the admin role back.
+    if (status === 'suspended') {
+      const roleRef = fb.doc(fb.db, 'roles', a.ownerEmail)
+      const role = await fb.getDoc(roleRef)
+      const r = role.exists() ? (role.data() as Record<string, unknown>) : {}
+      if (r.role === 'admin' && r.centerId === a.id) {
+        const kept = suspendedRole(r, email)
+        if (kept) b.set(roleRef, { ...kept, addedAt: fb.serverTimestamp() })
+        else b.delete(roleRef)
+      }
+    }
   }
   log(fb, b, a.id, a.ownerUid, status, email, reason)
   await b.commit()

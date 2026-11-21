@@ -590,6 +590,13 @@ service cloud.firestore {
         && getAfter(ctrRole(d.ownerEmail)).data.get('centerId', '') == id
         && existsAfter(/databases/$(database)/documents/publicCenters/$(id));
     }
+    // Suspending: the owner's admin role for this center goes in the same batch (deleted, or turned
+    // into the Private driver role or a role-less corpus entry they also held). Approving again
+    // gives it back (ctrApproved).
+    function ctrRoleRemoved(id, e) {
+      return !existsAfter(ctrRole(e))
+        || !(getAfter(ctrRole(e)).data.get('role', '') == 'admin' && getAfter(ctrRole(e)).data.get('centerId', '') == id);
+    }
     match /centerApplications/{appId} {
       allow read: if isPlatform() || (signedIn() && resource.data.ownerUid == request.auth.uid);
       allow create: if signedIn()
@@ -633,7 +640,8 @@ service cloud.firestore {
           && (request.resource.data.pendingLogo == resource.data.pendingLogo || request.resource.data.pendingLogo == '')
           && (request.resource.data.status == 'approved'
             ? (resource.data.status == 'approved' ? request.resource.data.centerId == resource.data.centerId : ctrApproved(appId, request.resource.data))
-            : request.resource.data.centerId == resource.data.centerId)));
+            : request.resource.data.centerId == resource.data.centerId
+              && (request.resource.data.status != 'suspended' || ctrRoleRemoved(appId, resource.data.ownerEmail)))));
       // The owner withdraws it while it never ran as a center, and never while suspended.
       allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid
         && resource.data.status in ['pending', 'rejected'] && resource.data.centerId == null;
@@ -654,7 +662,8 @@ service cloud.firestore {
       allow update, delete: if false;
     }
     // What the map reads: exactly what was approved (no licence number), written by a platform
-    // admin in the approval batch or by the owner's app when hours or phone change.
+    // admin in the approval batch or by the owner's app when hours or phone change; plus the
+    // center's free-taxi count (free, freeAt), kept by its staff.
     match /publicCenters/{centerId} {
       function capp() {
         return getAfter(/databases/$(database)/documents/centerApplications/$(centerId)).data;
@@ -672,6 +681,13 @@ service cloud.firestore {
         && request.resource.data.phone == capp().phone
         && request.resource.data.hours == capp().hours
         && request.resource.data.logo == capp().logo;
+      // The center's staff keep the count of free taxis (src/core/freeTaxis.ts, useSyncCenterFree):
+      // only free (0-500) and freeAt change; everything else stays what was approved.
+      allow update: if staffOf(centerId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['free', 'freeAt'])
+        && request.resource.data.free is int && request.resource.data.free >= 0 && request.resource.data.free <= 500
+        && request.resource.data.freeAt == request.time
+        && capp().status == 'approved';
       allow delete: if isPlatform()
         || (signedIn() && get(/databases/$(database)/documents/centerApplications/$(centerId)).data.ownerUid == request.auth.uid);
     }

@@ -6,6 +6,7 @@ import type { Dispatch, QueueApi, QueueChange } from './useQueue'
 import { placeAt } from './useQueue'
 import { EMPTY_CALL, hasCallInfo, parseStoredTaxi, toTaxi, validateCall, type TaxiInput } from './validate'
 import { MAIN, queueRef } from './centers'
+import { useSyncCenterFree } from './centerApps'
 
 type Fb = typeof import('./firebase')
 
@@ -151,6 +152,11 @@ export function useLiveQueue(fb: Fb | null, enabled: boolean, email: string | nu
       if (writes) batch.commit().catch((e: { code?: string }) => setError(e.code ?? 'error'))
     })
   }, [fb, enabled, isAdmin, loaded, taxis, center])
+
+  // Every staff session keeps the center's free-taxi count on its map copy (publicCenters).
+  const rawOrder = useMemo(() => (Array.isArray(state.order) ? state.order.filter((id): id is string => typeof id === 'string') : []), [state.order])
+  const freeTaxis = useMemo(() => new Map([...taxis.values()].map((t) => [t.id, { id: t.id, suspended: !!t.suspended, vehicleId: t.vehicleId ?? null }])), [taxis])
+  useSyncCenterFree(fb, enabled && loaded, center, rawOrder, freeTaxis)
 
   const order = useMemo(() => normalize(state.order, taxis), [state.order, taxis])
   const queue = useMemo(() => order.map((id) => taxis.get(id)!), [order, taxis])

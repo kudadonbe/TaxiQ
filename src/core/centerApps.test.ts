@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { centerErrors, centerNeedsRecheck, isLogo, LOGO_MAX, normLicence, type CenterDetails } from './centerApps'
+import { centerErrors, centerNeedsRecheck, isLogo, LOGO_MAX, normLicence, suspendedRole, type CenterDetails } from './centerApps'
 import { allWeek, EMPTY_HOURS } from './services'
 
 const ok: CenterDetails = { name: 'Kudahuvadhoo Taxi', nameDv: 'ކުޑަހުވަދޫ ޓެކްސީ', at: [2.67, 72.89], phone: '7771234', hours: allWeek('06:00', '23:00'), licence: 'TA/TC-2024/015', logo: '' }
@@ -39,5 +39,18 @@ describe('licence and recheck', () => {
     expect(centerNeedsRecheck(ok, { ...ok, name: 'Other' })).toBe(true)
     expect(centerNeedsRecheck(ok, { ...ok, at: [2.6, 72.8] })).toBe(true)
     expect(centerNeedsRecheck(ok, { ...ok })).toBe(false)
+  })
+})
+
+describe('suspendedRole', () => {
+  it('a plain center admin loses the entry', () => {
+    expect(suspendedRole({ role: 'admin', centerId: 'c1' }, 'Adm@x.mv')).toBeNull()
+  })
+  it('a private driver keeps private hire', () => {
+    expect(suspendedRole({ role: 'admin', centerId: 'c1', private: true }, 'adm@x.mv')).toEqual({ role: 'private', addedBy: 'adm@x.mv' })
+    expect(suspendedRole({ role: 'admin', centerId: 'c1', private: true, corpus: true }, 'adm@x.mv')).toEqual({ role: 'private', corpus: true, addedBy: 'adm@x.mv' })
+  })
+  it('a corpus editor keeps the corpus as a role-less entry', () => {
+    expect(suspendedRole({ role: 'admin', centerId: 'c1', corpus: true }, 'ADM@x.mv')).toEqual({ corpus: true, addedBy: 'adm@x.mv' })
   })
 })

@@ -54,3 +54,14 @@ export function centerErrors(d: CenterDetails): Partial<Record<CenterField, 'req
 export function centerNeedsRecheck(was: Pick<CenterDetails, 'name' | 'nameDv' | 'at'>, d: Pick<CenterDetails, 'name' | 'nameDv' | 'at'>) {
   return d.name.trim() !== was.name || d.nameDv.trim() !== was.nameDv || JSON.stringify(d.at) !== JSON.stringify(was.at)
 }
+
+// Suspending a center: what is left of its admin's roles entry (`r`, which is admin of that
+// center). A private driver keeps private hire (role 'private'), a corpus editor keeps the corpus
+// (as a role-less entry when that is all); null means the entry is deleted. `by` is the platform
+// admin's email (addedAt is set by the caller).
+export function suspendedRole(r: Record<string, unknown>, by: string): { role?: 'private'; corpus?: true; addedBy: string } | null {
+  const corpus = r.corpus === true
+  const addedBy = by.toLowerCase()
+  if (r.private === true) return { role: 'private', ...(corpus ? { corpus: true as const } : {}), addedBy }
+  return corpus ? { corpus: true, addedBy } : null
+}
