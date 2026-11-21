@@ -272,6 +272,8 @@ export default function App() {
   const [hirePickup, setHirePickup] = useState<[number, number] | undefined>()
   const [tripMetres, setTripMetres] = useState<number | null>(null)
   const [pinMode, setPinMode] = useState<'pickup' | 'destination' | null>(null)
+  // A house tapped on the map while the hire form is open (Use as pickup).
+  const [mapPickup, setMapPickup] = useState<{ at: [number, number]; name: string; n: number } | null>(null)
   const pinApply = useRef<((at: [number, number], name: string) => void) | null>(null)
   const [hireTrip, setHireTrip] = useState<{ from: [number, number]; to: [number, number] } | undefined>()
 
@@ -866,6 +868,14 @@ export default function App() {
                 setPinMode(null)
                 setHireOpen(true)
               }}
+              onUsePickup={
+                hireShown && !rideInProgress && !demoRide && !privateLive
+                  ? (at, placeName) => {
+                      setMapPickup({ at, name: placeName, n: Date.now() })
+                      setHireOpen(true)
+                    }
+                  : undefined
+              }
               panel={
                 (hireShown || rideInProgress || pinMode || demoRide || privateLive) &&
                 (privateMode ? (
@@ -877,6 +887,7 @@ export default function App() {
                     offered={myPrivate ? (vehicles.find((x) => x.id === myPrivate.vehicleId) ?? null) : null}
                     onNoThanks={() => auth.fb && myPrivate && void movePrivateOn(auth.fb, myPrivate, privateQueue(vehicles, myPrivate.uid, myPrivate.skipped)).catch(() => {})}
                     initialPickup={hireFrom ?? undefined}
+                    pickupFromMap={mapPickup}
                     onTrip={setHireTrip}
                     onPinRequest={(kind, apply) => {
                       pinApply.current = apply
@@ -902,6 +913,7 @@ export default function App() {
                       : undefined
                   }
                   initialPickup={hireFrom ?? undefined}
+                  pickupFromMap={mapPickup}
                   taxis={hireTaxis}
                   demoAllowed={demoAllowed}
                   demoRide={demoRide}

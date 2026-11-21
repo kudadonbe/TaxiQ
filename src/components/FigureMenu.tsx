@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Bus, CarTaxiFront, Info, LocateFixed, LocateOff, Phone, Route, Shirt, User, UserRound, Wrench, X, type LucideIcon } from 'lucide-react'
+import { Bus, CarTaxiFront, House, Info, LocateFixed, LocateOff, MapPin, Phone, Route, Shirt, User, UserRound, Wrench, X, type LucideIcon } from 'lucide-react'
 import type { FigureMenuAction, FigureMenuHeading } from '../core/figureMenu'
 
 // The tap menu on a figure (a vehicle, a person, a service helper, yourself), shown in a see-through
@@ -18,8 +18,8 @@ export interface FigureMenuProps {
   onClose: () => void
 }
 
-const HEADING_ICONS: Record<FigureMenuHeading, LucideIcon> = { fix: Wrench, tyres: Wrench, battery: Wrench, tow: Wrench, ride: CarTaxiFront, bus: Bus, person: User, you: UserRound }
-const ACTION_ICONS: Record<FigureMenuAction, LucideIcon> = { call: Phone, route: Route, details: Info, hire: CarTaxiFront, follow: LocateFixed, unfollow: LocateOff, changeLook: Shirt }
+const HEADING_ICONS: Record<FigureMenuHeading, LucideIcon> = { fix: Wrench, tyres: Wrench, battery: Wrench, tow: Wrench, ride: CarTaxiFront, bus: Bus, person: User, you: UserRound, house: House }
+const ACTION_ICONS: Record<FigureMenuAction, LucideIcon> = { call: Phone, route: Route, details: Info, hire: CarTaxiFront, follow: LocateFixed, unfollow: LocateOff, changeLook: Shirt, pickup: MapPin }
 const TONES = { ok: '#065f46', warn: '#be123c', muted: '#334155' }
 
 export function FigureMenu({ heading, headingText, title, lines, buttons, closeLabel, dir, onAction, onClose }: FigureMenuProps) {

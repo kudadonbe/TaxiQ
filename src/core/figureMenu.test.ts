@@ -47,6 +47,18 @@ describe('figureMenu', () => {
     expect(ids({ kind: 'me', canChangeLook: false })).toEqual([])
   })
 
+  it('offers a tapped house as pickup only while a hire form is open, and Route once located', () => {
+    expect(figureMenu({ kind: 'house', canRoute: true, canPickup: true })).toEqual({
+      heading: 'house',
+      buttons: [
+        { id: 'pickup', primary: true },
+        { id: 'route', primary: false },
+      ],
+    })
+    expect(figureMenu({ kind: 'house', canRoute: true, canPickup: false }).buttons).toEqual([{ id: 'route', primary: true }])
+    expect(ids({ kind: 'house', canRoute: false, canPickup: false })).toEqual([])
+  })
+
   it('keeps only the first name', () => {
     expect(firstName('Aisha Mohamed')).toBe('Aisha')
     expect(firstName('  Ali ')).toBe('Ali')

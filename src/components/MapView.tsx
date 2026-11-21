@@ -10,7 +10,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 maplibregl.setWorkerUrl(workerUrl)
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useI18n } from '../i18n'
+import { useI18n, type Strings } from '../i18n'
 import { loadPlaces, loadPlacesAround, loadPlacesForSearch, metresBetween, nearestPlace, nearestRoad, regionAt, searchPlaces, type Place } from '../places'
 import { route as findRoute, type RoadGraph, type TravelMode } from '../core/route'
 import { driveTrip, endTrip, MAP_CENTER, ROAD_GRAPH, subscribePositions, TRIP_SPEED, tripProgress, type Positions } from '../positions'
@@ -53,6 +53,9 @@ import type { FiguresLayer } from '../figures3d/layer'
 import { useHouses3d } from '../houses3d/useHouses3d'
 import { figureMenu, firstName, hitFigure, type FigureHitCandidate, type FigureMenuAction, type FigureMenuHeading, type FigureSubject } from '../core/figureMenu'
 import { FigureMenu, type FigureMenuProps } from './FigureMenu'
+import { frontShape, hiddenBy, houseRing, houseTop, placeIn, prismFront, ringMiddle, type Pt, type ShapeOnScreen } from '../core/houseHit'
+import { houseTilesIn } from '../core/houseTiles'
+import { hasHouseTile, loadHouseTile } from '../houses3d/houseData'
 
 type Status = 'idle' | 'answered' | 'suspended'
 
@@ -84,6 +87,8 @@ interface Props {
   pinMode?: 'pickup' | 'destination' | null
   onPin?: (at: [number, number], name: string) => void
   onPinCancel?: () => void
+  // A hire form is open: a tapped house's card offers Use as pickup, which sets it there.
+  onUsePickup?: (at: [number, number], name: string) => void
   // A ride in progress (accepted): that taxi drives to the pickup, then the destination. The viewer
   // can move the map freely; Show my taxi brings it back into view.
   activeTrip?: { taxiId: string; pickup: [number, number]; destination: [number, number] }
@@ -482,6 +487,74 @@ function markerParts(): MarkerParts {
 
 const ll = (p: [number, number]): [number, number] => [p[1], p[0]] // [lat, lng] -> MapLibre [lng, lat]
 
+// Tapping a house or building on TaxiQ's own map (src/core/houseHit.ts): the shapes near a tap, on
+// screen, with the px their full height rises there. Our houses from the house tiles (loaded once,
+// shared with the 3D houses), the world's other buildings from what MapLibre drew under the tap.
+interface TappedShape {
+  kind: string // 'home' (one of our houses) or the world building's kind (mosque, school, shop...)
+  ring: [number, number][] // outline, lat, lng
+  middle: [number, number]
+}
+const HOUSE_TAP_ZOOM = 16
+const TALLEST_M = 120 // the tallest building a tap's ray is followed through
+// How many px one metre of height rises on screen at a ground spot (0 when flat).
+function riseAt(m: MlMap, at: [number, number]): number {
+  const pitch = m.getPitch()
+  if (pitch < 1) return 0
+  const p = m.project(ll(at))
+  const q = m.unproject([p.x + 20, p.y])
+  const d = metresBetween(at, [q.lat, q.lng])
+  return d > 0 ? (20 / d) * Math.sin((pitch * Math.PI) / 180) : 0
+}
+const onScreen = (m: MlMap, ring: readonly [number, number][]): Pt[] =>
+  ring.map((q) => {
+    const p = m.project(ll(q))
+    return [p.x, p.y]
+  })
+async function housesAt(m: MlMap, at: Pt, area: string | null): Promise<ShapeOnScreen<TappedShape>[]> {
+  if (!area || m.getZoom() < HOUSE_TAP_ZOOM) return []
+  const out: ShapeOnScreen<TappedShape>[] = []
+  // The ground the ray can cross: from the tapped point down the screen to the foot of the tallest
+  // building it could reach, with room for a house's size.
+  const g = m.unproject(at)
+  const g0: [number, number] = [g.lat, g.lng]
+  const foot = m.unproject([at[0], Math.min(m.getContainer().clientHeight, at[1] + TALLEST_M * riseAt(m, g0))])
+  const pad = 0.0005
+  const box: [number, number, number, number] = [Math.min(g0[0], foot.lat) - pad, Math.min(g0[1], foot.lng) - pad, Math.max(g0[0], foot.lat) + pad, Math.max(g0[1], foot.lng) + pad]
+  const tiles = await Promise.all(houseTilesIn(box, 9).filter(hasHouseTile).map(loadHouseTile))
+  for (const houses of tiles)
+    for (const house of houses) {
+      const [lat, lng] = house.at
+      if (lat < box[0] || lat > box[2] || lng < box[1] || lng > box[3]) continue
+      const ring = houseRing(house)
+      out.push({ item: { kind: 'home', ring, middle: house.at }, ring: onScreen(m, ring), lift: houseTop(house) * riseAt(m, house.at) })
+    }
+  const layer = `world-${area}-buildings`
+  if (!m.getLayer(layer)) return out
+  for (const f of m.queryRenderedFeatures([[at[0] - 1, at[1] - 1], [at[0] + 1, at[1] + 1]], { layers: [layer] })) {
+    const geo = f.geometry
+    const outer = geo.type === 'Polygon' ? geo.coordinates[0] : geo.type === 'MultiPolygon' ? geo.coordinates[0]?.[0] : undefined
+    if (!outer || outer.length < 3) continue
+    const ring = outer.map(([lng, lat]) => [lat!, lng!] as [number, number])
+    const middle = ringMiddle(ring)
+    const item = { kind: String(f.properties?.k ?? 'other'), ring, middle }
+    const screen = onScreen(m, ring)
+    const lift = (Number(f.properties?.h) || 3) * riseAt(m, middle)
+    // MapLibre found it under the tap; if the outline it gives (cut at its own tile edges) misses
+    // the ray, it still counts, as the furthest shape back.
+    out.push(prismFront(screen, at, lift) !== null ? { item, ring: screen, lift } : { item, ring: [[at[0] - 1, at[1] - 1], [at[0] + 1, at[1] - 1], [at[0] + 1, at[1] + 1], [at[0] - 1, at[1] + 1]], lift: 0 })
+  }
+  return out
+}
+// What a tapped shape is called when it has no name of its own.
+const BUILDING_WORDS: Record<string, keyof Strings['worldKinds']> = { mosque: 'mosque', dome: 'mosque', school: 'school', health: 'clinic', gov: 'gov', shop: 'shop' }
+function buildingWord(kind: string, t: Strings): string {
+  const k = BUILDING_WORDS[kind]
+  if (k) return t.worldKinds[k]
+  return kind === 'home' || kind === 'house' || kind === 'flats' ? t.figMenuHouse : t.figMenuBuilding
+}
+
+
 // A person sharing their position, for the 3D figures layer: standing or walking in their chosen
 // look; on a bicycle, e-bike or motorbike as that vehicle with them riding it; in a taxi, nothing
 // (the taxi is drawn).
@@ -592,7 +665,7 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
 // Live map of taxis, on MapLibre: rotate (two fingers / right-drag), tilt, pinch zoom, compass and
 // "my location" like Google Maps. Markers are driven imperatively so 60fps position updates don't
 // re-render React.
-export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, activeTrip, onHireFrom, people = [], vehicles = [], buses: busesProp, onHireVehicle, focusVehicle = null, myUid = null, privateRide, shareControl, driving = false, onTripMetres, services: servicesProp, mapOnly = false, onMapOnly, centers, onHireCenter, sharedSpot = null, onSharedClose }: Props) {
+export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip, positionSource = subscribePositions, fullscreen = false, panel, panelTitle, panelOpen = true, onPanelOpenChange, onPanelClose, pinMode = null, onPin, onPinCancel, onUsePickup, activeTrip, onHireFrom, people = [], vehicles = [], buses: busesProp, onHireVehicle, focusVehicle = null, myUid = null, privateRide, shareControl, driving = false, onTripMetres, services: servicesProp, mapOnly = false, onMapOnly, centers, onHireCenter, sharedSpot = null, onSharedClose }: Props) {
   const { lang, t, driverName } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const map = useRef<MlMap | null>(null)
@@ -643,20 +716,22 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   useEffect(() => {
     tRef.current = t
   })
-  const showMenu = (marker: Marker, offset: number, subject: FigureSubject, words: { headingText: string; title: string; lines: FigureMenuProps['lines'] }, act: Partial<Record<FigureMenuAction, () => void>>) => {
+  // `marker`: the figure's marker (the menu moves with it), or a fixed spot (lat, lng) for a house.
+  const showMenu = (marker: Marker | [number, number], offset: number, subject: FigureSubject, words: { headingText: string; title: string; lines: FigureMenuProps['lines'] }, act: Partial<Record<FigureMenuAction, () => void>>) => {
     popup.current?.remove()
     const tt = tRef.current
     const content = figureMenu(subject)
     // A heading left empty is said by the menu's own kind ("Need a fix?", "That's you"...).
-    const said: Record<FigureMenuHeading, string> = { fix: tt.figMenuNeedFix, tyres: tt.figMenuNeedTyres, battery: tt.figMenuNeedBattery, tow: tt.figMenuNeedTow, ride: tt.figMenuNeedRide, bus: '', person: '', you: tt.figMenuThatsYou }
+    const said: Record<FigureMenuHeading, string> = { fix: tt.figMenuNeedFix, tyres: tt.figMenuNeedTyres, battery: tt.figMenuNeedBattery, tow: tt.figMenuNeedTow, ride: tt.figMenuNeedRide, bus: '', person: '', you: tt.figMenuThatsYou, house: tt.figMenuHouse }
     if (!words.headingText) words = { ...words, headingText: said[content.heading] }
-    const label: Record<FigureMenuAction, string> = { call: tt.svcCall, route: tt.svcRoute, details: tt.figMenuDetails, hire: subject.kind === 'vehicle' ? tt.privHire : tt.menuHire, follow: tt.menuFollow, unfollow: tt.menuUnfollow, changeLook: tt.figMenuChangeLook }
+    const label: Record<FigureMenuAction, string> = { call: tt.svcCall, route: tt.svcRoute, details: tt.figMenuDetails, hire: subject.kind === 'vehicle' ? tt.privHire : tt.menuHire, follow: tt.menuFollow, unfollow: tt.menuUnfollow, changeLook: tt.figMenuChangeLook, pickup: tt.figMenuUsePickup }
     const el = document.createElement('div')
     const root = createRoot(el)
     // In the top part of the screen (under the search and the tool column) the menu opens below the
     // figure instead of above it.
     const m = map.current
-    const high = !!m && m.project(marker.getLngLat()).y < m.getContainer().clientHeight * 0.45
+    const spot = Array.isArray(marker) ? ll(marker) : marker.getLngLat()
+    const high = !!m && m.project(spot).y < m.getContainer().clientHeight * 0.45
     const p = new maplibregl.Popup({ closeButton: false, offset, className: 'taxi-menu', maxWidth: '17rem', focusAfterOpen: false, ...(high ? { anchor: 'top' as const } : {}) }).setDOMContent(el)
     const close = () => p.remove()
     root.render(
@@ -677,8 +752,12 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
       if (popup.current === p) popup.current = null
       setTimeout(() => root.unmount())
     })
-    marker.setPopup(p)
-    if (!p.isOpen()) marker.togglePopup()
+    if (Array.isArray(marker)) {
+      if (m) p.setLngLat(spot).addTo(m)
+    } else {
+      marker.setPopup(p)
+      if (!p.isOpen()) marker.togglePopup()
+    }
     popup.current = p
     menuCtx.current.opened()
   }
@@ -2353,45 +2432,98 @@ export default function MapView({ taxis, interested, pickupAt, onPickTaxi, trip,
   useEffect(() => {
     if (active) popup.current?.remove()
   }, [active])
-  // Tapping a 3D figure: the flat drawing under it is hidden, so a tap on the map (empty ground for
-  // MapLibre) is checked against every figure drawn: each as an upright line on screen from where it
-  // stands to the top of its model (people at least 24 px tall, as the layer draws them), vehicles
-  // with half their length as reach. The nearest within reach gets its marker's tap (the same menu
-  // as in 2D); a tap on empty ground goes on as before.
+  // What a tap on a house needs, read at tap time.
+  const houseCtx = useRef({ pinMode: null as Props['pinMode'], canRoute: false, route: (_x: Pick<PublicService, 'at' | 'name' | 'nameDv'>) => {}, pickup: undefined as Props['onUsePickup'] })
+  useEffect(() => {
+    houseCtx.current = { pinMode, canRoute: !!mySpot, route: routeTo, pickup: onUsePickup }
+  })
+  // A tap on the map's own ground (not on a marker or a control). On TaxiQ's own map from zoom 16,
+  // the houses (our house tiles) and buildings (the world's, queryRenderedFeatures) near the tap are
+  // put on screen with their heights and the tap's ray is tested against them (src/core/houseHit.ts):
+  // the one it meets first is the tapped house.
+  //
+  // 3D figures: the flat drawing under each is hidden, so the tap is also checked against every
+  // figure drawn: each as an upright line on screen from where it stands to the top of its model
+  // (people at least 24 px tall, as the layer draws them), vehicles with half their length as reach.
+  // A figure behind the house the ray meets first is hidden by it and can't be tapped there. The
+  // nearest figure within reach gets its marker's tap (the same menu as in 2D); figures win over
+  // houses. Otherwise a tapped house opens its card: name (EN/DV), plot number, postcode, Route and,
+  // while a hire form is open, Use as pickup.
   useEffect(() => {
     const m = map.current
     if (!m || !ready) return
+    let tap = 0
+    const openHouse = async (s: TappedShape, spot: [number, number], n: number) => {
+      const list = await loadPlacesAround(s.middle).catch(() => [] as Place[])
+      if (n !== tap) return
+      const tt = tRef.current
+      const lang = menuCtx.current.lang
+      const place = placeIn(list, s.ring, s.middle)
+      const en = place?.e ?? ''
+      const dv = place?.d ?? ''
+      const name = (lang === 'dv' ? dv || en : en || dv).slice(0, 120)
+      const other = lang === 'dv' ? (dv ? en : '') : en ? dv : ''
+      const kindWord = buildingWord(s.kind, tt)
+      const lines: FigureMenuProps['lines'] = []
+      if (other && other !== name) lines.push({ text: other })
+      if (place?.pl) lines.push({ text: `${tt.plot} ${place.pl}` })
+      if (place?.pc) lines.push({ text: `${tt.postcode} ${place.pc}` })
+      const ctx = houseCtx.current
+      const target = { at: s.middle, name: en || dv || kindWord, nameDv: dv || en || kindWord }
+      const pickup = ctx.pickup
+      showMenu(
+        spot,
+        8,
+        { kind: 'house', canRoute: ctx.canRoute, canPickup: !!pickup },
+        { headingText: kindWord, title: name, lines },
+        { route: () => houseCtx.current.route(target), pickup: () => pickup?.(s.middle, name || kindWord) },
+      )
+    }
     const onClick = (e: maplibregl.MapMouseEvent) => {
-      if (!m.getContainer().classList.contains('fig3d')) return
-      const reg = figures.current
-      const lift = Math.sin((m.getPitch() * Math.PI) / 180)
-      const pxPerM = realPx(m, 1)
-      const view = m.getBounds()
-      const cands: FigureHitCandidate[] = []
-      for (const f of reg.items.values()) {
-        if (!reg.shows(f) || !view.contains(ll(f.at))) continue
-        const { x, y } = m.project(ll(f.at))
-        const person = f.model.kind === 'person'
-        const len = Math.max(person ? 24 : 28, f.length * pxPerM)
-        const up = (person ? len : len * 0.3) * lift
-        cands.push({ id: f.id, base: [x, y], top: [x, y - up], r: person ? 0 : len / 2 })
-      }
-      const id = hitFigure(cands, [e.point.x, e.point.y])
-      if (!id) return
-      const rest = id.slice(2)
-      const el =
-        id.startsWith('t:') ? markers.current.get(rest)?.parts.root
-        : id.startsWith('v:') ? vehicleMarkers.current.get(rest)?.marker.getElement()
-        : id.startsWith('b:') ? vehicleMarkers.current.get(id)?.marker.getElement()
-        : id.startsWith('p:') ? peopleMarkers.current.get(rest)?.marker.getElement()
-        : id.startsWith('s:') ? serviceMarkers.current.get(rest)?.marker.getElement()
-        : undefined
-      el?.click()
+      if (e.originalEvent?.target !== m.getCanvas() || houseCtx.current.pinMode) return
+      const n = ++tap
+      const at: Pt = [e.point.x, e.point.y]
+      void housesAt(m, at, shownWorld.current).then((shapes) => {
+        if (n !== tap || !map.current) return
+        const front = frontShape(shapes, at)
+        if (m.getContainer().classList.contains('fig3d')) {
+          const reg = figures.current
+          const lift = Math.sin((m.getPitch() * Math.PI) / 180)
+          const pxPerM = realPx(m, 1)
+          const view = m.getBounds()
+          const cands: FigureHitCandidate[] = []
+          for (const f of reg.items.values()) {
+            if (!reg.shows(f) || !view.contains(ll(f.at))) continue
+            const { x, y } = m.project(ll(f.at))
+            if (hiddenBy(y, front)) continue // behind the house the tap meets first
+            const person = f.model.kind === 'person'
+            const len = Math.max(person ? 24 : 28, f.length * pxPerM)
+            const up = (person ? len : len * 0.3) * lift
+            cands.push({ id: f.id, base: [x, y], top: [x, y - up], r: person ? 0 : len / 2 })
+          }
+          const id = hitFigure(cands, at)
+          if (id) {
+            const rest = id.slice(2)
+            const el =
+              id.startsWith('t:') ? markers.current.get(rest)?.parts.root
+              : id.startsWith('v:') ? vehicleMarkers.current.get(rest)?.marker.getElement()
+              : id.startsWith('b:') ? vehicleMarkers.current.get(id)?.marker.getElement()
+              : id.startsWith('p:') ? peopleMarkers.current.get(rest)?.marker.getElement()
+              : id.startsWith('s:') ? serviceMarkers.current.get(rest)?.marker.getElement()
+              : undefined
+            el?.click()
+            return
+          }
+        }
+        if (front) void openHouse(front.item, [e.lngLat.lat, e.lngLat.lng], n)
+      })
     }
     m.on('click', onClick)
     return () => {
+      tap++
       m.off('click', onClick)
     }
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [ready])
   const enterFull = () => onMapOnly?.(true)
   // Swipe the column toward the left edge, or a bottom card down, to slide the menus away.
